@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "EcoPulse"
+description = "Una app web de reciclaje inteligente que identifica residuos, encuentra puntos ecológicos y convierte cada hábito sostenible en puntos y recompensas."
+version = "1.0.0"
+id = "artifacts/eco-pulse"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19481
+
+[services.development]
+run = "pnpm --filter @workspace/eco-pulse run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/eco-pulse", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/eco-pulse/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19481"
+BASE_PATH = "/"
