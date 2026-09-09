@@ -113,9 +113,49 @@ function Landing() {
     <section className="border-y border-[hsl(var(--border))] bg-[hsl(var(--card)/.65)] px-5 py-10 sm:px-10"><div className="mx-auto flex max-w-7xl flex-col justify-between gap-5 sm:flex-row sm:items-center"><p className="font-display text-3xl text-[hsl(var(--primary))]">Una brújula para lo cotidiano.</p><p className="max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Identifica. Separa. Repite. La claridad que necesitas, justo cuando tienes una cosa en la mano.</p></div></section>
     <section className="mx-auto grid max-w-7xl gap-5 px-5 py-20 sm:px-10 md:grid-cols-3"><Feature icon={<Camera />} number="01" title="Mira y aprende" text="Apunta a un residuo y descubre su ruta correcta en segundos." /><Feature icon={<Target />} number="02" title="Hazlo visible" text="Cada gesto suma a una racha tangible, sin culpas ni hojas de cálculo." /><Feature icon={<MapPin />} number="03" title="Encuentra tu lugar" text="Los puntos ecológicos cercanos convierten la intención en movimiento." /></section>
     <footer className="mx-auto flex max-w-7xl flex-col gap-4 border-t border-[hsl(var(--border))] px-5 py-8 text-sm text-[hsl(var(--muted-foreground))] sm:flex-row sm:items-center sm:justify-between sm:px-10"><span className="font-display text-xl text-[hsl(var(--primary))]">EcoPulse</span><span>Hecho para que volver a intentarlo se sienta bien.</span></footer>
+     <LandingChat />
   </main>;
 }
 function Feature({ icon, number, title, text }: { icon: ReactNode; number: string; title: string; text: string }) { return <article className="group rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-7 transition hover:-translate-y-1 hover:shadow-xl"><div className="flex items-start justify-between"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[hsl(var(--secondary)/.35)] text-[hsl(var(--primary))]">{icon}</span><span className="font-mono text-xs text-[hsl(var(--muted-foreground))]">{number}</span></div><h3 className="mt-9 font-display text-3xl text-[hsl(var(--primary))]">{title}</h3><p className="mt-2 leading-relaxed text-[hsl(var(--muted-foreground))]">{text}</p></article>; }
+
+function LandingChat() {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>(seedChat);
+  const send = (content = input) => {
+    if (!content.trim()) return;
+    const now = "Ahora";
+    setMessages((current) => [
+      ...current,
+      { id: `landing-u-${Date.now()}`, role: "user", content: content.trim(), timestamp: now },
+      { id: `landing-a-${Date.now() + 1}`, role: "assistant", content: answer(content), timestamp: now },
+    ]);
+    setInput("");
+  };
+
+  return <div className="fixed bottom-5 right-5 z-40">
+    {open && <div className="mb-3 w-[min(360px,calc(100vw-2.5rem))] overflow-hidden rounded-[1.75rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl animate-rise" data-testid="landing-chat-panel">
+      <div className="flex items-center gap-3 bg-[hsl(var(--primary))] p-4 text-[hsl(var(--primary-foreground))]">
+        <span className="grid h-10 w-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Bot size={20} /></span>
+        <div className="min-w-0 flex-1"><p className="font-semibold">EcoGuía</p><p className="text-xs text-[hsl(var(--primary-foreground)/.7)]">Tu ayuda rápida para reciclar mejor</p></div>
+        <button onClick={() => setOpen(false)} className="rounded-full p-1 hover:bg-[hsl(var(--primary-foreground)/.12)]" aria-label="Cerrar EcoGuía" data-testid="button-close-landing-chat"><X size={17} /></button>
+      </div>
+      <div className="flex max-h-72 min-h-48 flex-col gap-3 overflow-y-auto p-4">
+        {messages.map((message) => <div key={message.id} className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${message.role === "user" ? "ml-auto rounded-tr-sm bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "rounded-tl-sm bg-[hsl(var(--muted))]"}`} data-testid={`landing-chat-message-${message.id}`}>{message.content}</div>)}
+      </div>
+      <div className="border-t border-[hsl(var(--border))] p-3">
+        <div className="mb-2 flex gap-1.5 overflow-x-auto">
+          {["¿Dónde va el vidrio?", "¿Cómo gano puntos?"].map((question) => <button key={question} onClick={() => send(question)} className="whitespace-nowrap rounded-full bg-[hsl(var(--muted))] px-2.5 py-1.5 text-[11px] font-semibold text-[hsl(var(--primary))]" data-testid={`button-landing-chat-${question.slice(0, 4)}`}>{question}</button>)}
+        </div>
+        <form onSubmit={(event) => { event.preventDefault(); send(); }} className="flex gap-2">
+          <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Escribe tu duda..." className="min-w-0 flex-1 rounded-full bg-[hsl(var(--muted))] px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/.35)]" data-testid="input-landing-chat" />
+          <button type="submit" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" aria-label="Enviar mensaje" data-testid="button-send-landing-chat"><ArrowRight size={16} /></button>
+        </form>
+      </div>
+    </div>}
+    {!open && <button onClick={() => setOpen(true)} className="group flex items-center gap-2 rounded-full bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] shadow-xl transition hover:-translate-y-1" data-testid="button-open-landing-chat"><span className="grid h-8 w-8 place-items-center rounded-full bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Bot size={17} /></span>Habla con EcoGuía</button>}
+  </div>;
+}
 
 function PrivateShell({ children, userName = "Alex", onLogout = () => undefined }: { children: ReactNode; userName?: string; onLogout?: () => void }) {
   const [location, setLocation] = useLocation(); const [mobile, setMobile] = useState(false);
