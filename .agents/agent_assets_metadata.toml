@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "0H1H75t2bvNfqDheKuIUb"
+uri = "file://.agents/outputs/Manual_de_Usuario_EcoPulse.pdf"
+type = "pdf"
+title = "Manual de Usuario EcoPulse"
+description = "Manual completo de usuario de EcoPulse, con 17 páginas, capturas de la aplicación, instrucciones de uso, funcionalidades, seguridad, indicadores, preguntas frecuentes y checklist de entrega."
+logical_id = "4be29a96-9709-4a5a-9d72-fdec5b54a75e"
+content_hash = "sha256:77818ba210c6892f0e3c34efbcab8ab38961eaf7ed3e4ac371d12eae0bf93f5f"
+size = 300258
+mtime_ms = 1788965515172
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:c5a65618-3da2-4857-8bc1-2695bd66b98a/4be29a96-9709-4a5a-9d72-fdec5b54a75e/e875c3ba-f73d-40c5-a1a2-2fca6a7eadfe"
+storage_version_token = "1788965536626083"
+content_type = "application/pdf"
