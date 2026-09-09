@@ -14,3 +14,17 @@ mtime_ms = 1788965515172
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:c5a65618-3da2-4857-8bc1-2695bd66b98a/4be29a96-9709-4a5a-9d72-fdec5b54a75e/e875c3ba-f73d-40c5-a1a2-2fca6a7eadfe"
 storage_version_token = "1788965536626083"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "NEXszPHxyKz7g6E1j2PIo"
+uri = "file://.agents/outputs/Documentacion_Proyecto_EcoPulse.docx"
+type = "word_document"
+title = "Documentación del Proyecto EcoPulse"
+description = "Documento Word completo basado en la plantilla institucional UCC, con 22 secciones, requerimientos, arquitectura, stakeholders, riesgos, pruebas, presupuesto, referencias, anexos y capturas de la aplicación."
+logical_id = "8eaac2b9-643f-4a80-996f-41bf1f75f53a"
+content_hash = "sha256:3575fed604477c6729630f2a0757fdd39263f63a4e184eaea5cac5a6971bfe59"
+size = 241558
+mtime_ms = 1788965871028
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:c5a65618-3da2-4857-8bc1-2695bd66b98a/8eaac2b9-643f-4a80-996f-41bf1f75f53a/ee558588-3a07-493d-9e81-9a0aa7238859"
+storage_version_token = "1788965894928218"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
