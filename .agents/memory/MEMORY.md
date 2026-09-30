@@ -1,1 +1,2 @@
 - [Clerk MFA availability](clerk-mfa.md) — MFA enforcement belongs in Clerk dashboard settings and currently requires personal Replit Pro access.
+- [Clerk custom signup](clerk-custom-signup.md) — This managed Clerk setup uses the Future custom-flow API; profile names can be persisted in unsafe metadata when name fields are disabled.
