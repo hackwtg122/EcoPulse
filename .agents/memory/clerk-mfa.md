@@ -7,4 +7,4 @@ The Clerk setup can carry MFA requirements through the real sign-in flow, but en
 
 **Why:** MFA is intentionally not recreated with local passwords, JWTs, or browser-only secrets; Clerk must own the second factor so the login remains secure.
 
-**How to apply:** Keep the Security screen MFA-ready and, when dashboard access is available, enable MFA in the Development and Production Clerk instances as appropriate.
+**How to apply:** Read `user.twoFactorEnabled`, `user.totpEnabled`, and `user.backupCodeEnabled` for status; use Clerk's TOTP methods for enrollment. The dashboard must still enable the Authenticator strategy before enrollment can succeed.
