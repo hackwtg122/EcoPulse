@@ -28,8 +28,8 @@ app.use(
 );
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 app.use(cors({ credentials: true, origin: true }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "64kb" }));
+app.use(express.urlencoded({ extended: true, limit: "64kb" }));
 
 app.use("/api", router);
 

@@ -31,8 +31,23 @@ Al comenzar, el árbol de trabajo tenía **174 archivos rastreados eliminados**,
 | `pnpm run typecheck` y `pnpm run build` | No concluyeron: pnpm intentó verificar/instalar 492 entradas del lockfile, el registro npm respondió `ECONNREFUSED`; se detuvo tras los reintentos iniciales. No se afirma que compilen. |
 | `pnpm run typecheck --offline` | También intentó acceder al registro y se detuvo por la misma restricción. |
 | Pruebas automatizadas existentes | No hay script `test` en los paquetes examinados. |
+| Prueba nueva de política de imagen | `node --experimental-strip-types artifacts/eco-pulse/src/demo-policy.test.mjs`: 1 prueba, 1 aprobada. El modo `--test` aislado falló con `spawn EPERM` en este entorno; la ejecución directa sí pasó. |
 
 ## Plan priorizado
+
+### Modelo de dominio previsto para PostgreSQL
+
+| Entidad | Campos y reglas esenciales |
+| --- | --- |
+| Usuario | ID de Clerk como clave estable, rol mínimo (`participant`/`verifier`/`admin`), fechas. No duplicar correo, nombre ni contraseña. |
+| Escaneo | ID, usuario, categoría sugerida, modo demo/proveedor, fecha y estado. Sin puntos ni imagen persistida por defecto. |
+| Entrega | ID, usuario, punto de recepción validado, estado, fecha y referencia externa única opcional. Sin ubicación precisa del participante. |
+| Verificación | ID, entrega única, verificador autorizado, decisión, fecha y evidencia mínima con retención definida. Una entrega aprobada una sola vez. |
+| Movimiento de puntos | ID, usuario, delta entero, origen (`verification`/`redemption`/`adjustment`), referencia única e inmutable. El saldo es la suma de estos registros. |
+| Recompensa | ID, aliado validado, coste positivo, disponibilidad y vigencia. No crear catálogo productivo a partir de ejemplos. |
+| Canje | ID, usuario, recompensa, estado, clave de idempotencia única por usuario y movimiento de débito único. Debe rechazar saldo insuficiente dentro de transacción. |
+
+Una aprobación de entrega y su crédito se escribirán en una misma transacción. Un canje y su débito también. Las restricciones únicas protegerán los reintentos; el bloqueo del saldo del usuario o aislamiento equivalente protegerá canjes concurrentes. Cada ruta obtendrá el ID del usuario desde una sesión Clerk validada en Express, nunca desde el cuerpo solicitado.
 
 1. **Fase 1 (acotada):** resolver el estado de las eliminaciones; recuperar los paquetes de aplicación si corresponde. Quitar la concesión de puntos por escaneo demo, señalizar los datos de ejemplo, validar la imagen local y documentar variables en `.env.example`. Añadir pruebas focalizadas donde la infraestructura permita ejecutarlas. Mantener las rutas Clerk. Esta fase quedó implementada en el árbol de trabajo; no equivale a persistencia real.
 2. **Fase 2:** con PostgreSQL accesible, crear el esquema Drizzle para usuarios (solo ID de Clerk y rol), escaneos, entregas, verificaciones, movimientos, recompensas y canjes; generar migración revisable sin aplicarla automáticamente. Enlazar rutas con sesión Clerk y filtros de propiedad.
