@@ -42,6 +42,7 @@ app.use(cors({
   credentials: true,
   origin: pilotAllowedOrigins.length ? pilotAllowedOrigins : true,
 }));
+app.use("/api/pilot/scans/classify", express.raw({ type: "image/png", limit: "5mb" }));
 app.use(express.json({ limit: "64kb" }));
 app.use(express.urlencoded({ extended: true, limit: "64kb" }));
 

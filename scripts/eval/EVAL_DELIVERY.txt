@@ -1,0 +1,37 @@
+AUTORIZACIÓN EXACTA REQUERIDA (SIN EJECUTAR SQL AÚN)
+
+BASE AFECTADA: ecopulse_eval (completamente independiente de ecopulse_dev)
+
+OPERACIÓN A AUTORIZAR (1–5):
+
+1. Crear base ecopulse_eval (si no existe) con usuarios mínimos (ecopulse_app/ecopulse_migrator) según configuración actual.
+2. Aplicar migraciones de inicialización:
+   - scripts/eval/db/drizzle/0000_eval_init.sql
+   - scripts/eval/db/drizzle/0001_eval_triggers.sql
+3. Aplicar seed idempotente: scripts/eval/db/eval-seed.sql (8 puntos eval-01..eval-08, slots futuros, recompensas de prueba)
+4. Aplicar permisos mínimos: scripts/eval/db/eval-grants.sql
+5. Configurar .env.local local (solo desarrollo) con flags de evaluación:
+   - EVALUATION_MODE_ENABLED=true
+   - EVALUATION_DB_NAME=ecopulse_eval
+   - EVALUATION_OPERATOR_USER_ID=<CLERK_USER_ID_VERIFIER>
+   - EVALUATION_POINTS_SOURCE=db
+   - VITE_EVALUATION_MODE_ENABLED=true
+   (manteniendo flags existentes)
+
+ARCHIVOS COMPLETOS PREPARADOS:
+- scripts/eval/db/drizzle/0000_eval_init.sql
+- scripts/eval/db/drizzle/0001_eval_triggers.sql
+- scripts/eval/db/eval-seed.sql
+- scripts/eval/db/eval-grants.sql
+- scripts/eval/db/eval-rollback.sql
+- scripts/eval/config/eval.env.example
+- scripts/eval/README.md, EVAL_FILES.md
+- artifacts/api-server/src/lib/evalConnection.ts, evalCatalog.ts
+
+RESULTADOS PRUEBAS (sin tocar BD):
+- Backend: evaluationPoints.test.mjs 2/2 PASS
+- Typecheck frontend OK; typecheck API requiere dependencias existentes (no añade nuevas externas)
+- Aislamiento por base completa (sin columnas is_test innecesarias)
+- Seeds idempotentes, rollback seguro (desactiva, no borra por defecto)
+
+CONDICIONES: NO ejecutar SQL aún. Solo autorizar 1–5 contra ecopulse_eval. NO tocar ecopulse_dev. Sin push/despliegue/hosting/pagos. Chimbita 5173 intacta, 5174/5001 activos.

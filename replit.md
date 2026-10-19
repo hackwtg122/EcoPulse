@@ -4,7 +4,9 @@ EcoPulse es un piloto juvenil de reciclaje en Montería. La interfaz incluye una
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — servidor API (requiere `PORT`)
+- `pnpm --filter @workspace/api-server run dev` — servidor API (puerto local 5000 por defecto)
+- `pnpm --filter @workspace/eco-pulse run dev` — frontend Vite (puerto local 5173 por defecto)
+- `WINDOWS.md` — preparación con Corepack y comandos de PowerShell
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec

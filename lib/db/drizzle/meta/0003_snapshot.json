@@ -1,0 +1,1657 @@
+{
+  "id": "f70d88e2-9b43-48d1-8ef3-b4fc3b0225d5",
+  "prevId": "26d9fedc-bba6-44b6-b4bf-3757e9585d08",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.deliveries": {
+      "name": "deliveries",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "delivery_request_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "request_version": {
+          "name": "request_version",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 2
+        },
+        "delivery_point_id": {
+          "name": "delivery_point_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slot_id": {
+          "name": "slot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "deliveries_user_created_idx": {
+          "name": "deliveries_user_created_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "deliveries_status_created_idx": {
+          "name": "deliveries_status_created_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "deliveries_slot_status_idx": {
+          "name": "deliveries_slot_status_idx",
+          "columns": [
+            {
+              "expression": "slot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "deliveries_user_id_users_clerk_user_id_fk": {
+          "name": "deliveries_user_id_users_clerk_user_id_fk",
+          "tableFrom": "deliveries",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "deliveries_delivery_point_id_delivery_points_id_fk": {
+          "name": "deliveries_delivery_point_id_delivery_points_id_fk",
+          "tableFrom": "deliveries",
+          "tableTo": "delivery_points",
+          "columnsFrom": [
+            "delivery_point_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "deliveries_slot_point_fk": {
+          "name": "deliveries_slot_point_fk",
+          "tableFrom": "deliveries",
+          "tableTo": "delivery_slots",
+          "columnsFrom": [
+            "slot_id",
+            "delivery_point_id"
+          ],
+          "columnsTo": [
+            "id",
+            "delivery_point_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "deliveries_request_version_check": {
+          "name": "deliveries_request_version_check",
+          "value": "\"deliveries\".\"request_version\" in (1, 2)"
+        },
+        "deliveries_version_details_check": {
+          "name": "deliveries_version_details_check",
+          "value": "\n    (\"deliveries\".\"request_version\" = 1 and \"deliveries\".\"delivery_point_id\" is null and \"deliveries\".\"slot_id\" is null)\n    or (\"deliveries\".\"request_version\" = 2 and \"deliveries\".\"delivery_point_id\" is not null)\n  "
+        },
+        "deliveries_scheduled_slot_check": {
+          "name": "deliveries_scheduled_slot_check",
+          "value": "\"deliveries\".\"status\" <> 'scheduled' or \"deliveries\".\"slot_id\" is not null"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.delivery_idempotency": {
+      "name": "delivery_idempotency",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation": {
+          "name": "operation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_hash": {
+          "name": "key_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "delivery_id": {
+          "name": "delivery_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "delivery_idempotency_delivery_idx": {
+          "name": "delivery_idempotency_delivery_idx",
+          "columns": [
+            {
+              "expression": "delivery_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "delivery_idempotency_user_id_users_clerk_user_id_fk": {
+          "name": "delivery_idempotency_user_id_users_clerk_user_id_fk",
+          "tableFrom": "delivery_idempotency",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "delivery_idempotency_delivery_id_deliveries_id_fk": {
+          "name": "delivery_idempotency_delivery_id_deliveries_id_fk",
+          "tableFrom": "delivery_idempotency",
+          "tableTo": "deliveries",
+          "columnsFrom": [
+            "delivery_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "delivery_idempotency_pk": {
+          "name": "delivery_idempotency_pk",
+          "columns": [
+            "user_id",
+            "operation",
+            "key_hash"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "delivery_idempotency_operation_check": {
+          "name": "delivery_idempotency_operation_check",
+          "value": "\"delivery_idempotency\".\"operation\" in ('create', 'complete_details', 'cancel', 'reserve')"
+        },
+        "delivery_idempotency_key_hash_check": {
+          "name": "delivery_idempotency_key_hash_check",
+          "value": "\"delivery_idempotency\".\"key_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "delivery_idempotency_request_hash_check": {
+          "name": "delivery_idempotency_request_hash_check",
+          "value": "\"delivery_idempotency\".\"request_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "delivery_idempotency_completion_check": {
+          "name": "delivery_idempotency_completion_check",
+          "value": "\n    (\"delivery_idempotency\".\"completed_at\" is null and \"delivery_idempotency\".\"delivery_id\" is null)\n    or (\"delivery_idempotency\".\"completed_at\" is not null and \"delivery_idempotency\".\"delivery_id\" is not null)\n  "
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.delivery_items": {
+      "name": "delivery_items",
+      "schema": "",
+      "columns": {
+        "delivery_id": {
+          "name": "delivery_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category_code": {
+          "name": "category_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "estimated_grams": {
+          "name": "estimated_grams",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "delivery_items_category_idx": {
+          "name": "delivery_items_category_idx",
+          "columns": [
+            {
+              "expression": "category_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "delivery_items_delivery_id_deliveries_id_fk": {
+          "name": "delivery_items_delivery_id_deliveries_id_fk",
+          "tableFrom": "delivery_items",
+          "tableTo": "deliveries",
+          "columnsFrom": [
+            "delivery_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "delivery_items_category_code_material_categories_code_fk": {
+          "name": "delivery_items_category_code_material_categories_code_fk",
+          "tableFrom": "delivery_items",
+          "tableTo": "material_categories",
+          "columnsFrom": [
+            "category_code"
+          ],
+          "columnsTo": [
+            "code"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "delivery_items_pk": {
+          "name": "delivery_items_pk",
+          "columns": [
+            "delivery_id",
+            "category_code"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "delivery_items_estimated_grams_check": {
+          "name": "delivery_items_estimated_grams_check",
+          "value": "\"delivery_items\".\"estimated_grams\" between 1 and 100000"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.delivery_points": {
+      "name": "delivery_points",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "municipality": {
+          "name": "municipality",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "time_zone": {
+          "name": "time_zone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "appointment_required": {
+          "name": "appointment_required",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "validation_reference": {
+          "name": "validation_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "validated_by": {
+          "name": "validated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "validated_at": {
+          "name": "validated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "delivery_points_code_unique": {
+          "name": "delivery_points_code_unique",
+          "columns": [
+            {
+              "expression": "code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "delivery_points_active_name_idx": {
+          "name": "delivery_points_active_name_idx",
+          "columns": [
+            {
+              "expression": "active",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "delivery_points_validated_by_users_clerk_user_id_fk": {
+          "name": "delivery_points_validated_by_users_clerk_user_id_fk",
+          "tableFrom": "delivery_points",
+          "tableTo": "users",
+          "columnsFrom": [
+            "validated_by"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "delivery_points_code_length_check": {
+          "name": "delivery_points_code_length_check",
+          "value": "length(\"delivery_points\".\"code\") between 3 and 64"
+        },
+        "delivery_points_name_length_check": {
+          "name": "delivery_points_name_length_check",
+          "value": "length(\"delivery_points\".\"name\") between 1 and 160"
+        },
+        "delivery_points_address_length_check": {
+          "name": "delivery_points_address_length_check",
+          "value": "length(\"delivery_points\".\"address\") between 1 and 240"
+        },
+        "delivery_points_municipality_length_check": {
+          "name": "delivery_points_municipality_length_check",
+          "value": "length(\"delivery_points\".\"municipality\") between 1 and 120"
+        },
+        "delivery_points_timezone_length_check": {
+          "name": "delivery_points_timezone_length_check",
+          "value": "length(\"delivery_points\".\"time_zone\") between 1 and 64"
+        },
+        "delivery_points_validation_reference_check": {
+          "name": "delivery_points_validation_reference_check",
+          "value": "\"delivery_points\".\"validation_reference\" is null or length(\"delivery_points\".\"validation_reference\") between 10 and 500"
+        },
+        "delivery_points_active_validated_check": {
+          "name": "delivery_points_active_validated_check",
+          "value": "not \"delivery_points\".\"active\" or (\"delivery_points\".\"validation_reference\" is not null and \"delivery_points\".\"validated_by\" is not null and \"delivery_points\".\"validated_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.delivery_slots": {
+      "name": "delivery_slots",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "delivery_point_id": {
+          "name": "delivery_point_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "capacity": {
+          "name": "capacity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "validation_reference": {
+          "name": "validation_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "validated_by": {
+          "name": "validated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "validated_at": {
+          "name": "validated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "delivery_slots_point_window_unique": {
+          "name": "delivery_slots_point_window_unique",
+          "columns": [
+            {
+              "expression": "delivery_point_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ends_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "delivery_slots_id_point_unique": {
+          "name": "delivery_slots_id_point_unique",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "delivery_point_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "delivery_slots_point_start_idx": {
+          "name": "delivery_slots_point_start_idx",
+          "columns": [
+            {
+              "expression": "delivery_point_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "delivery_slots_delivery_point_id_delivery_points_id_fk": {
+          "name": "delivery_slots_delivery_point_id_delivery_points_id_fk",
+          "tableFrom": "delivery_slots",
+          "tableTo": "delivery_points",
+          "columnsFrom": [
+            "delivery_point_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "delivery_slots_validated_by_users_clerk_user_id_fk": {
+          "name": "delivery_slots_validated_by_users_clerk_user_id_fk",
+          "tableFrom": "delivery_slots",
+          "tableTo": "users",
+          "columnsFrom": [
+            "validated_by"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "delivery_slots_time_check": {
+          "name": "delivery_slots_time_check",
+          "value": "\"delivery_slots\".\"ends_at\" > \"delivery_slots\".\"starts_at\""
+        },
+        "delivery_slots_duration_check": {
+          "name": "delivery_slots_duration_check",
+          "value": "\"delivery_slots\".\"ends_at\" <= \"delivery_slots\".\"starts_at\" + interval '8 hours'"
+        },
+        "delivery_slots_capacity_check": {
+          "name": "delivery_slots_capacity_check",
+          "value": "\"delivery_slots\".\"capacity\" between 1 and 1000"
+        },
+        "delivery_slots_validation_reference_check": {
+          "name": "delivery_slots_validation_reference_check",
+          "value": "\"delivery_slots\".\"validation_reference\" is null or length(\"delivery_slots\".\"validation_reference\") between 10 and 500"
+        },
+        "delivery_slots_active_validated_check": {
+          "name": "delivery_slots_active_validated_check",
+          "value": "not \"delivery_slots\".\"active\" or (\"delivery_slots\".\"validation_reference\" is not null and \"delivery_slots\".\"validated_by\" is not null and \"delivery_slots\".\"validated_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.delivery_status_events": {
+      "name": "delivery_status_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "delivery_id": {
+          "name": "delivery_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "from_status": {
+          "name": "from_status",
+          "type": "delivery_request_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "to_status": {
+          "name": "to_status",
+          "type": "delivery_request_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "delivery_status_events_delivery_created_idx": {
+          "name": "delivery_status_events_delivery_created_idx",
+          "columns": [
+            {
+              "expression": "delivery_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "delivery_status_events_delivery_id_deliveries_id_fk": {
+          "name": "delivery_status_events_delivery_id_deliveries_id_fk",
+          "tableFrom": "delivery_status_events",
+          "tableTo": "deliveries",
+          "columnsFrom": [
+            "delivery_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "delivery_status_events_actor_user_id_users_clerk_user_id_fk": {
+          "name": "delivery_status_events_actor_user_id_users_clerk_user_id_fk",
+          "tableFrom": "delivery_status_events",
+          "tableTo": "users",
+          "columnsFrom": [
+            "actor_user_id"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "delivery_status_events_transition_check": {
+          "name": "delivery_status_events_transition_check",
+          "value": "\"delivery_status_events\".\"from_status\" is null or \"delivery_status_events\".\"from_status\" <> \"delivery_status_events\".\"to_status\""
+        },
+        "delivery_status_events_reason_length_check": {
+          "name": "delivery_status_events_reason_length_check",
+          "value": "\"delivery_status_events\".\"reason_code\" is null or length(\"delivery_status_events\".\"reason_code\") between 1 and 64"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.material_categories": {
+      "name": "material_categories",
+      "schema": "",
+      "columns": {
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "material_categories_code_check": {
+          "name": "material_categories_code_check",
+          "value": "\"material_categories\".\"code\" in ('paper', 'plastic', 'glass', 'metal', 'organic', 'other')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.point_movements": {
+      "name": "point_movements",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "delta": {
+          "name": "delta",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "movement_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "point_movements_source_unique": {
+          "name": "point_movements_source_unique",
+          "columns": [
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "point_movements_user_created_idx": {
+          "name": "point_movements_user_created_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "point_movements_user_id_users_clerk_user_id_fk": {
+          "name": "point_movements_user_id_users_clerk_user_id_fk",
+          "tableFrom": "point_movements",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "point_movements_delta_check": {
+          "name": "point_movements_delta_check",
+          "value": "\"point_movements\".\"delta\" <> 0"
+        },
+        "point_movements_direction_check": {
+          "name": "point_movements_direction_check",
+          "value": "\n    (\"point_movements\".\"kind\" = 'delivery' and \"point_movements\".\"delta\" > 0)\n    or (\"point_movements\".\"kind\" = 'redemption' and \"point_movements\".\"delta\" < 0)\n    or \"point_movements\".\"kind\" = 'adjustment'\n  "
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.redemptions": {
+      "name": "redemptions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reward_id": {
+          "name": "reward_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cost": {
+          "name": "cost",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fulfillment_status": {
+          "name": "fulfillment_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'reserved'"
+        },
+        "fulfillment_reference": {
+          "name": "fulfillment_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fulfilled_by": {
+          "name": "fulfilled_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fulfilled_at": {
+          "name": "fulfilled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "redemptions_idempotency_unique": {
+          "name": "redemptions_idempotency_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "redemptions_user_created_idx": {
+          "name": "redemptions_user_created_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "redemptions_user_id_users_clerk_user_id_fk": {
+          "name": "redemptions_user_id_users_clerk_user_id_fk",
+          "tableFrom": "redemptions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "redemptions_reward_id_rewards_id_fk": {
+          "name": "redemptions_reward_id_rewards_id_fk",
+          "tableFrom": "redemptions",
+          "tableTo": "rewards",
+          "columnsFrom": [
+            "reward_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "redemptions_fulfilled_by_users_clerk_user_id_fk": {
+          "name": "redemptions_fulfilled_by_users_clerk_user_id_fk",
+          "tableFrom": "redemptions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "fulfilled_by"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "redemptions_fulfillment_reference_check": {
+          "name": "redemptions_fulfillment_reference_check",
+          "value": "\"redemptions\".\"fulfillment_reference\" is null or length(\"redemptions\".\"fulfillment_reference\") between 10 and 120"
+        },
+        "redemptions_fulfillment_check": {
+          "name": "redemptions_fulfillment_check",
+          "value": "(\"redemptions\".\"fulfillment_status\" = 'reserved' and \"redemptions\".\"fulfillment_reference\" is null and \"redemptions\".\"fulfilled_by\" is null and \"redemptions\".\"fulfilled_at\" is null) or (\"redemptions\".\"fulfillment_status\" = 'fulfilled' and \"redemptions\".\"fulfillment_reference\" is not null and \"redemptions\".\"fulfilled_by\" is not null and \"redemptions\".\"fulfilled_at\" is not null)"
+        },
+        "redemptions_cost_check": {
+          "name": "redemptions_cost_check",
+          "value": "\"redemptions\".\"cost\" > 0"
+        },
+        "redemptions_idempotency_length_check": {
+          "name": "redemptions_idempotency_length_check",
+          "value": "length(\"redemptions\".\"idempotency_key\") between 8 and 128"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.rewards": {
+      "name": "rewards",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cost": {
+          "name": "cost",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "inventory_remaining": {
+          "name": "inventory_remaining",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fulfillment_reference": {
+          "name": "fulfillment_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "validated_by": {
+          "name": "validated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "validated_at": {
+          "name": "validated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rewards_validated_by_users_clerk_user_id_fk": {
+          "name": "rewards_validated_by_users_clerk_user_id_fk",
+          "tableFrom": "rewards",
+          "tableTo": "users",
+          "columnsFrom": [
+            "validated_by"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "rewards_inventory_check": {
+          "name": "rewards_inventory_check",
+          "value": "\"rewards\".\"inventory_remaining\" is null or \"rewards\".\"inventory_remaining\" between 0 and 100000"
+        },
+        "rewards_fulfillment_reference_check": {
+          "name": "rewards_fulfillment_reference_check",
+          "value": "\"rewards\".\"fulfillment_reference\" is null or length(\"rewards\".\"fulfillment_reference\") between 10 and 500"
+        },
+        "rewards_active_validated_check": {
+          "name": "rewards_active_validated_check",
+          "value": "not \"rewards\".\"active\" or (\"rewards\".\"inventory_remaining\" > 0 and \"rewards\".\"fulfillment_reference\" is not null and \"rewards\".\"validated_by\" is not null and \"rewards\".\"validated_at\" is not null)"
+        },
+        "rewards_title_length_check": {
+          "name": "rewards_title_length_check",
+          "value": "length(\"rewards\".\"title\") between 1 and 120"
+        },
+        "rewards_description_length_check": {
+          "name": "rewards_description_length_check",
+          "value": "length(\"rewards\".\"description\") <= 500"
+        },
+        "rewards_cost_check": {
+          "name": "rewards_cost_check",
+          "value": "\"rewards\".\"cost\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.scans": {
+      "name": "scans",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "scans_user_created_idx": {
+          "name": "scans_user_created_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "scans_user_id_users_clerk_user_id_fk": {
+          "name": "scans_user_id_users_clerk_user_id_fk",
+          "tableFrom": "scans",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "scans_category_length_check": {
+          "name": "scans_category_length_check",
+          "value": "length(\"scans\".\"category\") between 1 and 64"
+        },
+        "scans_source_check": {
+          "name": "scans_source_check",
+          "value": "\"scans\".\"source\" in ('manual', 'demo')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "clerk_user_id": {
+          "name": "clerk_user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "user_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'participant'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.verifications": {
+      "name": "verifications",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "delivery_id": {
+          "name": "delivery_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verifier_id": {
+          "name": "verifier_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decision": {
+          "name": "decision",
+          "type": "delivery_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verified_grams": {
+          "name": "verified_grams",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "receipt_code": {
+          "name": "receipt_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "verifications_delivery_unique": {
+          "name": "verifications_delivery_unique",
+          "columns": [
+            {
+              "expression": "delivery_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "verifications_receipt_unique": {
+          "name": "verifications_receipt_unique",
+          "columns": [
+            {
+              "expression": "receipt_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "verifications_delivery_id_deliveries_id_fk": {
+          "name": "verifications_delivery_id_deliveries_id_fk",
+          "tableFrom": "verifications",
+          "tableTo": "deliveries",
+          "columnsFrom": [
+            "delivery_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "verifications_verifier_id_users_clerk_user_id_fk": {
+          "name": "verifications_verifier_id_users_clerk_user_id_fk",
+          "tableFrom": "verifications",
+          "tableTo": "users",
+          "columnsFrom": [
+            "verifier_id"
+          ],
+          "columnsTo": [
+            "clerk_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "verifications_decision_check": {
+          "name": "verifications_decision_check",
+          "value": "\"verifications\".\"decision\" in ('approved', 'rejected')"
+        },
+        "verifications_weight_check": {
+          "name": "verifications_weight_check",
+          "value": "\n    (\"verifications\".\"decision\" = 'approved' and \"verifications\".\"verified_grams\" between 1 and 100000 and length(\"verifications\".\"receipt_code\") between 8 and 64)\n    or (\"verifications\".\"decision\" = 'rejected' and \"verifications\".\"verified_grams\" is null and \"verifications\".\"receipt_code\" is null)\n  "
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.delivery_request_status": {
+      "name": "delivery_request_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "scheduled",
+        "received",
+        "approved",
+        "rejected",
+        "cancelled"
+      ]
+    },
+    "public.delivery_status": {
+      "name": "delivery_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "approved",
+        "rejected"
+      ]
+    },
+    "public.movement_kind": {
+      "name": "movement_kind",
+      "schema": "public",
+      "values": [
+        "delivery",
+        "redemption",
+        "adjustment"
+      ]
+    },
+    "public.user_role": {
+      "name": "user_role",
+      "schema": "public",
+      "values": [
+        "participant",
+        "verifier",
+        "admin"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

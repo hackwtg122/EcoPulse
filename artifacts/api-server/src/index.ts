@@ -1,5 +1,9 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { resolveDatabaseUrl } from "@workspace/db/connectionConfig";
+
+// Refuse to accept requests before verifying the single database target.
+if (process.env.EVALUATION_MODE_ENABLED === "true") resolveDatabaseUrl(process.env);
 
 const rawPort = process.env["PORT"];
 
@@ -15,11 +19,14 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
+const host = process.env.HOST ??
+  (process.env.NODE_ENV === "production" || process.env.REPL_ID ? "0.0.0.0" : "127.0.0.1");
+
+app.listen(port, host, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
 
-  logger.info({ port }, "Server listening");
+  logger.info({ host, port }, "Server listening");
 });

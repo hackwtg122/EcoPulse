@@ -1,12 +1,29 @@
 {
   "name": "workspace",
   "version": "0.0.0",
+  "packageManager": "pnpm@11.25.0",
   "license": "MIT",
   "scripts": {
-    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
-    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "preinstall": "node ./scripts/require-pnpm.cjs",
+    "build": "pnpm run typecheck && pnpm -r --workspace-concurrency=1 --if-present run build",
+    "db:check": "pnpm --filter @workspace/db run check",
+    "db:migrate": "pnpm --filter @workspace/db run migrate",
+    "db:preflight": "node ./scripts/verify-pre-migration-database.mjs",
+    "db:readiness": "node ./scripts/verify-migration-readiness.mjs",
+    "db:verify": "node --experimental-strip-types ./scripts/verify-local-database.mjs",
+    "db:verify:files": "node ./scripts/verify-migration-files.mjs",
+    "db:verify:migrated": "node ./scripts/verify-migrated-database.mjs",
+    "db:verify:migrated:structure": "node ./scripts/verify-migrated-database.mjs --structure-only",
+    "db:test:delivery-details:windows": "pwsh -NoProfile -File ./scripts/test-delivery-details-migration.ps1",
+    "clerk:verify:local": "node ./scripts/verify-local-clerk-config.mjs",
+    "auth:verify:persistence": "node ./scripts/verify-auth-persistence.mjs",
+    "auth:verify:isolation": "node ./scripts/verify-multiuser-isolation.mjs",
+    "auth:verify:unauthenticated": "node ./scripts/verify-unauthenticated-api.mjs",
+    "scan:verify:storage": "node --experimental-strip-types ./scripts/verify-scan-storage.mjs",
+    "scan:verify:authorized-state": "node ./scripts/verify-authorized-scan-state.mjs",
+    "delivery:verify:storage": "node --experimental-strip-types ./scripts/verify-delivery-storage.mjs",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --workspace-concurrency=1 --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
   "private": true,
   "dependencies": {
