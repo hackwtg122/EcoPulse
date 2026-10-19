@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -97,4 +97,27 @@ test("file store persists counters, rolls over by day and caps attempts", () => 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("an abandoned lock is reclaimed but a fresh lock still fails closed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ecopulse-quota-lock-"));
+  try {
+    const cfg = memCfg({ store: "file", filePath: join(dir, "quota.json"), lockStaleMs: 5_000 });
+    const lock = cfg.filePath + ".lock";
+    mkdirSync(lock);
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lock, old, old);
+    // Older than any plausible request: reclaimed instead of failing closed forever.
+    assert.equal(reserveQuota(cfg, "a", "ecoscan").ok, true);
+    // A fresh lock (a live request) must still fail closed.
+    mkdirSync(lock);
+    assert.throws(() => reserveQuota(cfg, "a", "ecoscan"), QuotaStoreError);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("closing a missing audit row is a no-op so a real analysis is never masked", () => {
+  const cfg = memCfg();
+  assert.doesNotThrow(() => finishQuotaAttempt(cfg, "unknown-attempt-id", "200", 5));
 });

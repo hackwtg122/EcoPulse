@@ -103,6 +103,16 @@ export class PilotApiError extends Error {
   }
 }
 
+// Human-readable wait hint shared by EcoScan and EcoGuía. The server sends the
+// remaining seconds for a quota window or an advertised provider rate limit.
+export function retryWaitSuffix(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  if (seconds < 90) return ` Reintenta en ${Math.ceil(seconds)} s.`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 120) return ` Reintenta en ~${minutes} min.`;
+  return " Reintenta después de las 00:00 UTC.";
+}
+
 type FetchImplementation = typeof fetch;
 
 export function isCurrentPilotResponse(

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, rmdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync, rmdirSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -9,6 +9,13 @@ export type QuotaConfig = {
   dailyPerUserFreeReq: number;
   minutePerUserEcoScan: number;
   minutePerUserEcoGuide: number;
+  /**
+   * Age after which a lock file left behind by a killed process (SIGKILL on
+   * deploys/restarts) is considered stale and reclaimed. A request holds the
+   * lock for a few milliseconds, so this only ever matches abandoned locks.
+   * Defaults to 120000 ms.
+   */
+  lockStaleMs?: number;
 };
 
 export class QuotaStoreError extends Error {
@@ -92,19 +99,41 @@ export function saveQuotaState(cfg: QuotaConfig, s: QuotaState): void {
 }
 
 // An exclusive directory works across Node processes on this local filesystem.
-// If the owner crashes the lock remains: fail closed rather than silently
-// resetting the budget. Never delete a lock held by another process.
+// Hosts that kill the process without running cleanup (Render deploys, OOM,
+// SIGKILL) leave the directory behind: reclaim only locks older than any
+// plausible request, so a live or fresh lock still fails closed.
 function withQuotaLock<T>(cfg: QuotaConfig, action: () => T): T {
   if (cfg.store === "memory") return action();
   const lock = cfg.filePath + ".lock";
   try {
     mkdirSync(dirname(cfg.filePath), { recursive: true });
-    mkdirSync(lock);
   } catch {
     throw new QuotaStoreError();
   }
+  if (!tryAcquireLock(lock)) {
+    const staleMs = clamp(cfg.lockStaleMs ?? 120_000, 120_000);
+    let stale = false;
+    try {
+      stale = Date.now() - statSync(lock).mtimeMs > staleMs;
+    } catch {
+      stale = false;
+    }
+    if (stale) {
+      try { rmdirSync(lock); } catch { /* another process may have released it first */ }
+    }
+    if (!tryAcquireLock(lock)) throw new QuotaStoreError();
+  }
   try { return action(); }
   finally { try { rmdirSync(lock); } catch { /* stale lock fails closed */ } }
+}
+
+function tryAcquireLock(lock: string): boolean {
+  try {
+    mkdirSync(lock);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function ensureMinuteBucket(s: QuotaState, key: "userMinuteEcoScan" | "userMinuteEcoGuide", userId: string, m: string): void {
@@ -167,7 +196,11 @@ export function finishQuotaAttempt(cfg: QuotaConfig, id: string, status: string,
   withQuotaLock(cfg, () => {
     const state = loadQuotaState(cfg);
     const entry = state.attempts.find((row) => row.id === id);
-    if (!entry || entry.status !== "reserved") throw new QuotaStoreError();
+    // The audit row can disappear when the store is reset (host restart) or the
+    // capped log rotates. Closing it is bookkeeping: never turn a real analysis
+    // into an error because the row is gone.
+    if (!entry) return;
+    if (entry.status !== "reserved") throw new QuotaStoreError();
     entry.status = status;
     entry.durationMs = durationMs;
     if (errorCode) entry.errorCode = errorCode;

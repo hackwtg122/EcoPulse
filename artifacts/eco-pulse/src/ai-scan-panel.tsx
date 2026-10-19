@@ -2,7 +2,7 @@ import { useAuth } from "@clerk/react";
 import { AlertTriangle, BookOpen, Camera, Check, ImagePlus, MapPin, MessageCircle, Pencil, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { createPilotScan, PilotApiError } from "./pilot-api";
+import { createPilotScan, PilotApiError, retryWaitSuffix } from "./pilot-api";
 import { isManualScanCategory, manualScanCategories, manualScanGuidance, materialCategoryByScan, type ManualScanCategory } from "./scan-catalog";
 
 const maximumImageBytes = 5 * 1024 * 1024;
@@ -13,7 +13,11 @@ type Capabilities = { enabled: boolean; missing: string[] };
 
 const confidenceLabels: Record<AiConfidence, string> = { high: "Confianza alta según la imagen", medium: "Confianza media según la imagen", low: "Confianza baja según la imagen" };
 const classifyErrorMessages: Record<string, string> = {
-  ai_rate_limited: "Se alcanzó el límite de análisis con IA. Inténtalo más tarde o clasifica manualmente.",
+  ai_rate_limited: "El proveedor de IA está limitando las solicitudes en este momento.",
+  ai_quota_minute: "Hiciste varios análisis seguidos. Espera un momento antes de reintentar.",
+  ai_quota_daily: "Alcanzaste tu límite diario de análisis con IA. El cupo se renueva a las 00:00 UTC.",
+  ai_quota_global: "Se agotó el cupo diario de IA de la plataforma. El cupo se renueva a las 00:00 UTC.",
+  ai_quota_busy: "El análisis con IA está ocupado en este momento. Reintenta en unos segundos.",
   ai_provider_unavailable: "El proveedor de IA no respondió. Puedes clasificar el residuo manualmente.",
   ai_quota_store_unavailable: "El control de cuota de IA no está disponible. Para proteger tu cuenta, analiza manualmente por ahora.",
   ai_provider_unconfigured: "El análisis con IA todavía no está configurado. La clasificación manual sigue disponible.",
@@ -24,6 +28,23 @@ const classifyErrorMessages: Record<string, string> = {
   missing_session_token: "Tu sesión expiró. Inicia sesión de nuevo para analizar imágenes.",
   network: "No hay conexión con el servidor. Revisa tu red e inténtalo de nuevo.",
 };
+
+// The server may send the remaining wait for a quota window or a provider rate
+// limit; show it when available so the user knows when retrying makes sense.
+function classifyMessage(code: string, retryAfterSeconds: number): string {
+  const base = classifyErrorMessages[code] ?? classifyErrorMessages.network!;
+  return `${base}${retryWaitSuffix(retryAfterSeconds)}`;
+}
+
+class ClassifyError extends Error {
+  readonly code: string;
+  readonly retryAfterSeconds: number;
+  constructor(code: string, retryAfterSeconds: number, message?: string) {
+    super(message ?? code);
+    this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
 
 function parseSuggestion(body: unknown): AiSuggestion | null {
   if (!body || typeof body !== "object") return null;
@@ -57,6 +78,9 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
   const request = useRef<AbortController | null>(null);
   const saveRequest = useRef<AbortController | null>(null);
   const idempotencyKey = useRef<string | null>(null);
+  // State updates are async, so a double click could otherwise fire two analyses
+  // and consume two quota units for a single intent.
+  const inFlight = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -101,7 +125,8 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
   };
 
   const analyze = async () => {
-    if (!file || !capabilities?.enabled || !consent || status === "sending" || saveStatus === "saving") return;
+    if (inFlight.current || !file || !capabilities?.enabled || !consent || status === "sending" || saveStatus === "saving") return;
+    inFlight.current = true;
     const controller = new AbortController(); request.current = controller;
     setStatus("sending"); setError(""); resetResult();
     try {
@@ -120,17 +145,27 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
       const response = await fetch(`${apiUrl}/api/pilot/scans/classify`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "image/png", "X-AI-Consent": "true" }, body: png, signal: controller.signal, cache: "no-store" });
       if (!response.ok) {
         let code = "network";
-        try { const body = await response.json() as { error?: unknown }; if (typeof body?.error === "string") code = body.error; } catch { /* keep generic */ }
-        throw new Error(code);
+        let retryAfterSeconds = 0;
+        try {
+          const body = await response.json() as { error?: unknown; retryAfterSeconds?: unknown };
+          if (typeof body?.error === "string") code = body.error;
+          if (typeof body?.retryAfterSeconds === "number" && Number.isFinite(body.retryAfterSeconds) && body.retryAfterSeconds > 0) {
+            retryAfterSeconds = Math.ceil(body.retryAfterSeconds);
+          }
+        } catch { /* keep generic */ }
+        throw new ClassifyError(code, retryAfterSeconds);
       }
       const parsed = parseSuggestion(await response.json());
       if (!parsed) throw new Error("invalid_ai_response");
       if (!controller.signal.aborted) { setSuggestion(parsed); if (parsed.category !== "unknown") setEditedCategory(parsed.category); }
     } catch (cause) {
       if (controller.signal.aborted) return;
-      const code = cause instanceof Error && cause.message in classifyErrorMessages ? cause.message : "network";
-      setError(classifyErrorMessages[code] ?? classifyErrorMessages.network!);
-    } finally { if (request.current === controller) request.current = null; setStatus("idle"); }
+      if (cause instanceof ClassifyError) setError(classifyMessage(cause.code, cause.retryAfterSeconds));
+      else {
+        const code = cause instanceof Error && cause.message in classifyErrorMessages ? cause.message : "network";
+        setError(classifyMessage(code, 0));
+      }
+    } finally { inFlight.current = false; if (request.current === controller) request.current = null; setStatus("idle"); }
   };
 
   const categoryToSave = editedCategory;

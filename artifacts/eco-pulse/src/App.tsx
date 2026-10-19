@@ -8,7 +8,7 @@ import {
   AlertTriangle, ArrowRight, Bell, BookOpen, Bot, Camera, Check, CircleHelp, Clock3, Compass, Gift, Leaf, LockKeyhole, LogOut, MapPin, Menu, MessageCircle, Navigation, PackageCheck, Pencil, Recycle, Search, ShieldCheck, Sparkles, Target, Trophy, UserRound, X, Zap,
 } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
-import { createPilotScan, isCurrentPilotResponse, loadEvaluationPoints, loadPilotDashboardData, loadPilotProgress, loadPilotDeliveryOptions, loadPilotPublicPoints, PilotApiError, type EvaluationPoint, type PilotDashboardData, type PilotDeliveryOptions, type PilotProgress } from "@/pilot-api";
+import { createPilotScan, isCurrentPilotResponse, loadEvaluationPoints, loadPilotDashboardData, loadPilotProgress, loadPilotDeliveryOptions, loadPilotPublicPoints, PilotApiError, retryWaitSuffix, type EvaluationPoint, type PilotDashboardData, type PilotDeliveryOptions, type PilotProgress } from "@/pilot-api";
 import { colombianSeparationReference, manualScanCategories, manualScanGuidance, materialCategoryByScan, type ManualScanCategory } from "@/scan-catalog";
 const DeliveryPanel = lazy(() => import("@/delivery-panel").then(module => ({ default: module.DeliveryPanel })));
 const VerifierQueue = lazy(() => import("@/delivery-panel").then(module => ({ default: module.VerifierQueue })));
@@ -21,7 +21,7 @@ import { guideAnswer, type GuideContext } from "@/eco-guide";
 import { MaterialFicha, MaterialsLibrary } from "@/materials-page";
 import { findMaterialById } from "@/materials-catalog";
 import { MapExperience } from "./interactive-map";
-import { askGuide, GuideApiError, loadGuideCapabilities } from "./guide-api";
+import { askGuide, guideQuotaMessages, GuideApiError, loadGuideCapabilities } from "./guide-api";
 import { ContactPage, FaqPage, PrivacyPage, PublicLayout, TermsPage, publicFooterLinks } from "@/public-pages";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -681,9 +681,12 @@ function ChatPage() {
         source = "ai";
       } catch (cause) {
         if (request.signal.aborted) { setPending(false); return; }
-        setGuideError(cause instanceof GuideApiError && cause.status === 429
-          ? "EcoGuía alcanzó su límite temporal. Te muestro una orientación básica mientras tanto."
-          : "EcoGuía no pudo conectar con la IA. Te muestro una orientación básica, no una respuesta generada por IA.");
+        if (cause instanceof GuideApiError && cause.status === 429) {
+          const base = guideQuotaMessages[cause.code] ?? "EcoGuía alcanzó su límite temporal.";
+          setGuideError(`${base}${retryWaitSuffix(cause.retryAfterSeconds)} Te muestro una orientación básica mientras tanto.`);
+        } else {
+          setGuideError("EcoGuía no pudo conectar con la IA. Te muestro una orientación básica, no una respuesta generada por IA.");
+        }
         answer = guideAnswer(question, guideContext);
       } finally { activeRequest.current = null; }
     } else {

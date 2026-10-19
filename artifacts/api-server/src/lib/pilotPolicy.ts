@@ -114,3 +114,21 @@ export function verificationActionsEnabled(value: unknown): boolean {
 export function canVerifyDelivery(role: unknown, actorId: string, ownerId: string): boolean {
   return canAccessVerifierQueue(role) && actorId !== ownerId;
 }
+
+export type QuotaDenialReason = "global_daily" | "user_daily" | "user_minute" | "concurrent";
+
+/**
+ * Seconds until the quota window that denied an AI request rolls over, so the
+ * client can show when retrying is possible instead of an open-ended message.
+ */
+export function quotaRetryAfterSeconds(reason: QuotaDenialReason, now: number = Date.now()): number {
+  if (reason === "user_minute") {
+    return 60 - (Math.floor(now / 1000) % 60);
+  }
+  if (reason === "user_daily" || reason === "global_daily") {
+    const d = new Date(now);
+    const next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+    return Math.max(1, Math.ceil((next - now) / 1000));
+  }
+  return 5;
+}

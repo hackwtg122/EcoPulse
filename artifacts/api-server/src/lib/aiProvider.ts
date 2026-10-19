@@ -1,12 +1,30 @@
 export class AiProviderError extends Error {
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string) {
+  /** Provider-advertised or window-based wait before retrying, when known. */
+  readonly retryAfterSeconds?: number;
+  constructor(status: number, code: string, retryAfterSeconds?: number) {
     super(code);
     this.status = status;
     this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
     Object.setPrototypeOf(this, new.target.prototype);
   }
+}
+
+// OpenRouter advertises the wait on rate limits (either seconds or an HTTP
+// date). Best effort: an unreadable header simply leaves the wait unknown.
+function parseRetryAfter(headers: unknown): number | undefined {
+  const get = (headers as { get?: (name: string) => string | null } | undefined)?.get;
+  if (typeof get !== "function") return undefined;
+  let raw: string | null;
+  try { raw = get.call(headers, "retry-after"); } catch { return undefined; }
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds > 0) return Math.ceil(seconds);
+  const date = Date.parse(raw);
+  if (!Number.isNaN(date)) return Math.max(1, Math.ceil((date - Date.now()) / 1000));
+  return undefined;
 }
 
 export type ProviderConfig = {
@@ -193,6 +211,7 @@ async function chatCompletions(
         throw new AiProviderError(
           res.status >= 500 ? 502 : res.status === 429 ? 429 : 502,
           res.status === 429 ? "ai_rate_limited" : "ai_provider_unavailable",
+          res.status === 429 ? parseRetryAfter(res.headers) : undefined,
         );
       }
     } catch (e) {
@@ -200,14 +219,17 @@ async function chatCompletions(
       if (!(e instanceof AiProviderError)) attemptError = "ai_provider_unavailable";
       else attemptError = e.code;
       if (e instanceof AiProviderError || !isTransientError(0, e) || attempt === cfg.maxRetries) {
-        const code = e instanceof AiProviderError ? e.code : "ai_provider_unavailable";
-        const status = e instanceof AiProviderError ? e.status : 502;
-        throw new AiProviderError(status, code);
+        // Keep already-classified errors intact so status, code and any
+        // advertised wait (quota window or provider rate limit) reach the client.
+        if (e instanceof AiProviderError) throw e;
+        throw new AiProviderError(502, "ai_provider_unavailable");
       }
     } finally {
       if (reservationId && cfg.afterAttempt) {
+        // Closing the audit row is bookkeeping: a store hiccup must never discard
+        // a valid analysis nor mask the real provider error.
         try { await cfg.afterAttempt(reservationId, attemptStatus, Date.now() - started, attemptError); }
-        catch { throw new AiProviderError(503, "ai_quota_store_unavailable"); }
+        catch { /* new attempts still fail closed in beforeAttempt */ }
       }
     }
     const backoff = withJitter(cfg.retryBackoffMs * Math.pow(2, attempt));

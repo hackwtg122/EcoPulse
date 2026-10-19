@@ -7,6 +7,7 @@ import {
   parseDeliveryPageLimit,
   pointsForVerifiedGrams,
   parsePointsPolicy,
+  quotaRetryAfterSeconds,
   validRejectionReason,
   verificationActionsEnabled,
   scanCategories,
@@ -15,6 +16,17 @@ import {
   validReceiptCode,
   validScanCategory,
 } from "./pilotPolicy.ts";
+
+test("a denied quota window reports when the client may retry", () => {
+  const minuteBoundary = Date.UTC(2026, 9, 19, 12, 34, 20); // 40s into the minute
+  assert.equal(quotaRetryAfterSeconds("user_minute", minuteBoundary), 40);
+  assert.equal(quotaRetryAfterSeconds("user_daily", minuteBoundary), 24 * 60 * 60 - (20 + 34 * 60 + 12 * 60 * 60));
+  assert.equal(quotaRetryAfterSeconds("global_daily", minuteBoundary), quotaRetryAfterSeconds("user_daily", minuteBoundary));
+  assert.equal(quotaRetryAfterSeconds("concurrent", minuteBoundary), 5);
+  for (const reason of ["user_minute", "user_daily", "global_daily", "concurrent"]) {
+    assert.ok(quotaRetryAfterSeconds(reason, Date.now()) >= 1);
+  }
+});
 
 test("scan categories are explicit and reject unsupported values", () => {
   assert.deepEqual(scanCategories, ["paper", "plastic", "glass", "metal", "organic", "other"]);

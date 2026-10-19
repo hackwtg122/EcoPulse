@@ -1,8 +1,8 @@
 import { getAuth } from "@clerk/express";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { Router, type ErrorRequestHandler, type IRouter } from "express";
+import { Router, type ErrorRequestHandler, type IRouter, type Response } from "express";
 import { pointMovements, scans, users, deliveries, deliveryPoints } from "@workspace/db/schema";
-import { canAccessVerifierQueue, encodeDeliveryCursor, hasOnlyFields, parseDeliveryCursor, parseDeliveryPageLimit, scanIdForIdempotency, uuidPattern, validIdempotencyKey, validReceiptCode, validRejectionReason, validScanCategory, parsePointsPolicy, verificationActionsEnabled } from "../lib/pilotPolicy";
+import { canAccessVerifierQueue, encodeDeliveryCursor, hasOnlyFields, parseDeliveryCursor, parseDeliveryPageLimit, quotaRetryAfterSeconds, scanIdForIdempotency, uuidPattern, validIdempotencyKey, validReceiptCode, validRejectionReason, validScanCategory, parsePointsPolicy, verificationActionsEnabled, type QuotaDenialReason } from "../lib/pilotPolicy";
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
 import { canManageCatalog, CatalogError, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointEdit, parseSlotEdit, parseValidationReference, updateActiveSlotCapacity, updateDraftPoint, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
@@ -19,20 +19,40 @@ const router: IRouter = Router();
 const mutationCounts = new Map<string, { count: number; resetAt: number }>();
 const officialAiBase = !process.env.AI_BASE_URL || process.env.AI_BASE_URL.replace(/\/$/, "") === "https://openrouter.ai/api/v1";
 
+// Provider retries belong to the same user action, so the per-minute budget must
+// allow every attempt of one analysis; otherwise the retry itself is rejected
+// with a quota error and the user sees "limit reached" after a single click.
+const aiMaxRetries = Math.max(0, Number(process.env.AI_MAX_RETRIES) || 2);
+const minuteAttemptFloor = aiMaxRetries + 1;
+
 const quotaCfg: QuotaConfig = {
   store: (process.env.AI_QUOTA_STORE === "memory" ? "memory" : "file"),
   filePath: process.env.AI_QUOTA_FILE_PATH || "./storage/ai_quota.json",
   dailyGlobalFreeReq: Number(process.env.AI_DAILY_GLOBAL_FREE_REQ) || 50,
   dailyPerUserFreeReq: Number(process.env.AI_DAILY_PER_USER_FREE_REQ) || 8,
-  minutePerUserEcoScan: Number(process.env.AI_MINUTE_PER_USER_FREE_REQ) || 2,
-  minutePerUserEcoGuide: Number(process.env.AI_GUIDE_MINUTE_PER_USER_FREE_REQ) || 4,
+  minutePerUserEcoScan: Math.max(Number(process.env.AI_MINUTE_PER_USER_FREE_REQ) || 2, minuteAttemptFloor),
+  minutePerUserEcoGuide: Math.max(Number(process.env.AI_GUIDE_MINUTE_PER_USER_FREE_REQ) || 4, minuteAttemptFloor),
+  // Render kills the process on deploy/restart without cleanup; reclaim locks
+  // older than any plausible request instead of failing closed forever.
+  lockStaleMs: Number(process.env.AI_QUOTA_LOCK_STALE_MS) || 120_000,
+};
+
+const quotaDenialCodes: Record<QuotaDenialReason, string> = {
+  global_daily: "ai_quota_global",
+  user_daily: "ai_quota_daily",
+  user_minute: "ai_quota_minute",
+  concurrent: "ai_quota_busy",
 };
 
 function reserveAiAttempt(userId: string, kind: "ecoscan" | "ecoguide") {
   return (model: string, attempt: number) => {
     try {
-      const result = reserveQuota(quotaCfg, userId, kind, Date.now(), { model, number: attempt });
-      if (!result.ok) throw new AiProviderError(429, "ai_rate_limited");
+      const now = Date.now();
+      const result = reserveQuota(quotaCfg, userId, kind, now, { model, number: attempt });
+      if (!result.ok) {
+        const reason = result.reason ?? "concurrent";
+        throw new AiProviderError(429, quotaDenialCodes[reason], quotaRetryAfterSeconds(reason, now));
+      }
       if (!result.attemptId) throw new AiProviderError(503, "ai_quota_store_unavailable");
       return result.attemptId;
     } catch (error) {
@@ -41,6 +61,17 @@ function reserveAiAttempt(userId: string, kind: "ecoscan" | "ecoguide") {
       throw error;
     }
   };
+}
+
+// Single place that maps an AI failure to an HTTP response, including the wait
+// before the client may retry (quota window or provider rate limit).
+function sendAiError(res: Response, e: unknown): Response {
+  const providerError = e instanceof AiProviderError ? e : null;
+  const status = providerError ? providerError.status : 502;
+  const code = providerError ? providerError.code : "ai_provider_unavailable";
+  const retryAfterSeconds = providerError?.retryAfterSeconds;
+  if (retryAfterSeconds) res.set("Retry-After", String(retryAfterSeconds));
+  return res.status(status).json({ error: code, ...(retryAfterSeconds ? { retryAfterSeconds } : {}) });
 }
 
 function buildProviderConfig(): ProviderConfig {
@@ -208,7 +239,7 @@ router.post("/scans/classify", async (req, res) => {
     const resProv = await classifyImageWithVision(cfg, sanitized.toString("base64"));
     return res.json(resProv);
   } catch (e) {
-    return res.status(e instanceof AiProviderError ? e.status : 502).json({ error: e instanceof AiProviderError ? e.code : "ai_provider_unavailable" });
+    return sendAiError(res, e);
   }
 });
 
@@ -256,7 +287,7 @@ router.post("/guide/ask", async (req, res) => {
     const result = await askGuideWithProvider(request, userContext, cfg);
     return res.json(result);
   } catch (e) {
-    return res.status(e instanceof AiProviderError ? e.status : 502).json({ error: e instanceof AiProviderError ? e.code : "ai_provider_unavailable" });
+    return sendAiError(res, e);
   }
 });
 router.get("/scans", async (_req, res) => {

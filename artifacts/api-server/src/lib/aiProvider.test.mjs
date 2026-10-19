@@ -156,6 +156,30 @@ test("chatWithStructured truncates inputs and validates answers", async () => {
   await rejectsWith(chatWithStructured(baseCfg, "sys", [], "hola", undefined, okFetch(JSON.stringify({}))), 502, "invalid_ai_response");
 });
 
+test("rate limits keep the advertised wait and audit failures never mask a valid analysis", async () => {
+  const always429 = async () => ({
+    ok: false, status: 429,
+    headers: { get: (name) => name === "retry-after" ? "42" : null },
+    async json() { return {}; },
+  });
+  await classifyImageWithVision(baseCfg, "aW1n", always429).then(
+    () => assert.fail("expected rejection ai_rate_limited"),
+    (error) => {
+      assert.ok(error instanceof AiProviderError);
+      assert.equal(error.status, 429);
+      assert.equal(error.code, "ai_rate_limited");
+      assert.equal(error.retryAfterSeconds, 42);
+    },
+  );
+  // A store hiccup while closing the audit row must not discard a real answer.
+  const result = await classifyImageWithVision({
+    ...baseCfg,
+    beforeAttempt: () => "id-1",
+    afterAttempt: () => { throw new Error("quota store down"); },
+  }, "aW1n", okFetch(JSON.stringify(goodPayload)));
+  assert.equal(result.category, "plastic");
+});
+
 test("providerSelfTest is a boolean probe that never throws", async () => {
   assert.equal(await providerSelfTest(baseCfg, okFetch(JSON.stringify({ ok: true }))), true);
   assert.equal(await providerSelfTest(baseCfg, okFetch(JSON.stringify({ ok: false }))), false);
