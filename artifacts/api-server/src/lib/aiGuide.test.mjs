@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AiGuideError, parseGuideRequest, askGuideWithOpenAI, askGuideWithProvider, consumeGuideQuota } from "./aiGuide.ts";
+import { guideAccountDetails, guideSystemPrompt } from "./aiGuideCore.ts";
 
 test("parseGuideRequest validates bounds and fields", () => {
   const req = parseGuideRequest({ question: "¿Cómo separo vidrio?", history: [{ role: "user", content: "Hola" }, { role: "assistant", content: "Explica" }], materialContext: "Guía breve de vidrio." });
@@ -110,4 +111,27 @@ test("askGuideWithOpenAI rejects empty apiKey with ai_provider_unconfigured", as
     ),
     (err) => err instanceof AiGuideError && err.status === 503 && err.code === "ai_provider_unconfigured",
   );
+});
+
+test("general and account questions use remote AI with bounded, authenticated facts and six turns", async () => {
+  const options = { categories: [{ code: "plastic" }], points: [{ name: "Centro publicado", address: "Calle 1", municipality: "Bogotá", materials: ["plastic"], slots: [{ startsAt: new Date("2026-11-01T14:00:00Z") }] }] };
+  const deliveries = [{ status: "pending", materials: [{ categoryCode: "plastic" }], deliveryPoint: { name: "Centro publicado" } }];
+  const details = guideAccountDetails(options, deliveries);
+  const context = { balance: 0, scanCount: 1, deliveryCount: 1, activeCenters: 1, pointsPolicyEnabled: false, ...details };
+  assert.match(guideSystemPrompt(context), /preguntas generales/);
+  assert.match(guideSystemPrompt(context), /Centro publicado/);
+  assert.match(guideSystemPrompt(context), /2026-11-01T14:00:00.000Z/);
+  const cfg = { provider: "openrouter", apiKey: "test-key", chatModel: "nvidia/nemotron-3-super-120b-a12b:free", visionModel: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", timeoutMs: 5000, maxRetries: 0, retryBackoffMs: 1, visionMaxTokens: 1000, chatMaxTokens: 2000, requireOpenLicense: true };
+  for (const question of ["¿Por qué es azul el cielo?", "¿Cuáles son mis EcoPuntos y mi entrega?"]) {
+    let outbound;
+    const result = await askGuideWithProvider({ question, history: Array.from({ length: 6 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `Turno ${i}` })), materialContext: "" }, context, cfg, async (_url, init) => {
+      outbound = JSON.parse(init.body);
+      return { ok: true, status: 200, async json() { return { choices: [{ message: { content: '{"answer":"Respuesta remota de prueba."}' } }] }; } };
+    });
+    assert.equal(result.source, "ai");
+    assert.equal(outbound.messages.length, 9); // 2 system, 6 earlier turns, current question
+    assert.equal(outbound.messages.at(-1).content, question);
+    assert.match(outbound.messages[0].content, /Centro publicado/);
+    assert.match(outbound.messages[0].content, /EcoPuntos disponibles: 0/);
+  }
 });

@@ -325,7 +325,7 @@ export async function chatWithStructured(
     ? `CONTEXTO EDUCATIVO (referencia): ${materialContext.trim().replace(/\s+/g, " ").slice(0, 1500)}`
     : "CONTEXTO EDUCATIVO: no disponible.";
   const messages = [
-    { role: "system", content: system.slice(0, 2000) },
+    { role: "system", content: system.slice(0, 6000) },
     { role: "system", content: grounding },
     ...history.slice(-6).map((t) => ({ role: t.role, content: t.content.slice(0, 300) })),
     { role: "user", content: question.slice(0, 500) },

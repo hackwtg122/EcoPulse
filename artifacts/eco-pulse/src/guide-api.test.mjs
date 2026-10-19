@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { askGuide, loadGuideCapabilities } from "./guide-api.ts";
+import { askGuide, createGuideRequestGate, loadGuideCapabilities } from "./guide-api.ts";
 
 const signal = new AbortController().signal;
 test("reads capabilities with authenticated no-store request", async () => {
@@ -9,6 +9,20 @@ test("reads capabilities with authenticated no-store request", async () => {
     assert.equal(init.cache, "no-store"); return Response.json({ enabled: true });
   });
   assert.equal(enabled, true);
+});
+
+test("auth, quota and duplicate-submit protection keep failures visible", async () => {
+  const gate = createGuideRequestGate();
+  assert.equal(gate.enter(), true);
+  assert.equal(gate.enter(), false);
+  gate.leave();
+  assert.equal(gate.enter(), true);
+  gate.leave();
+  await assert.rejects(askGuide("https://api.invalid", "token", "Hola", [], signal,
+    async () => Response.json({ error: "authentication_required" }, { status: 401 })), { status: 401, code: "authentication_required" });
+  await assert.rejects(askGuide("https://api.invalid", "token", "Hola", [], signal,
+    async () => Response.json({ error: "ai_quota_daily", retryAfterSeconds: 120 }, { status: 429 })),
+    { status: 429, code: "ai_quota_daily", retryAfterSeconds: 120 });
 });
 
 test("bounded guide conversation sends no account fields and accepts AI only", async () => {

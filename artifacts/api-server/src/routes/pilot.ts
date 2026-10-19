@@ -1,7 +1,7 @@
 import { getAuth } from "@clerk/express";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Router, type ErrorRequestHandler, type IRouter, type Response } from "express";
-import { pointMovements, scans, users, deliveries, deliveryPoints } from "@workspace/db/schema";
+import { pointMovements, scans, users, deliveries } from "@workspace/db/schema";
 import { canAccessVerifierQueue, encodeDeliveryCursor, hasOnlyFields, parseDeliveryCursor, parseDeliveryPageLimit, quotaRetryAfterSeconds, scanIdForIdempotency, uuidPattern, validIdempotencyKey, validReceiptCode, validRejectionReason, validScanCategory, parsePointsPolicy, verificationActionsEnabled, type QuotaDenialReason } from "../lib/pilotPolicy";
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
@@ -9,6 +9,7 @@ import { canManageCatalog, CatalogError, createDraftPoint, createDraftSlot, deac
 import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, listReservedRedemptions, parseRewardDraft, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
+import { guideAccountDetails } from "../lib/aiGuideCore";
 import { AiProviderError, ProviderConfig, VERIFIED_FREE_OPEN_MODELS, classifyImageWithVision } from "../lib/aiProvider";
 import { QuotaConfig, QuotaStoreError, reserveQuota, finishQuotaAttempt } from "../lib/aiQuota";
 import { computeProgress } from "../lib/progressService";
@@ -243,7 +244,9 @@ router.post("/scans/classify", async (req, res) => {
   }
 });
 
-const guideModel = process.env.AI_CHAT_MODEL || process.env.OPENAI_GUIDE_MODEL || process.env.OPENAI_VISION_MODEL || "openrouter/free";
+// A missing chat-specific setting must not inherit a vision model or the
+// unverified OpenRouter router. Use only a previously verified free chat model.
+const guideModel = process.env.AI_CHAT_MODEL || "nvidia/nemotron-3-super-120b-a12b:free";
 router.get("/guide/capabilities", (_req, res) => {
   const missing: string[] = [];
   if (process.env.PILOT_AI_ENABLED !== "true") missing.push("PILOT_AI_ENABLED");
@@ -270,20 +273,27 @@ router.post("/guide/ask", async (req, res) => {
   cfg.chatModel = guideModel;
   cfg.beforeAttempt = reserveAiAttempt(uid, "ecoguide");
   cfg.afterAttempt = (id, status, durationMs, errorCode) => finishQuotaAttempt(quotaCfg, id, status, durationMs, errorCode);
-  const db = await database();
-  const [balanceRow] = await db.select({ total: sql<string>`coalesce(sum(${pointMovements.delta}), 0)::text` }).from(pointMovements).where(eq(pointMovements.userId, uid));
-  const scanCount = await db.select({ c: sql<number>`count(*)::int` }).from(scans).where(eq(scans.userId, uid));
-  const deliveryCount = await db.select({ c: sql<number>`count(*)::int` }).from(deliveries).where(eq(deliveries.userId, uid));
-  const centers = await db.select({ c: sql<number>`count(*)::int` }).from(deliveryPoints).where(eq(deliveryPoints.active, true));
-  const userContext = {
-    balance: Math.trunc(Number(balanceRow?.total ?? "0")),
-    scanCount: Math.trunc(Number(scanCount[0]?.c ?? 0)),
-    deliveryCount: Math.trunc(Number(deliveryCount[0]?.c ?? 0)),
-    activeCenters: Math.trunc(Number(centers[0]?.c ?? 0)),
-    pointsPolicyEnabled: verificationActionsEnabled(process.env.PILOT_POINTS_ENABLED),
-    academic: process.env.EVALUATION_MODE_ENABLED === "true",
-  };
   try {
+    const db = await database();
+    const pool = await databasePool();
+    // Same authorized account/centre readers as GET /deliveries and
+    // /delivery-points. No client-supplied balance, slots or delivery data.
+    const [[balanceRow], scanCount, deliveryCount, options, recentDeliveries] = await Promise.all([
+      db.select({ total: sql<string>`coalesce(sum(${pointMovements.delta}), 0)::text` }).from(pointMovements).where(eq(pointMovements.userId, uid)),
+      db.select({ c: sql<number>`count(*)::int` }).from(scans).where(eq(scans.userId, uid)),
+      db.select({ c: sql<number>`count(*)::int` }).from(deliveries).where(eq(deliveries.userId, uid)),
+      loadDeliveryOptions(pool, true),
+      listUserDeliveries(pool, uid),
+    ]);
+    const userContext = {
+      balance: Math.trunc(Number(balanceRow?.total ?? "0")),
+      scanCount: Math.trunc(Number(scanCount[0]?.c ?? 0)),
+      deliveryCount: Math.trunc(Number(deliveryCount[0]?.c ?? 0)),
+      activeCenters: options.points.length,
+      pointsPolicyEnabled: verificationActionsEnabled(process.env.PILOT_POINTS_ENABLED),
+      academic: process.env.EVALUATION_MODE_ENABLED === "true",
+      ...guideAccountDetails(options, recentDeliveries),
+    };
     const result = await askGuideWithProvider(request, userContext, cfg);
     return res.json(result);
   } catch (e) {

@@ -1,5 +1,13 @@
 export type GuideTurn = { role: "user" | "assistant"; content: string };
 
+export function createGuideRequestGate() {
+  let active = false;
+  return {
+    enter(): boolean { if (active) return false; active = true; return true; },
+    leave(): void { active = false; },
+  };
+}
+
 export class GuideApiError extends Error {
   readonly status: number;
   readonly code: string;

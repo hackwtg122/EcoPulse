@@ -145,11 +145,11 @@ test("chatWithStructured truncates inputs and validates answers", async () => {
   const capture = {};
   const longHistory = Array.from({ length: 9 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", content: "x".repeat(500) }));
   const answer = await chatWithStructured(
-    baseCfg, "s".repeat(3000), longHistory, "q".repeat(900), "c".repeat(2000),
+    baseCfg, "s".repeat(9000), longHistory, "q".repeat(900), "c".repeat(2000),
     okFetch(JSON.stringify({ answer: "  Recicla   vidrio. " }), capture),
   );
   assert.deepEqual(answer, { answer: "Recicla vidrio." });
-  assert.equal(capture.body.messages[0].content.length, 2000);
+  assert.equal(capture.body.messages[0].content.length, 6000);
   assert.equal(capture.body.messages.length, 2 /* systems */ + 6 /* history */ + 1);
   assert.equal(capture.body.messages.at(-1).content.length, 500);
   await rejectsWith(chatWithStructured(baseCfg, "sys", [], "hola", undefined, okFetch(JSON.stringify({ answer: "a".repeat(900) }))), 502, "invalid_ai_response");
