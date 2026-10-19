@@ -1,0 +1,21 @@
+# Netlify: solo frontend estático (artifacts/eco-pulse).
+# La API Express vive en Render (https://ecopulse-3xb4.onrender.com) y no se despliega aquí.
+# Requisitos en el panel de Netlify (Variables de entorno):
+#   VITE_PILOT_API_URL = https://ecopulse-3xb4.onrender.com
+#   VITE_CLERK_PUBLISHABLE_KEY = <misma clave pública usada en Render>
+#   VITE_CLERK_PROXY_URL = https://ecopulse-3xb4.onrender.com/api/__clerk
+# Y en Render, añadir el origen de Netlify a PILOT_ALLOWED_ORIGINS (CORS + authorizedParties).
+
+[build]
+  base = "."
+  command = "corepack pnpm install --frozen-lockfile && corepack pnpm --filter @workspace/eco-pulse build"
+  publish = "artifacts/eco-pulse/dist/public"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# SPA: rutas del piloto (/map, /progress, /rewards, ...) sirven index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

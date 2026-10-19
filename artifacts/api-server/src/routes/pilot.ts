@@ -676,4 +676,34 @@ const pilotErrorHandler: ErrorRequestHandler = (error, req, res, _next) => {
 };
 router.use(pilotErrorHandler);
 
+router.patch("/admin/users/:clerkUserId/role", async (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "forbidden" });
+  const target = String(req.params.clerkUserId || "").trim();
+  const requestedRole = String(req.body?.role || "").trim();
+  if (!target || !/^user_[A-Za-z0-9]+$/.test(target)) return res.status(400).json({ error: "invalid_target" });
+  if (!["participant", "verifier", "admin"].includes(requestedRole)) return res.status(400).json({ error: "invalid_role" });
+  const role: "participant" | "verifier" | "admin" = requestedRole as "participant" | "verifier" | "admin";
+  if (target === res.locals.userId && role !== "admin") return res.status(409).json({ error: "cannot_self_demote" });
+  try {
+    const db = await database();
+    const [existing] = await db.select({ role: users.role }).from(users).where(eq(users.clerkUserId, target));
+    if (!existing) return res.status(404).json({ error: "user_not_found" });
+    await db.update(users).set({ role }).where(eq(users.clerkUserId, target));
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: "pilot_api_error" });
+  }
+});
+
+router.get("/admin/users", async (_req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "forbidden" });
+  try {
+    const db = await database();
+    const rows = await db.select({ clerkUserId: users.clerkUserId, role: users.role, createdAt: users.createdAt }).from(users).orderBy(desc(users.createdAt)).limit(100);
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ error: "pilot_api_error" });
+  }
+});
 export default router;
+
