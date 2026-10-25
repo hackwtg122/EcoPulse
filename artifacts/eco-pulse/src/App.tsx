@@ -18,9 +18,11 @@ const RewardsAdminPanel = lazy(() => import("@/rewards-panel").then(module => ({
 const AiScanPanel = lazy(() => import("@/ai-scan-panel").then(module => ({ default: module.AiScanPanel })));
 const ProgressPanel = lazy(() => import("@/progress-panel").then(module => ({ default: module.ProgressPanel })));
 import { guideAnswer } from "@/eco-guide";
-import { MaterialFicha, MaterialsLibrary } from "@/materials-page";
-import { findMaterialById } from "@/materials-catalog";
-import { MapExperience } from "./interactive-map";
+const LazyMaterialFicha = lazy(() => import("@/materials-page").then(module => ({ default: module.MaterialFicha })));
+const LazyMaterialsLibrary = lazy(() => import("@/materials-page").then(module => ({ default: module.MaterialsLibrary })));
+const MapExperience = lazy(() => import("./interactive-map").then(module => ({ default: module.MapExperience })));
+function MaterialFicha({ id }: { id: string }) { return <Suspense fallback={<p role="status">Cargando ficha…</p>}><LazyMaterialFicha id={id} /></Suspense>; }
+function MaterialsLibrary({ initialQuery, initialCategory }: { initialQuery: string; initialCategory: string }) { return <Suspense fallback={<p role="status">Cargando materiales…</p>}><LazyMaterialsLibrary initialQuery={initialQuery} initialCategory={initialCategory} /></Suspense>; }
 import { askGuide, createGuideRequestGate, guideQuotaMessages, GuideApiError, loadGuideCapabilities, type GuideTurn } from "./guide-api";
 import { ContactPage, FaqPage, PrivacyPage, PublicLayout, TermsPage, publicFooterLinks } from "@/public-pages";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -421,7 +423,7 @@ function MapPage({ initialMaterial = "" }: { initialMaterial?: string }) {
     <PageTitle eyebrow="Mapa" title="Centros de reciclaje" copy="Encuentra materiales, horarios y cupos disponibles para tu entrega." action={<Link href="/deliveries" className="inline-flex items-center gap-2 rounded-full bg-[hsl(var(--primary))] px-5 py-3 font-semibold text-[hsl(var(--primary-foreground))]" data-testid="link-map-deliveries"><PackageCheck size={16} /> Solicitar entrega</Link>} />
     {status === "loading" && <p role="status" className="mb-4">Consultando el mapa…</p>}
     {status === "error" && <div role="alert" className="mb-4 rounded-2xl border p-4">No pudimos cargar el mapa. <button type="button" onClick={() => setRetry(value => value + 1)} className="underline">Reintentar</button></div>}
-    {status === "ready" && <MapExperience apiUrl={pilotApiUrl} publishedPoints={points} evaluationPoints={evaluationPoints} initialMaterial={initialMaterial} />}
+    {status === "ready" && <Suspense fallback={<p role="status">Cargando mapa…</p>}><MapExperience apiUrl={pilotApiUrl} publishedPoints={points} evaluationPoints={evaluationPoints} initialMaterial={initialMaterial} /></Suspense>}
   </div>;
 }
 function RewardsPage() {
