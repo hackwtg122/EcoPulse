@@ -1,5 +1,5 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ClerkProvider, SignIn, useAuth, useClerk, useSignUp, useUser } from "@clerk/react";
+import { ClerkProvider, SignIn, useAuth, useClerk, useReverification, useSignUp, useUser } from "@clerk/react";
 import { shadcn } from "@clerk/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Link, Redirect, Route, Switch, Router as WouterRouter, useLocation } from "wouter";
@@ -540,7 +540,17 @@ function SecurityPage() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const mfa = Boolean(user?.twoFactorEnabled);
+  const operationInFlight = useRef(false);
+  const mfa = Boolean(user?.totpEnabled);
+  // Clerk may require a fresh verification before account security changes.
+  const createTOTP = useReverification(() => user?.createTOTP());
+  const disableTOTP = useReverification(() => user?.disableTOTP());
+  const createBackupCode = useReverification(() => user?.createBackupCode());
+
+  useEffect(() => {
+    // Never show a setup secret or recovery codes after switching accounts.
+    setTotp(null); setCode(""); setBackupCodes([]); setNotice(""); setError("");
+  }, [user?.id]);
 
   const getErrorMessage = (err: unknown) => {
     const clerkError = err as { longMessage?: string; message?: string; errors?: Array<{ longMessage?: string; message?: string }> };
@@ -548,58 +558,68 @@ function SecurityPage() {
   };
 
   const startTotp = async () => {
-    if (!user) return;
+    if (!user || mfa || totp || operationInFlight.current) return;
+    operationInFlight.current = true;
     setLoading(true); setError(""); setNotice("");
     try {
-      const resource = await user.createTOTP();
+      const resource = await createTOTP();
+      if (!resource?.secret && !resource?.uri) throw new Error("Clerk no devolvió una clave para configurar el autenticador.");
       setTotp(resource);
       setNotice("Abre tu aplicación autenticadora, agrega EcoPulse con la clave secreta y escribe el código de seis dígitos.");
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
+      operationInFlight.current = false;
       setLoading(false);
     }
   };
 
   const verifyTotp = async (event: FormEvent) => {
     event.preventDefault();
-    if (!user || !code.trim()) return;
+    if (!user || !totp || !/^\d{6}$/.test(code.trim()) || operationInFlight.current) return;
+    operationInFlight.current = true;
     setLoading(true); setError(""); setNotice("");
     try {
       await user.verifyTOTP({ code: code.trim() });
       await user.reload();
-      setTotp(null); setCode(""); setNotice("2FA quedó activo para tu cuenta.");
+      setTotp(null); setCode(""); setNotice("Autenticador activo. Genera y guarda tus códigos de respaldo antes de cerrar esta página.");
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
+      operationInFlight.current = false;
       setLoading(false);
     }
   };
 
   const disableTotp = async () => {
-    if (!user || !window.confirm("¿Quieres desactivar el autenticador de esta cuenta?")) return;
+    if (!user || operationInFlight.current || !window.confirm("¿Quieres desactivar el autenticador de esta cuenta?")) return;
+    operationInFlight.current = true;
     setLoading(true); setError(""); setNotice("");
     try {
-      await user.disableTOTP();
+      await disableTOTP();
       await user.reload();
       setBackupCodes([]); setNotice("El autenticador se desactivó.");
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
+      operationInFlight.current = false;
       setLoading(false);
     }
   };
 
   const generateBackupCodes = async () => {
-    if (!user) return;
+    if (!user || !mfa || operationInFlight.current) return;
+    operationInFlight.current = true;
     setLoading(true); setError(""); setNotice("");
     try {
-      const resource = await user.createBackupCode();
+      const resource = await createBackupCode();
+      if (!resource?.codes?.length) throw new Error("Clerk no devolvió códigos de respaldo.");
       setBackupCodes(resource.codes);
       setNotice("Guarda estos códigos en un lugar seguro. Generar otros reemplazará los anteriores.");
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
+      operationInFlight.current = false;
       setLoading(false);
     }
   };
@@ -609,8 +629,8 @@ function SecurityPage() {
     <div className="grid gap-5 lg:grid-cols-[1.2fr_.8fr]">
       <section className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-7 sm:p-9">
         <div className="flex items-start gap-4"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[hsl(var(--secondary)/.3)] text-[hsl(var(--primary))]"><ShieldCheck size={27} /></span><div><h2 className="font-display text-3xl text-[hsl(var(--primary))]">Verificación en dos pasos</h2><p className="mt-2 leading-relaxed text-[hsl(var(--muted-foreground))]">Clerk indica si tu cuenta tiene TOTP activo y permite verificarlo desde aquí.</p></div></div>
-        <div className="mt-8 flex items-center justify-between rounded-2xl border border-[hsl(var(--border))] p-5"><div><div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${mfa ? "bg-[hsl(var(--primary))]" : "bg-[hsl(var(--accent))]"}`} /><strong>{mfa ? "Activa" : "Pendiente de configurar"}</strong></div><p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">{mfa ? "Tu cuenta está protegida con autenticador y Clerk exigirá el segundo factor cuando corresponda." : "Aún no hay un segundo factor activo en esta cuenta."}</p></div><Button variant={mfa ? "soft" : "primary"} onClick={mfa ? disableTotp : startTotp} disabled={!isLoaded || loading} data-testid="button-configure-mfa">{loading ? "Procesando..." : mfa ? "Desactivar" : "Configurar autenticador"}</Button></div>
-        {totp && <form onSubmit={verifyTotp} className="mt-5 rounded-2xl bg-[hsl(var(--secondary)/.18)] p-5"><p className="text-sm font-semibold text-[hsl(var(--primary))]">Confirma tu aplicación autenticadora</p><p className="mt-2 text-xs leading-relaxed text-[hsl(var(--muted-foreground))]">Copia esta clave en Google Authenticator, Microsoft Authenticator, 1Password u otra aplicación compatible:</p><code className="mt-3 block break-all rounded-xl bg-[hsl(var(--card))] p-3 text-xs text-[hsl(var(--primary))]">{totp.secret || totp.uri || "Clave generada por Clerk"}</code><div className="mt-4 flex gap-2"><input value={code} onChange={event => setCode(event.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="Código de 6 dígitos" className="min-w-0 flex-1 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/.3)]" data-testid="input-mfa-code" /><Button type="submit" disabled={loading || !code.trim()} data-testid="button-verify-mfa">Verificar</Button></div></form>}
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[hsl(var(--border))] p-5"><div><div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${mfa ? "bg-[hsl(var(--primary))]" : "bg-[hsl(var(--accent))]"}`} /><strong>{mfa ? "Activa" : totp ? "Esperando verificación" : "Pendiente de configurar"}</strong></div><p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">{mfa ? "Tu cuenta está protegida con autenticador y Clerk exigirá el segundo factor cuando corresponda." : totp ? "Introduce el código de tu aplicación para activar la protección." : "Aún no hay un segundo factor activo en esta cuenta."}</p></div><Button variant={mfa ? "soft" : "primary"} onClick={mfa ? disableTotp : startTotp} disabled={!isLoaded || loading || Boolean(totp)} data-testid="button-configure-mfa">{loading ? "Procesando..." : mfa ? "Desactivar" : "Configurar autenticador"}</Button></div>
+        {totp && <form onSubmit={verifyTotp} className="mt-5 rounded-2xl bg-[hsl(var(--secondary)/.18)] p-5"><p className="text-sm font-semibold text-[hsl(var(--primary))]">Confirma tu aplicación autenticadora</p><p className="mt-2 text-xs leading-relaxed text-[hsl(var(--muted-foreground))]">Agrega una cuenta manualmente en Google Authenticator, Microsoft Authenticator o 1Password con esta clave privada. No la compartas:</p><code className="mt-3 block break-all rounded-xl bg-[hsl(var(--card))] p-3 text-xs text-[hsl(var(--primary))]" data-testid="mfa-secret">{totp.secret || totp.uri}</code><div className="mt-4 flex flex-wrap gap-2"><input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" autoFocus maxLength={6} pattern="[0-9]{6}" aria-label="Código de seis dígitos del autenticador" placeholder="Código de 6 dígitos" className="min-w-0 flex-1 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/.3)]" data-testid="input-mfa-code" /><Button type="submit" disabled={loading || code.length !== 6} data-testid="button-verify-mfa">Verificar</Button><Button type="button" variant="outline" disabled={loading} onClick={() => { setTotp(null); setCode(""); setNotice(""); }} data-testid="button-cancel-mfa">Cancelar</Button></div></form>}
         {mfa && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[hsl(var(--border))] p-4"><div><p className="text-sm font-semibold text-[hsl(var(--primary))]">Códigos de respaldo</p><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Úsalos si pierdes acceso a tu aplicación autenticadora.</p></div><Button variant="outline" onClick={generateBackupCodes} disabled={loading} data-testid="button-generate-backup-codes">Generar códigos</Button></div>}
         {backupCodes.length > 0 && <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-[hsl(var(--muted))] p-4 sm:grid-cols-3">{backupCodes.map(backupCode => <code key={backupCode} className="rounded-lg bg-[hsl(var(--card))] px-2 py-2 text-center text-xs font-semibold">{backupCode}</code>)}</div>}
         {notice && <div className="mt-4 flex gap-3 rounded-2xl bg-[hsl(var(--secondary)/.2)] p-4 text-sm text-[hsl(var(--primary))]" data-testid="status-mfa-notice"><LockKeyhole size={18} className="shrink-0" /><p>{notice}</p><button className="ml-auto" onClick={() => setNotice("")} data-testid="button-dismiss-mfa"><X size={16} /></button></div>}
