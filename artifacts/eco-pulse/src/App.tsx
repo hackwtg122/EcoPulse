@@ -127,7 +127,7 @@ function useStored<T>(key: string, initial: T) {
   useEffect(() => { localStorage.setItem(key, JSON.stringify(value)); }, [key, value]);
   return [value, setValue] as const;
 }
-function IconLogo({ small = false }: { small?: boolean }) { return <img src={`${basePath}/logo.svg`} alt="EcoPulse" className={small ? "h-8 w-8" : "h-11 w-11"} />; }
+function IconLogo({ small = false }: { small?: boolean }) { return <img src={`${basePath}/logo.svg`} alt="" aria-hidden="true" className={small ? "h-8 w-8" : "h-11 w-11"} />; }
 function Button({ children, className = "", variant = "primary", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "soft" | "ghost" | "outline" }) {
   const styles = { primary: "bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))] hover:-translate-y-0.5", soft: "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary))]", ghost: "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]", outline: "border border-[hsl(var(--border))] bg-transparent hover:bg-[hsl(var(--muted))]" };
   return <button {...props} className={`inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`}>{children}</button>;

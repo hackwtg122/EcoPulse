@@ -1,0 +1,11 @@
+{
+  "name": "ecopulse-production-public-qa",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Read-only browser and Lighthouse audits against EcoPulse production",
+  "dependencies": {
+    "@lhci/cli": "0.15.1",
+    "playwright-core": "1.56.0"
+  }
+}
