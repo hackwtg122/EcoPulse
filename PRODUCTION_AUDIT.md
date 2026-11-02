@@ -1,5 +1,39 @@
 # EcoPulse — auditoría inicial de producción (25 oct 2026)
 
+## Estado actualizado — 2 nov 2026
+
+Seguimiento de desbloqueo: ya se verificó Neon neondb con transacción read-only
+(15 tablas, 8 centros, 16 horarios, 3 recompensas, 1 admin; auditoría 0004 ausente)
+y correspondencia JWKS entre la clave Clerk disponible y el frontend publicado.
+Esto sustituye los bloqueos antiguos de acceso de las líneas inferiores, no los
+bloqueos de pruebas privadas. Render sigue sin acceso API/hook y devuelve 404 en
+version. El token GitHub solo tiene repo y no hay secretos Actions. Automatización
+preparada sin ejecutar; configuración agrupada en `PRODUCTION_UNBLOCK.md`.
+
+La entrega funcional y matriz vigente están en `PRODUCTION_COVERAGE.md`.
+Código publicado en `origin/main`: `81e628c9971b642c0941e134e0b768f957506f85`;
+Netlify deploy `6ae8e3eabc42c345311ac950` ready con ese SHA exacto. Render
+todavía responde 404 HTML en `/api/version`: nuevo backend no acreditado.
+TypeScript y builds API/frontend exit 0; tests remotos de este bloque NO
+ejecutados por falta de permiso GitHub `workflow`. No confundir resultados
+históricos inferiores con validación de la nueva versión. Neon, sesiones,
+persistencia privada y CRUD siguen BLOCKED; no se ejecutó migración ni SQL.
+El cambio de roles ahora exige auditoría atómica (sin tabla/permisos no cambia
+privilegios). No se declara sistema terminado.
+
+## Despliegue controlado `76e20d3` — seguimiento local, sin segundo push
+
+Netlify API: `published_deploy.state=ready`, `commit_ref=76e20d3b29f90a9c01de2f0e38b131fae3b4e60d`, deploy `6ade15d3c5b47f8e0f25c4d4`. Único commit autorizado: `App.tsx`, este informe y `COORDINATION.md`; archivos NVIDIA/API/Neon/.github ajenos intactos. Corridas Lighthouse móvil: misma CLI, URLs, categorías y flags que el deploy anterior; JSON en `C:\Users\JAIRO\AppData\Local\Temp\opencode\ecopulse-lh-mobile-after-76e20d3\{home,materials}-{1,2,3}.json`, resumen en `summary.json`.
+
+| Ruta | Performance anterior → nuevo (3 corridas) | LCP ms anterior → nuevo | TBT ms anterior → nuevo | CLS anterior → nuevo |
+| --- | --- | --- | --- | --- |
+| `/` | **40 → 56** (36, 56, 61) | **7159 → 6420** (8030, 6420, 5807) | **1001 → 599** (16999, 599, 542) | **0,05350 → 0,00059** |
+| `/materials` | **40 → 57** (37, 57, 57) | **5858 → 6823** (6823, 7173, 6109) | **673 → 508** (2010, 144, 508) | **0,33217 → 0,00051** |
+
+**Contrapartidas, no ocultar:** LCP de materiales empeoró **965 ms** de mediana frente a `2aad549` (y 175 ms frente a la versión previa a esa optimización). La primera corrida de inicio tuvo **TBT 16999 ms**, incluido un long task `Unattributable` de 10000 ms y `_lighthouse-eval.js` de 1332 ms; se mantuvo en los datos, no se atribuye sin evidencia a la app ni se descarta. La mediana TBT mejora, pero su dispersión exige prudencia; no hacer más despliegues automáticos. Reversión selectiva potencial si el LCP de materiales se considera inaceptable: recuperar lazy de materiales **solo** con un fallback cuyo alto reserve el contenido visible y no empuje el footer (el fallback corto anterior produjo CLS 0,33); requeriría nueva autorización y mediciones propias. No revertir ciegamente este deploy: reintroduciría el CLS alto.
+
+Pruebas postdeploy: `production-public.mjs` **21/21 PASS** (móvil/tableta/escritorio, seis rutas y búsqueda/ficha); `QA_BASE_URL=https://ecopulseef.netlify.app node scripts/qa/local-performance-smoke.mjs` **38/38 PASS** (rutas públicas, formularios Clerk visibles, redirecciones anónimas y SPA). Observador Chrome 412 px: CLS `/` 0,000551 y `/materials` 0,000571 sin errores de script; capturas `home-production.png` y `materials-production.png` en temp `opencode/ecopulse-regression-trace`. Login real, persistencia, actualización de cuenta y logout **BLOCKED**, sin credenciales autorizadas. **Veredicto: conservar por ahora** por estabilidad visual, puntuación y TBT mediano, dejando explícita la regresión de LCP de materiales y el outlier; no se autoriza otro push en este bloque.
+
 ## Corrección candidata de regresión — mediciones locales previas al despliegue autorizado
 
 - Evidencia ya guardada: la versión anterior a `2aad549` tuvo mediana móvil `/` 51/LCP 7030 ms/TBT 674 ms y `/materials` 48/LCP 6648 ms/TBT 727 ms/CLS 0,00049; tras `2aad549`, `/` 40/7159/1001 y `/materials` 40/5858/673/CLS 0,33217. JSON: `C:\Users\JAIRO\AppData\Local\Temp\opencode\ecopulse-lh-mobile-{before-20261025,after-2aad549}\`.
