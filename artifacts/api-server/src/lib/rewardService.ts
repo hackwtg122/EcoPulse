@@ -9,6 +9,25 @@ export class RewardError extends Error {
 }
 
 export type RewardDraft = { title: string; description: string; cost: number };
+export type RewardPublication = { expected: RewardDraft; inventoryRemaining: number; fulfillmentReference: string };
+export function parseRewardPublication(value: unknown): RewardPublication {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new RewardError(400, "invalid_reward_publication");
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).some(key => !["expected", "inventoryRemaining", "fulfillmentReference"].includes(key))) throw new RewardError(400, "unexpected_fields");
+  const expected = parseRewardDraft(row.expected);
+  if (!Number.isSafeInteger(row.inventoryRemaining) || (row.inventoryRemaining as number) < 1 || (row.inventoryRemaining as number) > 100000) throw new RewardError(400, "invalid_reward_inventory");
+  const reference = row.fulfillmentReference;
+  if (typeof reference !== "string" || reference.length < 10 || reference.length > 500 || reference !== reference.trim()) throw new RewardError(400, "invalid_reward_evidence");
+  let url: URL;
+  try { url = new URL(reference); } catch { throw new RewardError(400, "invalid_reward_evidence"); }
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || !url.hostname.includes(".") || url.hostname.endsWith(".local") || /^\d+(?:\.\d+){3}$/.test(url.hostname) || url.hostname.startsWith("[") || url.href !== reference) throw new RewardError(400, "invalid_reward_evidence");
+  return { expected, inventoryRemaining: row.inventoryRemaining as number, fulfillmentReference: reference };
+}
+
+export function rewardPublicationEnabled(flags: { publication?: string; admin?: string; rewards?: string; fulfillment?: string; policyReference?: string }, schemaReady: boolean): boolean {
+  return schemaReady && flags.publication === "true" && flags.admin === "true" && flags.rewards === "true" && flags.fulfillment === "true"
+    && typeof flags.policyReference === "string" && /^[A-Za-z0-9_:/.-]{10,120}$/.test(flags.policyReference);
+}
 export function parseRewardDraft(value: unknown): RewardDraft {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new RewardError(400, "invalid_reward");
   const row = value as Record<string, unknown>;
@@ -80,6 +99,34 @@ export async function editRewardDraft(pool: Pool, id: string, expected: RewardDr
     RETURNING id,title,description,cost,active`, [id,expected.title,input.title,input.description,input.cost,expected.description,expected.cost]);
   if (!result.rows[0]) throw new RewardError(409, "reward_changed_or_unavailable");
   return result.rows[0];
+}
+
+export async function publishRewardDraft(pool: Pool, actorId: string, id: string, input: RewardPublication) {
+  if (!uuidPattern.test(id)) throw new RewardError(400, "invalid_reward_id");
+  return transaction(pool, async client => {
+    const actor = await client.query("SELECT role FROM users WHERE clerk_user_id=$1 FOR SHARE", [actorId]);
+    if (actor.rows[0]?.role !== "admin") throw new RewardError(403, "admin_required");
+    const prior = await client.query("SELECT id,title,description,cost,active,inventory_remaining,fulfillment_reference,validated_by,validated_at FROM rewards WHERE id=$1 FOR UPDATE", [id]);
+    const row = prior.rows[0];
+    if (!row) throw new RewardError(404, "reward_not_found");
+    if (row.title !== input.expected.title || row.description !== input.expected.description || row.cost !== input.expected.cost) throw new RewardError(409, "reward_changed_or_unavailable");
+    if (row.active || row.validated_at || row.validated_by || row.fulfillment_reference) {
+      // Retrying a successful publication must NEVER replenish inventory after
+      // redemptions, including an exhausted reward that became inactive.
+      if (row.active && row.validated_at && row.validated_by === actorId && row.fulfillment_reference === input.fulfillmentReference && row.inventory_remaining === input.inventoryRemaining) {
+        return { replayed: true, reward: { id: row.id, title: row.title, description: row.description, cost: row.cost, active: true, inventoryRemaining: row.inventory_remaining, fulfillmentDocumented: true, validationRecorded: true } };
+      }
+      throw new RewardError(409, "reward_already_validated");
+    }
+    const updated = await client.query(`UPDATE rewards SET inventory_remaining=$2, fulfillment_reference=$3, validated_by=$4,
+      validated_at=now(), active=true, updated_at=now()
+      WHERE id=$1 AND active=false AND validated_at IS NULL AND validated_by IS NULL AND fulfillment_reference IS NULL
+      RETURNING id,title,description,cost,active,inventory_remaining AS "inventoryRemaining",
+        fulfillment_reference IS NOT NULL AS "fulfillmentDocumented",validated_at IS NOT NULL AS "validationRecorded"`,
+      [id, input.inventoryRemaining, input.fulfillmentReference, actorId]);
+    if (!updated.rows[0]) throw new RewardError(409, "reward_changed_or_unavailable");
+    return { replayed: false, reward: updated.rows[0] };
+  });
 }
 
 export async function redeemReward(pool: Pool, userId: string, rewardId: string, key: unknown) {

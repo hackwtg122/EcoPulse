@@ -1,7 +1,8 @@
 export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean };
 export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled" };
-export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canFulfill: boolean; schemaReady: boolean };
+export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean };
 export type RewardDraftInput = { title: string; description: string; cost: number };
+export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number; fulfillmentReference: string };
 export type PointMovement = { id: string; delta: number; kind: "delivery" | "redemption" | "adjustment"; createdAt: string };
 
 export class RewardApiError extends Error {
@@ -87,13 +88,19 @@ export async function loadPointMovements(apiUrl: string, token: string, signal: 
 export async function loadRewardCapabilities(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<RewardCapabilities> {
   const row = object(await call(apiUrl, token, "rewards/capabilities", signal, undefined, fetchImpl));
   if (typeof row.canRedeem !== "boolean" || typeof row.canManageDrafts !== "boolean" || typeof row.canFulfill !== "boolean" || typeof row.schemaReady !== "boolean") throw new RewardApiError(502, "invalid_reward_capabilities");
-  return { canRedeem: row.canRedeem, canManageDrafts: row.canManageDrafts, canFulfill: row.canFulfill, schemaReady: row.schemaReady };
+  if (row.canPublish !== undefined && typeof row.canPublish !== "boolean") throw new RewardApiError(502, "invalid_reward_capabilities");
+  return { canRedeem: row.canRedeem, canManageDrafts: row.canManageDrafts, canPublish: row.canPublish === true, canFulfill: row.canFulfill, schemaReady: row.schemaReady };
 }
 export async function createRewardDraft(apiUrl: string, token: string, input: RewardDraftInput, key: string, signal: AbortSignal, fetchImpl?: typeof fetch) {
   return reward(object(await call(apiUrl, token, "admin/rewards", signal, { method: "POST", body: input, key }, fetchImpl)));
 }
 export async function updateRewardDraft(apiUrl: string, token: string, id: string, expected: RewardDraftInput, next: RewardDraftInput, signal: AbortSignal, fetchImpl?: typeof fetch) {
   return reward(object(await call(apiUrl, token, `admin/rewards/${encodeURIComponent(id)}`, signal, { method: "PATCH", body: { expected, next } }, fetchImpl)));
+}
+export async function publishRewardDraft(apiUrl: string, token: string, id: string, input: RewardPublicationInput, signal: AbortSignal, fetchImpl?: typeof fetch) {
+  const result = reward(object(await call(apiUrl, token, `admin/rewards/${encodeURIComponent(id)}/publish`, signal, { method: "POST", body: input }, fetchImpl)));
+  if (result.id !== id || result.active !== true || result.validationRecorded !== true || result.fulfillmentDocumented !== true || !Number.isSafeInteger(result.inventoryRemaining) || (result.inventoryRemaining as number) < 1) throw new RewardApiError(502, "invalid_reward_publication_response");
+  return result;
 }
 export async function redeemReward(apiUrl: string, token: string, rewardId: string, key: string, signal: AbortSignal, fetchImpl?: typeof fetch) {
   return object(await call(apiUrl, token, "redemptions", signal, { method: "POST", body: { rewardId }, key }, fetchImpl));

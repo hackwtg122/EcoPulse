@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRewardDraft, fulfillRedemption, loadAdminRedemptions, loadAdminRewards, loadPointMovements, loadRedemptions, loadRewardBalance, loadRewardCapabilities, loadRewards, RewardApiError } from "./reward-api.ts";
+import { createRewardDraft, fulfillRedemption, publishRewardDraft, loadAdminRedemptions, loadAdminRewards, loadPointMovements, loadRedemptions, loadRewardBalance, loadRewardCapabilities, loadRewards, RewardApiError } from "./reward-api.ts";
 
 function mock(routes) {
   const requests=[];
@@ -25,7 +25,20 @@ test("rewards client reads only authenticated server data", async () => {
   assert.equal(await loadRewardBalance(...args),0);
   assert.equal((await loadRewardCapabilities(...args)).canRedeem,false);
   assert.equal((await loadRewardCapabilities(...args)).canFulfill,false);
+  assert.equal((await loadRewardCapabilities(...args)).canPublish,false);
   assert.ok(requests.every(row => row.options.headers.Authorization === "Bearer test-token" && row.options.cache === "no-store"));
+});
+test("publication sends a draft snapshot and cannot show success without persisted validation", async () => {
+  const id="00000000-0000-4000-8000-000000000001";
+  const input={expected:{title:"Test",description:"Mock only",cost:20},inventoryRemaining:3,fulfillmentReference:"https://example.org/test-evidence"};
+  const body={id,...input.expected,active:true,inventoryRemaining:3,validationRecorded:true,fulfillmentDocumented:true};
+  const {fetcher,requests}=mock({[`/api/pilot/admin/rewards/${id}/publish`]:body});
+  const result=await publishRewardDraft("https://ecopulse-3xb4.onrender.com","mock-token",id,input,new AbortController().signal,fetcher);
+  assert.equal(result.active,true);
+  assert.equal(requests[0].options.method,"POST");
+  assert.deepEqual(JSON.parse(requests[0].options.body),input);
+  const invalid=mock({[`/api/pilot/admin/rewards/${id}/publish`]:{...body,validationRecorded:false}});
+  await assert.rejects(publishRewardDraft("https://ecopulse-3xb4.onrender.com","mock-token",id,input,new AbortController().signal,invalid.fetcher),{code:"invalid_reward_publication_response"});
 });
 test("draft creation sends only permitted fields and one idempotency key", async () => {
   const id="123e4567-e89b-42d3-a456-426614174000";

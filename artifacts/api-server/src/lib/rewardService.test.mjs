@@ -1,6 +1,65 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RewardError, parseRewardDraft, rewardIdForKey, redemptionActionsEnabled } from "./rewardService.ts";
+import { RewardError, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, rewardIdForKey, redemptionActionsEnabled } from "./rewardService.ts";
+
+const draft = { title: "Test reward", description: "Mock fixture only", cost: 20 };
+const publication = { expected: draft, inventoryRemaining: 5, fulfillmentReference: "https://example.org/test-fulfillment" };
+const rewardId = "00000000-0000-4000-8000-000000000001";
+function publicationPool(row, actorRole = "admin") {
+  const queries = [];
+  return { queries, async connect() { return { release() {}, async query(text, params) {
+    queries.push(text);
+    if (["BEGIN", "COMMIT", "ROLLBACK"].includes(text)) return { rows: [] };
+    if (text.startsWith("SELECT role FROM users")) return { rows: [{ role: actorRole }] };
+    if (text.startsWith("SELECT id,title")) return { rows: row ? [row] : [] };
+    if (text.startsWith("UPDATE rewards SET inventory_remaining")) {
+      assert.deepEqual(params, [rewardId, 5, publication.fulfillmentReference, "user_TestAdmin"]);
+      return { rows: [{ ...draft, id: rewardId, active: true, inventoryRemaining: 5, fulfillmentDocumented: true, validationRecorded: true }] };
+    }
+    throw new Error("unexpected_mock_query");
+  } }; } };
+}
+test("publication requires inventory, exact draft and public HTTPS evidence; actor fields are forbidden", () => {
+  assert.deepEqual(parseRewardPublication(publication), publication);
+  for (const body of [{ ...publication, inventoryRemaining: 0 }, { ...publication, inventoryRemaining: 100001 },
+    { ...publication, inventoryRemaining: 1.1 }, { ...publication, validatedBy: "user_Other" },
+    { ...publication, expected: undefined }, { ...publication, fulfillmentReference: "academic:fixture" },
+    { ...publication, fulfillmentReference: "https://user:secret@example.org/test" },
+    { ...publication, fulfillmentReference: "https://127.0.0.1/test" }, { ...publication, fulfillmentReference: "https://example.local/test" }]) {
+    assert.throws(() => parseRewardPublication(body), error => error instanceof RewardError && error.status === 400);
+  }
+});
+test("publication stays closed without an explicit flag, approved policy and every prerequisite", () => {
+  const flags = { publication: "true", admin: "true", rewards: "true", fulfillment: "true", policyReference: "approved-test-policy" };
+  assert.equal(rewardPublicationEnabled(flags, true), true);
+  assert.equal(rewardPublicationEnabled(flags, false), false);
+  for (const field of Object.keys(flags)) assert.equal(rewardPublicationEnabled({ ...flags, [field]: undefined }, true), false);
+});
+test("publication locks actor and draft and commits persisted validation atomically", async () => {
+  const pool = publicationPool({ ...draft, id: rewardId, active: false, inventory_remaining: null, fulfillment_reference: null, validated_by: null, validated_at: null });
+  const result = await publishRewardDraft(pool, "user_TestAdmin", rewardId, parseRewardPublication(publication));
+  assert.equal(result.reward.active, true);
+  assert.equal(result.replayed, false);
+  assert.ok(pool.queries[1].includes("FOR SHARE"));
+  assert.ok(pool.queries[2].includes("FOR UPDATE"));
+  assert.equal(pool.queries.at(-1), "COMMIT");
+});
+test("retry never replenishes depleted inventory or republishes an exhausted reward", async () => {
+  for (const active of [true, false]) {
+    const pool = publicationPool({ ...draft, id: rewardId, active, inventory_remaining: 0, fulfillment_reference: publication.fulfillmentReference, validated_by: "user_TestAdmin", validated_at: new Date() });
+    await assert.rejects(publishRewardDraft(pool, "user_TestAdmin", rewardId, publication), error => error.code === "reward_already_validated");
+    assert.ok(!pool.queries.some(q => q.startsWith("UPDATE")));
+    assert.equal(pool.queries.at(-1), "ROLLBACK");
+  }
+});
+test("unchanged published reward replays without UPDATE, demoted actor and changed draft are rejected", async () => {
+  const row = { ...draft, id: rewardId, active: true, inventory_remaining: 5, fulfillment_reference: publication.fulfillmentReference, validated_by: "user_TestAdmin", validated_at: new Date() };
+  const replay = publicationPool(row);
+  assert.equal((await publishRewardDraft(replay, "user_TestAdmin", rewardId, publication)).replayed, true);
+  assert.ok(!replay.queries.some(q => q.startsWith("UPDATE")));
+  await assert.rejects(publishRewardDraft(publicationPool(row, "participant"), "user_TestAdmin", rewardId, publication), error => error.code === "admin_required");
+  await assert.rejects(publishRewardDraft(publicationPool({ ...row, cost: 50 }), "user_TestAdmin", rewardId, publication), error => error.code === "reward_changed_or_unavailable");
+});
 
 test("reward drafts reject extra fields and invalid cost", () => {
   assert.deepEqual(parseRewardDraft({ title: "  Semillas  ", description: "  Convenio validado  ", cost: 20 }),

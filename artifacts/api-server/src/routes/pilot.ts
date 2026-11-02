@@ -7,7 +7,7 @@ import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } fro
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
 import { canManageCatalog, CatalogError, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointEdit, parseSlotEdit, parseValidationReference, updateActiveSlotCapacity, updateDraftPoint, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
-import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, listReservedRedemptions, parseRewardDraft, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
+import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { guideAccountDetails } from "../lib/aiGuideCore";
@@ -617,12 +617,15 @@ router.post("/deliveries/:id/verify", async (req, res) => {
 router.get("/rewards/capabilities", async (_req, res) => {
   const pool = await databasePool();
   const schemaReady = await hasRewardFulfillmentSchema(pool);
-  const privileges = await pool.query<{ draft_insert: boolean }>("SELECT has_column_privilege(current_user,'public.rewards','title','INSERT') AS draft_insert");
+  const privileges = await pool.query<{ draft_insert: boolean; publication_update: boolean }>(`SELECT has_column_privilege(current_user,'public.rewards','title','INSERT') AS draft_insert,
+    ${schemaReady ? "(SELECT bool_and(has_column_privilege(current_user,'public.rewards',c,'UPDATE')) FROM unnest(ARRAY['active','inventory_remaining','fulfillment_reference','validated_by','validated_at','updated_at']) AS cols(c))" : "false"} AS publication_update`);
   return res.json({
     canRedeem: redemptionActionsEnabled({ rewards: process.env.PILOT_REWARDS_ENABLED, points: process.env.PILOT_POINTS_ENABLED,
       fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, schemaReady),
     canManageDrafts: res.locals.role === "admin" && process.env.PILOT_REWARD_ADMIN_ENABLED === "true" && privileges.rows[0]?.draft_insert === true,
-    canFulfill: res.locals.role === "admin" && process.env.PILOT_REWARD_FULFILLMENT_ENABLED === "true" && process.env.PILOT_REWARDS_ENABLED === "true",
+    canPublish: res.locals.role === "admin" && privileges.rows[0]?.publication_update === true && rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED,
+      admin: process.env.PILOT_REWARD_ADMIN_ENABLED, rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, schemaReady),
+    canFulfill: schemaReady && res.locals.role === "admin" && process.env.PILOT_REWARD_FULFILLMENT_ENABLED === "true" && process.env.PILOT_REWARDS_ENABLED === "true",
     schemaReady,
   });
 });
@@ -657,6 +660,16 @@ router.patch("/admin/rewards/:id", async (req, res) => {
   const pool = await databasePool();
   const result = await editRewardDraft(pool, String(req.params.id), parseRewardDraft(req.body.expected), parseRewardDraft(req.body.next));
   return res.json(result);
+});
+router.post("/admin/rewards/:id/publish", async (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  const pool = await databasePool();
+  if (!rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED, admin: process.env.PILOT_REWARD_ADMIN_ENABLED,
+    rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED,
+    policyReference: process.env.REWARD_POLICY_REFERENCE }, await hasRewardFulfillmentSchema(pool))) return res.status(503).json({ error: "reward_publication_disabled" });
+  const result = await publishRewardDraft(pool, res.locals.userId, String(req.params.id), parseRewardPublication(req.body));
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.json(result.reward);
 });
 router.get("/redemptions", async (_req, res) => {
   const pool = await databasePool();
