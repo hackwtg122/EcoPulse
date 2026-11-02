@@ -2,7 +2,90 @@
 
 ## Veredicto: NO TERMINADO
 
+## Estado vigente tras Actions #3 (las notas inferiores son históricas)
+
+Run **41522011151**, #3 SUCCESS, SHA
+**2ab7b490326a0d3c2fa94dbeec66f6369d87f5e7**. Confirmado por jobs/logs reales y
+GET `/api/version`; Netlify published deploy `6ae8f64076b01a1157c44276`, mismo SHA.
+44 denegaciones anónimas y 21/21 pruebas públicas. No se repitió la auditoría
+pública ni la configuración CI/CD. El workflow remoto ya tiene timeout25min.
+
+| Función / alcance exacto | Estado vigente | Qué falta |
+|---|---|---|
+| CI/CD, Live+health+versión, ambos SHA | PASS | Evidencia de #3, no implica flujos privados |
+| Páginas públicas y búsqueda/ficha materiales | PASS | 21/21 Playwright, alcance público |
+| Denegación anónima de 44 métodos/endpoints | PASS | No acredita 200/403 entre roles autenticados |
+| Registro y perfil automático nuevo | BLOCKED | Identidad/inbox de registro de prueba y alta delimitada |
+| Login por rol, sesiones, reload, logout | BLOCKED | `PRODUCTION_QA_ACCOUNTS` ausente; nueva suite preparada, no ejecutada |
+| Recuperación, MFA, expiración de sesión | BLOCKED | Factores/inbox y flujo de prueba autorizado; no desactivar seguridad |
+| Perfil: leer/guardar y persistencia | BLOCKED | Cuenta de prueba; guardar queda fuera de suite de lectura |
+| Dashboard y refresh | BLOCKED | GET privados con sesión válida y cuenta aislada |
+| Mapa, filtros, geolocalización y centros | BLOCKED | Sesión y E2E privado; page_load no prueba todas sus acciones |
+| Favoritos: leer/crear/quitar/persistir | BLOCKED | Cuenta y registros de prueba delimitados |
+| EcoScan manual e historial | BLOCKED | Escritura idempotente autorizada, no solo UI visible |
+| EcoScan y EcoGuía IA real | BLOCKED | Cuenta, consentimiento, proveedor gratuito/configuración y entrada autorizados |
+| Entregas, historial y eventos | BLOCKED | IDs/registros de prueba, sin duplicar centros/horarios |
+| Recepción/verificación y comprobantes | BLOCKED | Verificador aislado y acto físico autorizado |
+| EcoPuntos y saldo contable | BLOCKED | Política/evidencia física; no fabricar puntos |
+| EcoXP, misiones, racha, insignias | BLOCKED | Lecturas privadas y datos reales autorizados |
+| Recompensas, inventario, canjes/fulfillment | BLOCKED | Cuentas/fixtures sin valor real y política aprobada |
+| Catálogo y estadísticas admin | BLOCKED | Admin de prueba que no sea el último admin |
+| Usuarios y paginación | BLOCKED E2E | Paginación implementada con cursor; contrato probado con mocks |
+| Cambios de rol/auditoría/último admin | BLOCKED | 0004/permisos, respaldo restaurable y autorización específica; no se toca admin real |
+| Aislamiento de registros entre usuarios | BLOCKED | Dos usuarios/registros de prueba delimitados |
+| Publicación de recompensa | FAIL de implementación pendiente | No existe endpoint de publicación seguro; no activar con SQL |
+| Centro sin cita y seed histórico | FAIL pendiente | No ejecutar seed ni cambiar política sin validar el flujo |
+
+Acceso imprescindible agrupado: **`PRODUCTION_QA_ACCOUNTS`** en secretos Actions,
+con cuentas existentes, testOnly, perfil existente y rol asignado (no crear ni
+promover en el runner). Nuevo workflow manual privado preparado separado del
+CI/CD: `.github/workflows/production-private-qa.yml`; falta publicación autorizada
+por permiso workflow. Detalle/plantilla: `PRODUCTION_PRIVATE_QA.md`.
+
+Suite preparada: contextos aislados por rol, login real sin bypass MFA, 22 GET
+por rol y denegaciones200/403, carga privada, reload y logout. No exporta PII,
+tokens, contraseñas, screenshots, trazas o cookies; bloquea mutaciones API. Marca
+BLOCKED todo flujo no ejercitado, no obtiene PASS por mostrar una página.
+
+Corrección independiente: GET admin/users tenía límite200 sin continuación;
+ahora cursor validado, orden estable,200+1, nextCursor y botón Cargar más con
+deduplicación. No se crean usuarios para simular200 filas. Tests de contrato
+frontend y política fixture: **20/20 PASS con mocks**; tsc API/frontend exit0.
+No es aún verificación funcional autenticada en producción.
+
+## Historial preservado de etapas anteriores
+
 ### Actualización de desbloqueo (posterior a la entrega inicial)
+
+#### Resultado posterior: corrida real PASS de a2cf355
+
+- GitHub Actions run **41521102043** success:
+  https://github.com/hackwtg122/EcoPulse/actions/runs/41521102043.
+  role-policy, deploy-render, public-api y public-browser success; Neon omitido
+  deliberadamente. No se consultó ni modificó Neon en este bloque.
+- Render deploy **dep-dbkf9qk9v7es73bthj1g** Live y runtime verificado. GET real
+  `/api/version` ahora devuelve `service=ecopulse-api`,
+  `commit=a2cf3558c03375b9eb7c8d4aa331c58796d50ffb`; health 200, CORS y 404 JSON
+  aprobados. Se resuelve el 404 observado; no atribuir una causa interna concreta
+  al proveedor sin logs del artefacto anterior. La corrección asegura identidad
+  del bundle compilado/arrancado y verifica el endpoint real antes de PASS.
+- Netlify published deploy **6ae8f4d32dfb053e0c6f55d2**, ready con el MISMO SHA
+  completo; confirmado por API después de la corrida.
+- Denegación anónima de **44 endpoints/métodos PASS** (401), no autorización ni
+  CRUD autenticados. Playwright público **21/21 PASS**, tres tamaños y flujo de
+  materiales. No confundir estas pruebas con los flujos privados aún BLOCKED.
+- El deploy tardó ~76 s hasta Live en esta corrida y pasó dentro del workflow
+  remoto todavía limitado a12 min. Para soportar builds de hasta20 min sigue
+  pendiente aplicar el diff del workflow (deploy-render timeout25 min).
+- Estos resultados reemplazan los bloqueos de versión/QA público anteriores;
+  cuentas/registros de prueba, auditoría0004 y flujos privados siguen pendientes.
+
+- Código corrector timeout/artefacto publicado en `a2cf355`. Cambio del workflow
+  conservado en commit local `b1f1d96`, rechazado por permiso workflow; diff exacto
+  publicado en `PRODUCTION_CI_WORKFLOW.patch`. Es imprescindible cambiar solo el
+  timeout de deploy-render a25 para soportar íntegramente los20min del script.
+  Corrida remota de a2cf355 en observación; versión404 previa aún NO declarada
+  resuelta. No se reejecutó el deploy dfdcb2f ni se creó una solicitud manual.
 
 - Corrección focalizada del run 41518313424: job role-policy remoto PASS;
   deploy-render agotó su bucle de 35×15 s (log 20:20:51→20:29:41), no su límite
