@@ -39,6 +39,7 @@ export function AdminUsersPanel({ role }: { role: string | undefined }) {
   const currentUserId = user?.id ?? "";
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [adminCount, setAdminCount] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -46,7 +47,7 @@ export function AdminUsersPanel({ role }: { role: string | undefined }) {
   const [savingId, setSavingId] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (after: string | null = null) => {
     if (role !== "admin") { setStatus("error"); setError("admin_required"); return; }
     controllerRef.current?.abort();
     const controller = new AbortController();
@@ -56,10 +57,13 @@ export function AdminUsersPanel({ role }: { role: string | undefined }) {
     try {
       const token = await getToken();
       if (!token) throw new PilotApiError(401, "session_required");
-      const payload = await loadAdminUsers(apiUrl, token, controller.signal);
+      const payload = await loadAdminUsers(apiUrl, token, controller.signal, fetch, after);
       if (!controller.signal.aborted) {
-        setUsers(payload.users);
+        setUsers(previous => after
+          ? [...new Map([...previous, ...payload.users].map(row => [row.clerkUserId, row])).values()]
+          : payload.users);
         setAdminCount(payload.adminCount);
+        setNextCursor(payload.nextCursor);
         setStatus("ready");
       }
     } catch (caught) {
@@ -75,7 +79,7 @@ export function AdminUsersPanel({ role }: { role: string | undefined }) {
   }, [refresh]);
 
   const changeRole = async (target: AdminUser, nextRole: AdminUserRole) => {
-    if (savingId || target.role === nextRole) return;
+    if (savingId || status !== "ready" || target.role === nextRole) return;
     if (!window.confirm(`¿Cambiar ${target.clerkUserId} de ${roleLabels[target.role]} a ${roleLabels[nextRole]}?`)) return;
     const controller = new AbortController();
     setSavingId(target.clerkUserId);
@@ -162,6 +166,7 @@ export function AdminUsersPanel({ role }: { role: string | undefined }) {
         </li>;
       })}
     </ul>
+    {nextCursor && <button type="button" disabled={status === "loading" || Boolean(savingId)} onClick={() => void refresh(nextCursor)} className="mt-4 min-h-11 rounded-full border border-[hsl(var(--border))] px-5 py-2 text-sm font-semibold disabled:opacity-50" data-testid="button-load-more-admin-users">Cargar más cuentas</button>}
     {status === "ready" && users.length === 0 && <p className="py-6 text-center text-sm text-[hsl(var(--muted-foreground))]">Aún no hay cuentas registradas.</p>}
   </section>;
 }

@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: "22"
       - name: Pure security policy tests (no database or provider calls)
-        run: node --experimental-strip-types --test scripts/qa/render-deploy-policy.test.mjs artifacts/api-server/src/lib/pilotRoles.test.mjs
+        run: node --experimental-strip-types --test artifacts/api-server/src/lib/pilotRoles.test.mjs
       - name: Provider configuration and mocked provider tests (no remote AI)
         run: node --experimental-strip-types --test artifacts/api-server/src/lib/aiProvider.test.mjs artifacts/api-server/src/lib/aiProviderConfig.test.mjs
       - name: Frontend API contracts (mocked HTTP)

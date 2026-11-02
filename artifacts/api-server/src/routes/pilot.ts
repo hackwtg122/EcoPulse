@@ -699,16 +699,23 @@ router.post("/admin/redemptions/:id/fulfill", async (req, res) => {
 // unit-tested. The read/write happen inside a transaction that locks the current
 // administrator rows, otherwise two concurrent demotions could both believe a
 // second administrator still existed and leave the system with none.
-router.get("/admin/users", async (_req, res) => {
+router.get("/admin/users", async (req, res) => {
   if (!canManageUsers(res.locals.role)) return res.status(403).json({ error: "admin_required" });
+  const after = req.query.after;
+  if (after !== undefined && (typeof after !== "string" || !clerkUserIdPattern.test(after))) {
+    return res.status(400).json({ error: "invalid_user_cursor" });
+  }
   const pool = await databasePool();
   const [rows, admins] = await Promise.all([
     pool.query<{ clerkUserId: string; role: string; createdAt: string }>(
       `SELECT clerk_user_id AS "clerkUserId", role, created_at AS "createdAt"
-       FROM users ORDER BY created_at DESC, clerk_user_id LIMIT 200`),
+       FROM users WHERE ($1::text IS NULL OR clerk_user_id > $1)
+       ORDER BY clerk_user_id LIMIT 201`, [after ?? null]),
     pool.query<{ total: number }>("SELECT count(*)::integer AS total FROM users WHERE role = 'admin'"),
   ]);
-  return res.json({ users: rows.rows, adminCount: admins.rows[0]?.total ?? 0 });
+  const page = rows.rows.slice(0, 200);
+  return res.json({ users: page, adminCount: admins.rows[0]?.total ?? 0,
+    nextCursor: rows.rows.length > 200 ? page.at(-1)?.clerkUserId ?? null : null });
 });
 
 router.patch("/admin/users/:clerkUserId/role", async (req, res) => {

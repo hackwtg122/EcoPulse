@@ -16,6 +16,18 @@ test("admin users validate roles and counts without retaining identity fields", 
     async () => response({ ...payload, adminCount: -1 })), /invalid_admin_count/);
 });
 
+test("admin users can traverse pages and reject malformed continuation cursors", async () => {
+  const url = "https://ecopulse-3xb4.onrender.com";
+  const signal = new AbortController().signal;
+  const result = await loadAdminUsers(url, "mock-token", signal, async (endpoint, options) => {
+    assert.equal(endpoint, `${url}/api/pilot/admin/users?after=user_Page123`);
+    assert.equal(options.cache, "no-store");
+    return response({ users: [], adminCount: 2, nextCursor: "user_Next456" });
+  }, "user_Page123");
+  assert.equal(result.nextCursor, "user_Next456");
+  await assert.rejects(loadAdminUsers(url, "mock-token", signal, async () => response({ users: [], adminCount: 2, nextCursor: "../invalid" })), /invalid_admin_users_cursor/);
+});
+
 test("admin role writes require an audited success and preserve server denials", async () => {
   const url = "https://ecopulse-3xb4.onrender.com";
   const signal = new AbortController().signal;

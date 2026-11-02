@@ -579,7 +579,7 @@ export async function loadPilotDashboardData(
 
 export type AdminUserRole = "participant" | "verifier" | "admin";
 export type AdminUser = { clerkUserId: string; role: AdminUserRole; createdAt: string };
-export type AdminUsersPayload = { users: AdminUser[]; adminCount: number };
+export type AdminUsersPayload = { users: AdminUser[]; adminCount: number; nextCursor: string | null };
 
 function parseAdminUser(row: Record<string, unknown>): AdminUser {
   const role = requireString(row.role, "admin_user_role");
@@ -596,8 +596,9 @@ export async function loadAdminUsers(
   token: string,
   signal: AbortSignal,
   fetchImplementation: FetchImplementation = fetch,
+  after: string | null = null,
 ): Promise<AdminUsersPayload> {
-  const response = await fetchImplementation(`${apiUrl}/api/pilot/admin/users`, {
+  const response = await fetchImplementation(`${apiUrl}/api/pilot/admin/users${after ? `?after=${encodeURIComponent(after)}` : ""}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
     signal,
@@ -606,7 +607,11 @@ export async function loadAdminUsers(
   const body = requireObject(await response.json(), "admin_users");
   const users = requireArray(body.users, "admin_users").map(parseAdminUser);
   if (!Number.isSafeInteger(body.adminCount) || (body.adminCount as number) < 0) throw new PilotApiError(502, "invalid_admin_count");
-  return { users, adminCount: body.adminCount as number };
+  const nextCursor = body.nextCursor ?? null;
+  if (nextCursor !== null && (typeof nextCursor !== "string" || !/^user_[A-Za-z0-9]{3,64}$/.test(nextCursor))) {
+    throw new PilotApiError(502, "invalid_admin_users_cursor");
+  }
+  return { users, adminCount: body.adminCount as number, nextCursor };
 }
 
 export async function updateAdminUserRole(
