@@ -183,7 +183,7 @@ export async function updateDraftSlot(pool: Pool, id: string, input: Omit<DraftS
 export async function validateCatalogPoint(pool: Pool, id: string, actorId: string, reference: string) {
   try {
     const result = await pool.query(`UPDATE delivery_points SET validation_reference = $3, validated_by = $2, validated_at = now(), active = true
-      WHERE id = $1 AND active = false AND appointment_required = true RETURNING id, code, name, address, municipality, active, validation_reference AS "validationReference", validated_at AS "validatedAt"`, [id, actorId, reference]);
+      WHERE id = $1 AND active = false RETURNING id, code, name, address, municipality, active, validation_reference AS "validationReference", validated_at AS "validatedAt"`, [id, actorId, reference]);
     if (result.rowCount) return { point: result.rows[0], replayed: false };
     const existing = await pool.query(`SELECT id, code, name, address, municipality, active, validation_reference AS "validationReference", validated_by AS "validatedBy", validated_at AS "validatedAt" FROM delivery_points WHERE id = $1`, [id]);
     if (existing.rows[0]?.active && existing.rows[0].validatedBy === actorId && existing.rows[0].validationReference === reference) return { point: existing.rows[0], replayed: true };

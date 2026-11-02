@@ -403,6 +403,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
             {selectedPoint && <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{selectedPoint.address}, {selectedPoint.municipality}</p>}
           </div>
 
+          {selectedPoint && !selectedPoint.appointmentRequired && <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]" data-testid="walk-in-delivery-notice">Centro sin cita: esta solicitud queda pendiente y no reserva horario ni garantiza recepción. Confirma la atención con el centro.</p>}
           {selectedPoint?.appointmentRequired && <div>
             <label htmlFor="delivery-slot" className="text-sm font-bold">3. Horario disponible</label>
             <div className="relative mt-2"><CalendarClock className="pointer-events-none absolute left-3 top-3.5 text-[hsl(var(--muted-foreground))]" size={18} /><select id="delivery-slot" value={selectedSlotId} onChange={(event) => setSelectedSlotId(event.target.value)} required className="min-h-12 w-full appearance-none rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] py-3 pl-10 pr-4 text-sm"><option value="">Selecciona un horario</option>{selectedPoint.slots.map((slot) => <option key={slot.id} value={slot.id}>{formatDate(slot.startsAt)} · {slot.remainingCapacity} cupo{slot.remainingCapacity === 1 ? "" : "s"}</option>)}</select></div>

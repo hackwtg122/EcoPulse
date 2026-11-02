@@ -7,10 +7,37 @@ import {
   hashDeliveryIdempotencyKey,
   loadDeliveryOptions,
   parseDetailedDeliveryInput,
+  validateAppointmentSelection,
 } from "./deliveryDetails.ts";
 
 const pointId = "00000000-0000-5000-8000-000000000010";
 const slotId = "00000000-0000-5000-8000-000000000011";
+
+test("appointment selection follows the actual destination trigger without promising walk-in capacity", () => {
+  assert.doesNotThrow(() => validateAppointmentSelection(false, null));
+  assert.doesNotThrow(() => validateAppointmentSelection(true, slotId));
+  assert.throws(() => validateAppointmentSelection(true, null), error => error.code === "delivery_slot_required");
+  assert.throws(() => validateAppointmentSelection(false, slotId), error => error.code === "delivery_slot_not_applicable");
+});
+
+test("a validated walk-in center enables detailed requests without a slot", async () => {
+  const mode = process.env.EVALUATION_MODE_ENABLED;
+  delete process.env.EVALUATION_MODE_ENABLED;
+  try {
+    const options = await loadDeliveryOptions({ async query(text) {
+      if (text.includes("to_regclass")) return { rows: [{ ready: true }] };
+      if (text.includes("SELECT code FROM material_categories")) return { rows: [{ code: "paper" }] };
+      if (text.includes("FROM delivery_points")) return { rows: [{ id: pointId, code: "test-walk-in", name: "Test", address: "Test", municipality: "Test", time_zone: "America/Bogota", appointment_required: false }] };
+      if (text.includes("FROM delivery_slots")) return { rows: [] };
+      throw new Error("unexpected_mock_query");
+    } }, true);
+    assert.equal(options.enabled, true);
+    assert.equal(options.points[0].appointmentRequired, false);
+    assert.deepEqual(options.points[0].slots, []);
+  } finally {
+    if (mode === undefined) delete process.env.EVALUATION_MODE_ENABLED; else process.env.EVALUATION_MODE_ENABLED = mode;
+  }
+});
 
 test("delivery details require an exact and bounded payload", () => {
   const parsed = parseDetailedDeliveryInput({

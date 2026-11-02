@@ -238,7 +238,7 @@ export async function loadDeliveryOptions(
     ...(materialResult ? { materials: materialsByPoint.get(row.id) ?? [] } : {}),
     slots: slotsByPoint.get(row.id) ?? [],
   }));
-  const configured = categories.length > 0 && points.some((point) => point.appointmentRequired && point.slots.length > 0);
+  const configured = categories.length > 0 && points.some((point) => !point.appointmentRequired || point.slots.length > 0);
   return {
     mode: "detailed",
     enabled: configured,
@@ -399,6 +399,11 @@ export async function createLegacyDelivery(
   return { delivery, replayed: created.rowCount === 0 };
 }
 
+export function validateAppointmentSelection(appointmentRequired: boolean, slotId: string | null) {
+  if (appointmentRequired && !slotId) throw new DeliveryRequestError(409, "delivery_slot_required");
+  if (!appointmentRequired && slotId) throw new DeliveryRequestError(409, "delivery_slot_not_applicable");
+}
+
 export async function createDetailedDelivery(
   pool: Pool,
   userId: string,
@@ -458,10 +463,9 @@ export async function createDetailedDelivery(
         throw new DeliveryRequestError(409, "material_category_unavailable");
       }
     }
-    // Every V2 request needs a capacity-limited, validated time slot.
-    if (!point.appointment_required || !input.slotId) {
-      throw new DeliveryRequestError(409, "delivery_slot_required");
-    }
+    // Matches the existing DB trigger: appointment centers need validated
+    // capacity, walk-ins create only a pending request, not an appointment.
+    validateAppointmentSelection(point.appointment_required, input.slotId);
 
     if (input.slotId) {
       const slotResult = await client.query(`

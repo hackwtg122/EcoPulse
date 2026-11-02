@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canManageCatalog, CatalogError, parseDraftPoint, parseDraftSlot, parsePointEdit, parseSlotEdit, parseValidationReference } from "./deliveryCatalog.ts";
+import { canManageCatalog, CatalogError, parseDraftPoint, parseDraftSlot, parsePointEdit, parseSlotEdit, parseValidationReference, validateCatalogPoint } from "./deliveryCatalog.ts";
 
 const pointId = "00000000-0000-5000-8000-000000000010";
 const point = { code: "centro-prueba", name: "Centro comprobado", address: "Dirección comprobada", municipality: "Montería", timeZone: "America/Bogota", appointmentRequired: true };
 const now = new Date("2026-10-16T00:00:00Z");
+
+test("publishing a walk-in center does not incorrectly require appointment_required=true", async () => {
+  const result = await validateCatalogPoint({ async query(text, params) {
+    assert.ok(text.includes("active = false"));
+    assert.ok(!text.includes("appointment_required = true"));
+    assert.deepEqual(params, [pointId, "user_TestAdmin", "https://example.org/test-evidence"]);
+    return { rowCount: 1, rows: [{ id: pointId, active: true }] };
+  } }, pointId, "user_TestAdmin", "https://example.org/test-evidence");
+  assert.equal(result.replayed, false);
+});
 
 test("draft center validation excludes activation, roles and arbitrary fields", () => {
   assert.deepEqual(parseDraftPoint(point), point);
