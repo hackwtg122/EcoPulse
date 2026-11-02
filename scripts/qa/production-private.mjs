@@ -5,7 +5,7 @@ import { parseQAAccounts, qaRoles, commonReads, adminReads, verifierReads, priva
 const frontend = "https://ecopulseef.netlify.app";
 const api = "https://ecopulse-3xb4.onrender.com";
 const results = [];
-const report = (role, check, status, reason) => results.push({ role, check, status, ...(reason ? { reason } : {}) });
+const report = (role, check, status, reason, scope = "authenticated_reads_and_session") => results.push({ role, check, status, scope, ...(reason ? { reason } : {}) });
 let browser;
 async function readAccount(page, path, account) {
   expectedReadStatus(account.role, path); // rejects all non-allowlisted paths
@@ -89,7 +89,7 @@ async function run() {
         report(role, `GET ${path}`, response.status === expected && response.json ? "PASS" : "FAIL",
           response.status === expected && response.json ? undefined : `expected_${expected}_received_${response.status}`);
         if (path.endsWith("ai-capabilities") || path === "guide/capabilities") {
-          report(role, `${path}_real_inference`, "BLOCKED", response.aiEnabled ? "real_free_provider_call_and_input_not_authorized_by_this_read_suite" : "provider_capability_disabled");
+          report(role, `${path}_real_inference`, "BLOCKED", response.aiEnabled ? "real_free_provider_call_and_input_not_authorized_by_this_read_suite" : "provider_capability_disabled", "deferred_inference");
         }
       }
       const pages = [...privatePages, ...(role === "participant" ? [] : ["/admin"]), ...(role === "admin" ? ["/admin/users", "/admin/centers", "/admin/rewards"] : [])];
@@ -124,13 +124,14 @@ async function run() {
   }
   await assertVersion();
   for (const check of ["registration_and_profile_bootstrap", "password_recovery_and_mfa", "profile_mutation_persistence", "favorites_mutation_persistence", "manual_scan_persistence", "delivery_create_and_events", "physical_verification_and_points", "reward_publication_redemption_fulfillment", "role_changes_and_audit", "cross_user_record_isolation"]) {
-    report("all", check, "BLOCKED", "requires_separately_authorized_test_records_or_sensitive_operation");
+    report("all", check, "BLOCKED", "requires_separately_authorized_test_records_or_sensitive_operation", "deferred_write_flows");
   }
 }
 try { await run(); }
 catch { report("all", "private_suite_setup", "BLOCKED", "missing_or_invalid_authorized_fixtures_or_runner_configuration"); }
 finally { await browser?.close().catch(() => {}); }
 for (const result of results) console.log(JSON.stringify(result));
-const summary = { scope: "authenticated_reads_and_session_only", passed: results.filter(x => x.status === "PASS").length, failed: results.filter(x => x.status === "FAIL").length, blocked: results.filter(x => x.status === "BLOCKED").length };
+const tested = results.filter(x => x.scope === "authenticated_reads_and_session");
+const summary = { scope: "authenticated_reads_and_session_only", passed: tested.filter(x => x.status === "PASS").length, failed: tested.filter(x => x.status === "FAIL").length, blocked: tested.filter(x => x.status === "BLOCKED").length, deferredBlocked: results.filter(x => x.scope !== "authenticated_reads_and_session" && x.status === "BLOCKED").length, systemComplete: false };
 console.log(JSON.stringify(summary));
 if (summary.failed || summary.blocked) process.exitCode = 1;

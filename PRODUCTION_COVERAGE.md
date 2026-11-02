@@ -2,7 +2,51 @@
 
 ## Veredicto: NO TERMINADO
 
+## Correcciones de los tres FAIL — bloque en curso
+
+Causas contrastadas antes de editar con source y consulta **READ ONLY a Neon**:
+trigger `enforce_delivery_destination` admite slotNULL cuando no requiere cita;
+`guard_catalog_slot` rechaza solapamientos BEFORE INSERT; las cinco columnas de
+publicación de rewards existen y el trigger protege detalles publicados. Hay
+0 centros sin cita entre los8 actuales: el caso necesita un fixture autorizado,
+no se modificó uno real para probarlo. Auditoría0004 sigue ausente. No hay acceso
+de gestión Neon configurado para acreditar backups ni evidencia de restore probada.
+
+| Defecto | Corrección de código | Verificación real pendiente |
+|---|---|---|
+| Centro sin cita se podía crear pero no publicar/solicitar | Quitado filtro incorrecto en publicación, disponibilidad admite walk-ins, API exige slot solo donde corresponde; solicitud sin cita queda pendiente y no promete cupo | E2E con centro/cuenta QA y escritura autorizada |
+| Publicación de recompensas no existía | POST admin/rewards/:id/publish + formulario; inventario/evidencia/política, actor revalidado bajo lock, snapshot del borrador, retry sin reponer stock; bandera explícita default cerrada | Cuenta admin QA, política/fixture y reversión autorizados; no activación automática |
+| Seed promovía ID fijo y fallaba por trigger antes de ON CONFLICT | Sin usuarios/roles ni IDs Clerk; solo fixtures inactivos, fecha lunes explícita, lock compatible y NOT EXISTS de solapamiento antes del INSERT; filas existentes intactas | Ejecución SQL NO autorizada ni ejecutada; pruebas solo estáticas |
+
+Tests puros **28/28 PASS** (20 dominio API,6 cliente rewards,2 estructura seed).
+TypeScript API/frontend y builds PASS. Los builds ahora ejecutan respectivamente
+22 y6 tests sin DB; se comprueban también en los ejecutores de Render/Netlify sin
+cambiar el workflow CI/CD. No confundirlos con PASS de escritura en producción.
+Suite privada distingue lecturas/sesión de inferencias/escrituras aplazadas y
+siempre informa `systemComplete:false`. Plantilla/cuentas: PRODUCTION_PRIVATE_QA.md.
+Backup y autorización acotada, sin aplicar: AUDIT_BACKUP_APPROVAL.md.
+Se mantiene el inventario de44 originales más el endpoint nuevo de publicación
+(45 métodos privados en el router); no omitir el endpoint nuevo en la cobertura.
+
 ## Estado vigente tras Actions #3 (las notas inferiores son históricas)
+
+### Publicación posterior de la corrección privada preparada
+
+Commits **25da6b5** (paginación usuarios) y **b4cd8b13b07b7fdcdd64cee98a0576ebb814065d**
+(suite privada/guía) publicados. Actions **#4 / 41524727219 SUCCESS**:
+https://github.com/hackwtg122/EcoPulse/actions/runs/41524727219.
+Render deploy `dep-dbkflbqfngtc73f5nsq0`, Live+health+version/SHA verificados;
+Netlify deploy `6ae8fa7a44516a4b38852e5e`, mismo SHA b4cd8b1. Contratos frontend
+17/17 y políticas/proveedor remotos PASS; 21/21 pruebas públicas de CI PASS.
+No se lanzó una auditoría pública aparte: fue el pipeline normal del push.
+
+**Nada de esto acredita E2E privado.** Última comprobación de nombres/permisos:
+`PRODUCTION_QA_ACCOUNTS` ausente y workflow privado no publicado. Archivo exacto
+preservado en commit local **1ab0aa8**; push normal rechazado por scope workflow,
+sin eludirlo. Sigue la única configuración agrupada en `PRODUCTION_PRIVATE_QA.md`.
+La paginación está desplegada pero su aprobación funcional autenticada permanece
+BLOCKED. Ninguna cuenta, rol, punto, catálogo o fila Neon fue creada/modificada
+por estas comprobaciones de la sesión.
 
 Run **41522011151**, #3 SUCCESS, SHA
 **2ab7b490326a0d3c2fa94dbeec66f6369d87f5e7**. Confirmado por jobs/logs reales y
@@ -33,8 +77,8 @@ pública ni la configuración CI/CD. El workflow remoto ya tiene timeout25min.
 | Usuarios y paginación | BLOCKED E2E | Paginación implementada con cursor; contrato probado con mocks |
 | Cambios de rol/auditoría/último admin | BLOCKED | 0004/permisos, respaldo restaurable y autorización específica; no se toca admin real |
 | Aislamiento de registros entre usuarios | BLOCKED | Dos usuarios/registros de prueba delimitados |
-| Publicación de recompensa | FAIL de implementación pendiente | No existe endpoint de publicación seguro; no activar con SQL |
-| Centro sin cita y seed histórico | FAIL pendiente | No ejecutar seed ni cambiar política sin validar el flujo |
+| Publicación de recompensa | BLOCKED de E2E; código implementado | Endpoint/formulario nuevos con puerta explícita cerrada; no activar con SQL |
+| Centro sin cita y seed | BLOCKED de validación real | Inconsistencias corregidas; seed inactivo propuesto y NO ejecutado |
 
 Acceso imprescindible agrupado: **`PRODUCTION_QA_ACCOUNTS`** en secretos Actions,
 con cuentas existentes, testOnly, perfil existente y rol asignado (no crear ni
@@ -268,6 +312,7 @@ específicas de denegación anónima, no PASS de sus flujos autenticados.
 | GET | `/admin/rewards` | admin |
 | POST | `/admin/rewards` | admin |
 | PATCH | `/admin/rewards/:id` | admin |
+| POST | `/admin/rewards/:id/publish` | admin, política/flag explícito y esquema; actor revalidado en transacción |
 | GET | `/redemptions` | — |
 | POST | `/redemptions` | — |
 | GET | `/admin/redemptions` | admin |

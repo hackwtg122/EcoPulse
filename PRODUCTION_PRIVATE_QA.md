@@ -6,6 +6,17 @@ anónimas y 21/21 pruebas públicas. Esto NO certifica ninguna escritura privada
 
 ## Configuración imprescindible, agrupada una sola vez
 
+Para **crear o designar** las cuentas: en la misma instancia de Clerk que usa
+Netlify, abrir **Users → Create user** y usar correos controlados destinados solo
+a QA, o seleccionar identidades de prueba existentes. No usar cuentas de terceros.
+Primer login en EcoPulse provisiona el perfil como PARTICIPANT. Copiar su `userId`
+real desde Clerk al secreto solo después de ese login. El campo `role` del JSON
+es una expectativa del test, no concede permisos. VERIFIER/ADMIN viven en Neon:
+su asignación requiere autorización específica y auditoría; no añadir metadatos
+Clerk para intentar elevar privilegios. Puede empezarse solo con PARTICIPANT.
+El admin de prueba no puede ser el último admin y no se crea/promueve desde el
+runner. El workflow exacto sigue en `.github/workflows/production-private-qa.yml`.
+
 1. GitHub → EcoPulse → **Settings → Secrets and variables → Actions**:
    crear **`PRODUCTION_QA_ACCOUNTS`** con el JSON de abajo, reemplazando valores
    únicamente en GitHub. No pegarlo en chat ni guardarlo/versionarlo con datos
@@ -93,11 +104,27 @@ verificación física, puntos, canjes, publicación/fulfillment y cambios de rol
 requieren fixtures/registros/políticas y autorizaciones delimitadas adicionales.
 Las métricas derivadas pueden leerse sin inventar entregas o puntos.
 
-La suite devuelve código no cero si hay FAIL/BLOCKED, incluidos los flujos de
-escritura todavía pendientes. Un PASS `route_shell_load` solo prueba cargar la estructura de esa ruta,
+La suite devuelve código no cero si hay FAIL/BLOCKED en su alcance de lecturas y
+sesiones (incluidas cuentas de rol ausentes). Inferencias/escrituras aplazadas se
+imprimen como BLOCKED con scope separado; el resumen siempre indica
+`systemComplete: false`. Un job verde de lectura NO aprueba esos flujos.
+Un PASS `route_shell_load` solo prueba cargar la estructura de esa ruta,
 no todos sus botones. No confundir el pipeline público verde con EcoPulse al100%.
 
 ## Auditoría y valor real
+
+Publicación de recompensas: endpoint nuevo POST `/api/pilot/admin/rewards/:id/publish`,
+protegido por admin, esquema, inventario, evidencia HTTPS y puerta explícita
+`PILOT_REWARD_PUBLICATION_ENABLED` (cerrada por defecto). No habilitarla ni publicar
+los ejemplos del seed para lograr un PASS. Requiere política y cumplimiento real
+aprobados, o un fixture sin valor real autorizado con plan de reversión específico.
+La suite de lecturas no ejecuta este POST ni canjes/verificaciones.
+
+Para las escrituras futuras, el permiso debe identificar cuenta/IDs, operaciones,
+prefijo o idempotency keys QA, valores máximos, evidencia física si corresponde y
+plan de reversión autorizado. No hay cleanup SQL implícito: si falta un mecanismo
+de reversión seguro, el flujo permanece BLOCKED. Reponer stock o borrar auditoría
+no es una reversión aceptable de un canje real.
 
 0004, permisos, promociones y cualquier SQL de escritura siguen pendientes de
 respaldo restaurable comprobado y autorización específica. No se reinicializa
