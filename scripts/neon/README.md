@@ -1,50 +1,40 @@
-# Scripts Neon (base `neondb`, proyecto Neon «EcoPulse»)
+# Scripts Neon — `neondb`, no reinicializar
 
-## Bloque de producción — 2 nov 2026
+Estado remoto ya comprobado en solo lectura: 15 tablas, 8 centros, 16 horarios,
+3 recompensas y 1 admin; journal0000–0003. La tabla de auditoría0004 sigue ausente.
+No asumir una base vacía ni repetir migraciones, grants o seed como despliegue.
 
-**No ejecutar todavía.** La migración propuesta `0004_role_change_events.sql` y el
-grant de auditoría necesitan autorización específica y respaldo restaurable
-comprobado. El endpoint de roles no confirma ningún cambio sin insertar su
-auditoría en la misma transacción. No ejecutar el script completo de grants solo
-para habilitar auditoría: contiene REVOKE y exige revisión de privilegios reales.
+## Seed corregido: propuesta, NO ejecutado
 
-Los conteos históricos (15 tablas, 8 centros, 16 horarios, 3 recompensas y un admin)
-siguen sin verificarse en Neon en esta sesión. La base **no se considera vacía**.
-El seed histórico contiene un ID Clerk fijo y su reejecución tiene riesgos de
-solapamiento de horarios: **no reejecutar seed ni bootstrap** sin corregirlos,
-inspeccionar datos reales y recibir autorización. Las instrucciones inferiores
-son históricas, no una aprobación de ejecución.
+`neon-seed.sql` conserva el catálogo académico como **borradores inactivos**.
+No asigna roles, no contiene IDs Clerk y no publica ni dota de inventario una
+recompensa ilustrativa. No actualiza ni borra filas existentes: los datos
+previamente activos de Neon no cambian al editar este archivo.
 
-Preparados por OpenCode; **aplicados: no**. Requieren autorización escrita por ejecución.
-Orden exacto (todo con `psql -X -v ON_ERROR_STOP=1` contra la URL de `neondb`):
+Antes de BEGIN exige los parámetros psql `authorize_academic_seed=true` y
+`seed_week` (lunes ISO explícito). No equivalen a una autorización del propietario:
+su ejecución sigue requiriendo aprobación específica y respaldo restaurable.
+Repetir la misma fecha mantiene ventanas estables. Las franjas se serializan con
+el mismo advisory lock del trigger y se filtran por solapamiento **antes** del
+INSERT; `ON CONFLICT` por sí solo no evita un trigger BEFORE INSERT.
 
-1. **Migraciones Drizzle 0000–0003** (si la base está vacía):
-   `corepack pnpm --filter @workspace/db migrate` con `MIGRATION_DATABASE_URL` apuntando a `neondb`
-   (drizzle-kit registra el journal; alternativa manual: los 4 SQL de `lib/db/drizzle/` + journal, sin mezclar ambos métodos).
-2. `neon-academic-materials.sql` — tabla `delivery_point_materials`.
-3. `neon-academic-favorites.sql` — tabla `favorite_centers`.
-4. `neon-seed.sql` — bootstrap del primer ADMIN (`user_3KUsHCqCaJlD7fTErwmWLX0R1Ai`),
-   8 centros, materiales por centro, 2 horarios futuros por centro y 3 recompensas.
-   Todo `ON CONFLICT DO NOTHING`; reejecutable sin romper reservas ni canjes.
-5. `neon-grants.sql` — permisos mínimos del rol `ecopulse_app` (incluye `UPDATE (role) ON users`
-   para la gestión de roles del panel admin).
+No ejecutar para preparar cuentas QA, completar producción o rellenar datos.
+No es bootstrap del primer administrador. Su prueba actual es estática, sin
+ejecución SQL; la reejecución real queda BLOCKED hasta autorización y aislamiento.
 
-## Rol de aplicación (requisito previo del paso 5)
+## Auditoría0004 y permisos
 
-El rol no lo crea este repo (requiere privilegios de dueño). En la consola de Neon o con psql
-como `neondb_owner`:
+Requisitos exactos en `../../AUDIT_BACKUP_APPROVAL.md`. Falta evidencia de respaldo
+restaurable; no se ha aplicado la migración. No ejecutar `neon-grants.sql` completo
+para añadir auditoría: contiene REVOKE global. Cualquier concesión futura debe
+limitarse a SELECT/INSERT de la tabla nueva y estar expresamente autorizada.
+El rol `ecopulse_app` ya existe: no recrearlo, no cambiar contraseña ni privilegios.
 
-```sql
-CREATE ROLE ecopulse_app LOGIN PASSWORD '<generar contraseña fuerte y guardarla en Render>';
-```
+`neon-academic-materials.sql` y `neon-academic-favorites.sql` también son scripts
+de escritura, no preflight. Sus tablas ya existen en la base verificada.
 
-Después, la variable `DATABASE_URL` de Render debe ser la URI de conexión de `ecopulse_app`
-(no la del owner) para que los grants apliquen de verdad.
+## Lecturas autorizadas
 
-## Verificación posterior (solo lectura)
-
-- `SELECT role, count(*) FROM users GROUP BY role;` → debe existir 1 fila `admin`.
-- `SELECT count(*) FROM delivery_points;` → 8. `delivery_slots` → 16. `rewards` → 3.
-- `SELECT grantee, privilege_type FROM information_schema.role_table_grants WHERE grantee='ecopulse_app' AND table_name='users';` → SELECT, INSERT, UPDATE.
-
-Nunca ejecutar estos scripts contra `ecopulse_dev` (local) ni repetirlos contra una base con datos ajenos; los guards los rechazan.
+`verify-production-readonly.mjs` valida destino Neon/neondb/TLS y abre READ ONLY.
+Solo informa metadatos/conteos y termina ROLLBACK. No usar la URL owner disponible
+como secreto CI ni exportar filas de usuarios. No conectar a una base local.
