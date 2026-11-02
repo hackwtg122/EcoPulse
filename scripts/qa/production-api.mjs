@@ -13,21 +13,24 @@ async function get(path, headers = {}) {
 // Deploys and cold starts can take several minutes. Never equate a healthy old
 // instance with evidence that this commit was deployed.
 let version;
-for (let attempt = 0; attempt < 16; attempt++) {
+let deploy;
+const deadline = Date.now() + 8 * 60 * 1000;
+for (let attempt = 0; attempt < 20 && Date.now() < deadline; attempt++) {
   try {
     const response = await get("/api/version");
     if (response.ok) {
       version = await response.json();
-      if (version.commit === expected) break;
     }
+    const site = await fetch("https://api.netlify.com/api/v1/sites/ecopulseef.netlify.app", {
+      headers: { "Cache-Control": "no-cache" }, signal: AbortSignal.timeout(30000), redirect: "error",
+    });
+    if (site.ok) deploy = (await site.json()).published_deploy;
+    if (version?.commit === expected && deploy?.state === "ready" && deploy?.commit_ref === expected) break;
   } catch { /* retry within the bounded deployment window */ }
   await setTimeout(20000);
 }
 assert.equal(version?.commit, expected, "Render must expose the exact workflow SHA");
 console.log(JSON.stringify({ check: "deployed_sha", status: "PASS", commit: version.commit }));
-const site = await fetch("https://api.netlify.com/api/v1/sites/ecopulseef.netlify.app", { signal: AbortSignal.timeout(30000) });
-assert.equal(site.status, 200);
-const deploy = (await site.json()).published_deploy;
 assert.equal(deploy?.state, "ready");
 assert.equal(deploy?.commit_ref, expected, "Netlify must serve the same expected SHA");
 console.log(JSON.stringify({ check: "netlify_sha", status: "PASS", commit: deploy.commit_ref, deploy: deploy.id }));

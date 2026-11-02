@@ -4,6 +4,17 @@
 
 ### Actualización de desbloqueo (posterior a la entrega inicial)
 
+- Activación CI/CD: `RENDER_API_KEY` confirmado en Repository secrets; ya no falta
+  ese secreto. Token Git aún scope `repo`, sin `workflow`; cero workflows
+  publicados. Archivo local endurecido a repo oficial/main, sin PR, acciones por
+  SHA y sin credencial persistida. YAML/política estática y sintaxis JS PASS;
+  ejecución remota sigue BLOCKED hasta publicación autorizada del workflow.
+
+- Publicados `93b71d4` (verificadores/despliegue preparado) y `d261b18b2a2035c1614905c17ee1b84cc75e69aa`
+  (cobertura/configuración agrupada). Netlify API confirma publicado `d261b18`,
+  deploy `6ae8e86ac7e9eddd7544b425`, ready, `2026-11-02T19:46:06.088Z`.
+  Render sigue 404 en `/api/version`; no hay SHA Render confirmado.
+
 - **Neon PASS de inventario remoto real**, usando TLS y `BEGIN READ ONLY`,
   terminado en ROLLBACK: 15 tablas públicas, 8 centros, 16 horarios, 3 recompensas,
   6 materiales, 17 asociaciones centro/material, 1 usuario admin, 0 scans,

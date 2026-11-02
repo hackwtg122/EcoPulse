@@ -2,10 +2,18 @@ import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
 
 assert.equal(process.env.GITHUB_ACTIONS, "true", "remote_runner_required");
+assert.equal(process.env.GITHUB_REPOSITORY, "hackwtg122/EcoPulse", "official_repository_required");
+assert.equal(process.env.GITHUB_REF, "refs/heads/main", "main_branch_required");
+assert.ok(["push", "workflow_dispatch"].includes(process.env.GITHUB_EVENT_NAME), "unauthorized_workflow_event");
 const key = process.env.RENDER_API_KEY;
 if (!key) throw new Error("Configure repository Actions secret RENDER_API_KEY; no deployment attempted");
 const sha = process.env.GITHUB_SHA;
 assert.match(sha || "", /^[a-f0-9]{40}$/i);
+const head = await fetch("https://api.github.com/repos/hackwtg122/EcoPulse/git/ref/heads/main", {
+  headers: { Accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(30000), redirect: "error",
+});
+assert.equal(head.status, 200, "main_head_verification_failed");
+assert.equal((await head.json()).object?.sha, sha, "stale_workflow_refusing_to_deploy_old_main_commit");
 const api = "https://api.render.com/v1";
 async function request(path, body, method = body ? "POST" : "GET") {
   const response = await fetch(`${api}${path}`, {

@@ -1,5 +1,33 @@
 # Desbloqueo operativo de producción
 
+## Activación CI/CD — estado vigente
+
+**RENDER_API_KEY confirmado en Repository secrets** por consulta de nombres, sin
+acceder a su valor. No hay que volver a configurarlo. La credencial Git sigue
+con scope `repo`, sin `workflow`; GitHub aún informa cero workflows publicados.
+
+El archivo definitivo es **`.github/workflows/production-public-qa.yml`** del
+checkout. Usa `secrets.RENDER_API_KEY`, acepta solo push/main o dispatch/main del
+repo oficial, nunca PR/PR-target; acciones checkout/setup-node fijadas por SHA,
+checkout sin token persistido y permisos GITHUB_TOKEN solo de lectura. Neon es
+opcional y también restringido a main. El secreto Render solo llega al paso de
+deploy. Una ejecución obsoleta no puede volver a desplegar un SHA anterior a main.
+
+**Único procedimiento de publicación si el push es rechazado por workflow:**
+abrir <https://github.com/hackwtg122/EcoPulse/new/main>, nombre
+`.github/workflows/production-public-qa.yml`, pegar el contenido completo del
+archivo local y **Commit changes** a main (o merge del PR que exija la protección
+de rama). Esto usa los permisos del operador en GitHub, no elude los del token.
+Ese commit debe disparar la cadena automáticamente en Actions →
+**Production functional QA**; no hay que ejecutar comandos ni desplegar Render
+manualmente. Si GitHub requiere habilitar Actions, usar su aviso para el repo.
+
+Las comprobaciones previas fueron YAML/política estática y sintaxis JS, no tests
+remotos. Hasta publicar el archivo no puede usarse el secreto para ejecutar el
+deploy desde Actions: GitHub no permite leer el valor de un Repository secret.
+No se ha intentado extraerlo. Esta sección reemplaza la solicitud antigua de
+volver a configurar RENDER_API_KEY o de ampliar la credencial automáticamente.
+
 ## Configuración inicial agrupada para automatizar (sin despliegues manuales)
 
 La autorización ya permite automatizar, pero faltan estas capacidades técnicas:

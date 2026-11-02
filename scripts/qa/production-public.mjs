@@ -1,6 +1,8 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+if (process.env.GITHUB_ACTIONS !== "true") throw new Error("Run production functional QA on the remote GitHub runner");
+
 // Deliberately public/read-only: never accepts credentials or arbitrary URLs.
 const frontend = "https://ecopulseef.netlify.app";
 const api = "https://ecopulse-3xb4.onrender.com";
