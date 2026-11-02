@@ -53,4 +53,6 @@ if (pilotConfigured) {
   app.use("/api/pilot", (_req, res) => res.status(503).json({ error: "pilot_api_unconfigured" }));
 }
 
+app.use("/api", (_req, res) => res.status(404).json({ error: "api_route_not_found" }));
+
 export default app;
