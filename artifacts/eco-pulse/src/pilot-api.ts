@@ -576,3 +576,58 @@ export async function loadPilotDashboardData(
     redemptions,
   };
 }
+
+export type AdminUserRole = "participant" | "verifier" | "admin";
+export type AdminUser = { clerkUserId: string; role: AdminUserRole; createdAt: string };
+export type AdminUsersPayload = { users: AdminUser[]; adminCount: number };
+
+function parseAdminUser(row: Record<string, unknown>): AdminUser {
+  const role = requireString(row.role, "admin_user_role");
+  if (role !== "participant" && role !== "verifier" && role !== "admin") throw new PilotApiError(502, "invalid_admin_user_role");
+  return {
+    clerkUserId: requireString(row.clerkUserId, "admin_user_id"),
+    role,
+    createdAt: requireString(row.createdAt, "admin_user_created_at"),
+  };
+}
+
+export async function loadAdminUsers(
+  apiUrl: string,
+  token: string,
+  signal: AbortSignal,
+  fetchImplementation: FetchImplementation = fetch,
+): Promise<AdminUsersPayload> {
+  const response = await fetchImplementation(`${apiUrl}/api/pilot/admin/users`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw await responseError(response);
+  const body = requireObject(await response.json(), "admin_users");
+  const users = requireArray(body.users, "admin_users").map(parseAdminUser);
+  if (!Number.isSafeInteger(body.adminCount) || (body.adminCount as number) < 0) throw new PilotApiError(502, "invalid_admin_count");
+  return { users, adminCount: body.adminCount as number };
+}
+
+export async function updateAdminUserRole(
+  apiUrl: string,
+  token: string,
+  clerkUserId: string,
+  role: AdminUserRole,
+  signal: AbortSignal,
+  fetchImplementation: FetchImplementation = fetch,
+): Promise<{ changed: boolean; auditRecorded: boolean }> {
+  const response = await fetchImplementation(`${apiUrl}/api/pilot/admin/users/${encodeURIComponent(clerkUserId)}/role`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw await responseError(response);
+  const body = requireObject(await response.json(), "admin_role_update");
+  if (body.ok !== true || typeof body.changed !== "boolean" || typeof body.auditRecorded !== "boolean" || (body.changed && !body.auditRecorded)) {
+    throw new PilotApiError(502, "invalid_admin_role_update");
+  }
+  return { changed: body.changed === true, auditRecorded: body.auditRecorded === true };
+}

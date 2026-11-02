@@ -1,5 +1,20 @@
 # Scripts Neon (base `neondb`, proyecto Neon «EcoPulse»)
 
+## Bloque de producción — 2 nov 2026
+
+**No ejecutar todavía.** La migración propuesta `0004_role_change_events.sql` y el
+grant de auditoría necesitan autorización específica y respaldo restaurable
+comprobado. El endpoint de roles no confirma ningún cambio sin insertar su
+auditoría en la misma transacción. No ejecutar el script completo de grants solo
+para habilitar auditoría: contiene REVOKE y exige revisión de privilegios reales.
+
+Los conteos históricos (15 tablas, 8 centros, 16 horarios, 3 recompensas y un admin)
+siguen sin verificarse en Neon en esta sesión. La base **no se considera vacía**.
+El seed histórico contiene un ID Clerk fijo y su reejecución tiene riesgos de
+solapamiento de horarios: **no reejecutar seed ni bootstrap** sin corregirlos,
+inspeccionar datos reales y recibir autorización. Las instrucciones inferiores
+son históricas, no una aprobación de ejecución.
+
 Preparados por OpenCode; **aplicados: no**. Requieren autorización escrita por ejecución.
 Orden exacto (todo con `psql -X -v ON_ERROR_STOP=1` contra la URL de `neondb`):
 

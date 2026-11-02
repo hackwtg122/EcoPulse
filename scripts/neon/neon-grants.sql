@@ -10,6 +10,7 @@ DO $$ BEGIN
     OR to_regclass('public.delivery_point_materials') IS NULL
     OR to_regclass('public.favorite_centers') IS NULL
     OR to_regclass('public.redemptions') IS NULL
+    OR to_regclass('public.role_change_events') IS NULL
     OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ecopulse_app') THEN
     RAISE EXCEPTION 'Wrong database, incomplete migration or missing app role';
   END IF;
@@ -36,5 +37,8 @@ GRANT UPDATE (title, description, cost, active, inventory_remaining,
   fulfillment_reference, validated_by, validated_at, updated_at) ON rewards TO ecopulse_app;
 GRANT UPDATE (fulfillment_status, fulfillment_reference, fulfilled_by, fulfilled_at)
   ON redemptions TO ecopulse_app;
+-- Registro de auditoria de cambios de rol (0004). Solo insercion desde la API;
+-- el panel admin lo consulta en modo lectura.
+GRANT SELECT, INSERT ON role_change_events TO ecopulse_app;
 -- Sin DELETE, sin GRANT globales ni privilegios futuros automáticos.
 COMMIT;

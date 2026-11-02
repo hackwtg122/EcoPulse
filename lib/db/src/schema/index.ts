@@ -13,6 +13,19 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Administrator role changes and audit inserts commit atomically.
+export const roleChangeEvents = pgTable("role_change_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  actorClerkUserId: text("actor_clerk_user_id").notNull().references(() => users.clerkUserId),
+  targetClerkUserId: text("target_clerk_user_id").notNull().references(() => users.clerkUserId),
+  previousRole: userRole("previous_role").notNull(),
+  nextRole: userRole("next_role").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("role_change_events_created_at_idx").on(table.createdAt.desc()),
+  index("role_change_events_target_idx").on(table.targetClerkUserId, table.createdAt.desc()),
+]);
+
 // Guidance only: no image, location, or points are retained with a scan.
 export const scans = pgTable("scans", {
   id: uuid("id").primaryKey(),

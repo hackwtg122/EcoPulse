@@ -3,6 +3,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { Router, type ErrorRequestHandler, type IRouter, type Response } from "express";
 import { pointMovements, scans, users, deliveries } from "@workspace/db/schema";
 import { canAccessVerifierQueue, encodeDeliveryCursor, hasOnlyFields, parseDeliveryCursor, parseDeliveryPageLimit, quotaRetryAfterSeconds, scanIdForIdempotency, uuidPattern, validIdempotencyKey, validReceiptCode, validRejectionReason, validScanCategory, parsePointsPolicy, verificationActionsEnabled, type QuotaDenialReason } from "../lib/pilotPolicy";
+import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } from "../lib/pilotRoles";
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
 import { canManageCatalog, CatalogError, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointEdit, parseSlotEdit, parseValidationReference, updateActiveSlotCapacity, updateDraftPoint, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
@@ -10,7 +11,8 @@ import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, has
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { guideAccountDetails } from "../lib/aiGuideCore";
-import { AiProviderError, ProviderConfig, VERIFIED_FREE_OPEN_MODELS, classifyImageWithVision } from "../lib/aiProvider";
+import { AiProviderError, ProviderConfig, classifyImageWithVision } from "../lib/aiProvider";
+import { resolveAiSettings } from "../lib/aiProviderConfig";
 import { QuotaConfig, QuotaStoreError, reserveQuota, finishQuotaAttempt } from "../lib/aiQuota";
 import { computeProgress } from "../lib/progressService";
 import { listEvaluationTestPoints } from "../lib/evaluationPoints";
@@ -18,7 +20,6 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 const mutationCounts = new Map<string, { count: number; resetAt: number }>();
-const officialAiBase = !process.env.AI_BASE_URL || process.env.AI_BASE_URL.replace(/\/$/, "") === "https://openrouter.ai/api/v1";
 
 // Provider retries belong to the same user action, so the per-minute budget must
 // allow every attempt of one analysis; otherwise the retry itself is rejected
@@ -75,14 +76,13 @@ function sendAiError(res: Response, e: unknown): Response {
   return res.status(status).json({ error: code, ...(retryAfterSeconds ? { retryAfterSeconds } : {}) });
 }
 
-function buildProviderConfig(): ProviderConfig {
-  const provider = (process.env.AI_PROVIDER === "groq" || process.env.AI_PROVIDER === "custom") ? (process.env.AI_PROVIDER as any) : "openrouter";
+function buildProviderConfig(settings: ReturnType<typeof resolveAiSettings>): ProviderConfig {
   return {
-    provider,
-    apiKey: process.env.AI_API_KEY || "",
-    baseUrl: process.env.AI_BASE_URL || undefined,
-    visionModel: process.env.AI_VISION_MODEL || "openrouter/free",
-    chatModel: process.env.AI_CHAT_MODEL || "openrouter/free",
+    provider: settings.provider ?? "openrouter",
+    apiKey: settings.apiKey,
+    baseUrl: settings.baseUrl ?? process.env.AI_BASE_URL ?? undefined,
+    visionModel: settings.model,
+    chatModel: settings.model,
     visionAllowlist: (process.env.AI_VISION_MODEL_ALLOW || "").split(",").map((s) => s.trim()).filter(Boolean),
     chatAllowlist: (process.env.AI_CHAT_MODEL_ALLOW || "").split(",").map((s) => s.trim()).filter(Boolean),
     requireOpenLicense: true,
@@ -109,6 +109,13 @@ async function database() {
 async function databasePool() {
   const { pool } = await import("@workspace/db");
   return pool;
+}
+
+// Favourites live in a table created by scripts/neon, not by a Drizzle
+// migration, so every read/write checks it instead of failing with a 500.
+async function hasFavoritesSchema(pool: Awaited<ReturnType<typeof databasePool>>) {
+  const result = await pool.query<{ ready: boolean }>("SELECT to_regclass('public.favorite_centers') IS NOT NULL AS ready");
+  return result.rows[0]?.ready === true;
 }
 
 router.use(async (req, res, next) => {
@@ -163,20 +170,19 @@ router.get("/point-movements", async (_req, res) => {
 });
 
 router.get("/favorites", async (_req, res) => {
-  if (process.env.EVALUATION_MODE_ENABLED !== "true") return res.json({ enabled: false, ids: [] });
   const pool = await databasePool();
   const schema = await pool.query<{ ready: boolean }>("SELECT to_regclass('public.favorite_centers') IS NOT NULL AS ready");
-  if (!schema.rows[0]?.ready) return res.json({ enabled: false, ids: [] });
+  if (!schema.rows[0]?.ready) return res.json({ enabled: false, ids: [], reason: "schema_pending" });
   const favorites = await pool.query<{ delivery_point_id: string }>(
     "SELECT delivery_point_id FROM favorite_centers WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100", [res.locals.userId]);
   return res.json({ enabled: true, ids: favorites.rows.map(row => row.delivery_point_id) });
 });
 
 router.post("/favorites/:id", async (req, res) => {
-  if (process.env.EVALUATION_MODE_ENABLED !== "true") return res.status(503).json({ error: "favorites_unavailable" });
   const id = String(req.params.id);
   if (!uuidPattern.test(id) || !hasOnlyFields(req.body ?? {}, [])) return res.status(400).json({ error: "invalid_favorite" });
   const pool = await databasePool();
+  if (!await hasFavoritesSchema(pool)) return res.status(503).json({ error: "favorites_migration_required" });
   const result = await pool.query(`INSERT INTO favorite_centers (user_id, delivery_point_id)
     SELECT $1, id FROM delivery_points WHERE id=$2 AND active=true
     ON CONFLICT (user_id, delivery_point_id) DO NOTHING RETURNING delivery_point_id`, [res.locals.userId, id]);
@@ -188,10 +194,10 @@ router.post("/favorites/:id", async (req, res) => {
 });
 
 router.delete("/favorites/:id", async (req, res) => {
-  if (process.env.EVALUATION_MODE_ENABLED !== "true") return res.status(503).json({ error: "favorites_unavailable" });
   const id = String(req.params.id);
   if (!uuidPattern.test(id)) return res.status(400).json({ error: "invalid_favorite" });
   const pool = await databasePool();
+  if (!await hasFavoritesSchema(pool)) return res.status(503).json({ error: "favorites_migration_required" });
   await pool.query("DELETE FROM favorite_centers WHERE user_id=$1 AND delivery_point_id=$2", [res.locals.userId, id]);
   return res.sendStatus(204);
 });
@@ -208,22 +214,13 @@ router.get("/progress", async (_req, res) => {
 });
 
 router.get("/scans/ai-capabilities", (_req, res) => {
-  const missing: string[] = [];
-  if (process.env.PILOT_AI_ENABLED !== "true") missing.push("PILOT_AI_ENABLED");
-  if (!process.env.AI_API_KEY && !process.env.OPENAI_API_KEY) missing.push("AI_API_KEY");
-  if ((process.env.AI_PROVIDER || "openrouter") !== "openrouter") missing.push("AI_PROVIDER");
-  if (!officialAiBase) missing.push("AI_BASE_URL");
-  const vision = process.env.AI_VISION_MODEL || "openrouter/free";
-  if (!(VERIFIED_FREE_OPEN_MODELS as readonly string[]).includes(vision)) missing.push("AI_VISION_MODEL");
-  const providerReady = missing.length === 0;
-  return res.json({ enabled: providerReady, provider: providerReady ? (process.env.AI_PROVIDER || "openrouter") : null, missing });
+  const settings = resolveAiSettings("ecoscan", process.env);
+  return res.json({ enabled: settings.missing.length === 0, provider: settings.missing.length === 0 ? settings.provider : null, missing: settings.missing });
 });
 router.post("/scans/classify", async (req, res) => {
   if (req.get("X-AI-Consent") !== "true") return res.status(403).json({ error: "ai_consent_required" });
-  const aiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY;
-  const vision = process.env.AI_VISION_MODEL || "openrouter/free";
-  if (process.env.PILOT_AI_ENABLED !== "true" || !aiKey || !officialAiBase || (process.env.AI_PROVIDER || "openrouter") !== "openrouter" ||
-      !(VERIFIED_FREE_OPEN_MODELS as readonly string[]).includes(vision)) {
+  const settings = resolveAiSettings("ecoscan", process.env);
+  if (settings.missing.length) {
     return res.status(503).json({ error: "ai_provider_unconfigured" });
   }
   if (!req.is("image/png") || !Buffer.isBuffer(req.body)) return res.status(415).json({ error: "png_required" });
@@ -231,9 +228,7 @@ router.post("/scans/classify", async (req, res) => {
   try { sanitized = sanitizePng(req.body); }
   catch (error) { return res.status(error instanceof AiClassificationError ? error.status : 400).json({ error: error instanceof AiClassificationError ? error.code : "invalid_image" }); }
   const uid = res.locals.userId;
-  const cfg = buildProviderConfig();
-  cfg.apiKey = aiKey;
-  cfg.visionModel = vision;
+  const cfg = buildProviderConfig(settings);
   cfg.beforeAttempt = reserveAiAttempt(uid, "ecoscan");
   cfg.afterAttempt = (id, status, durationMs, errorCode) => finishQuotaAttempt(quotaCfg, id, status, durationMs, errorCode);
   try {
@@ -246,31 +241,20 @@ router.post("/scans/classify", async (req, res) => {
 
 // A missing chat-specific setting must not inherit a vision model or the
 // unverified OpenRouter router. Use only a previously verified free chat model.
-const guideModel = process.env.AI_CHAT_MODEL || "nvidia/nemotron-3-super-120b-a12b:free";
 router.get("/guide/capabilities", (_req, res) => {
-  const missing: string[] = [];
-  if (process.env.PILOT_AI_ENABLED !== "true") missing.push("PILOT_AI_ENABLED");
-  if ((process.env.AI_PROVIDER || "openrouter") !== "openrouter") missing.push("AI_PROVIDER");
-  if (!officialAiBase) missing.push("AI_BASE_URL");
-  const aiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY;
-  if (!aiKey) missing.push("AI_API_KEY");
-  if (!(VERIFIED_FREE_OPEN_MODELS as readonly string[]).includes(guideModel)) missing.push("AI_CHAT_MODEL");
-  const providerReady = missing.length === 0;
-  return res.json({ enabled: providerReady, provider: providerReady ? (process.env.AI_PROVIDER || "openrouter") : null, missing });
+  const settings = resolveAiSettings("ecoguide", process.env);
+  return res.json({ enabled: settings.missing.length === 0, provider: settings.missing.length === 0 ? settings.provider : null, missing: settings.missing });
 });
 router.post("/guide/ask", async (req, res) => {
   if (req.get("X-AI-Consent") !== "true") return res.status(403).json({ error: "ai_consent_required" });
-  const aiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY;
-  if (process.env.PILOT_AI_ENABLED !== "true" || !aiKey || !officialAiBase || (process.env.AI_PROVIDER || "openrouter") !== "openrouter" ||
-      !(VERIFIED_FREE_OPEN_MODELS as readonly string[]).includes(guideModel)) {
+  const settings = resolveAiSettings("ecoguide", process.env);
+  if (settings.missing.length) {
     return res.status(503).json({ error: "ai_provider_unconfigured" });
   }
   if (!hasOnlyFields(req.body, ["question", "history", "materialContext"])) return res.status(400).json({ error: "unexpected_fields" });
   const request = parseGuideRequest(req.body);
   const uid = res.locals.userId;
-  const cfg = buildProviderConfig();
-  cfg.apiKey = aiKey;
-  cfg.chatModel = guideModel;
+  const cfg = buildProviderConfig(settings);
   cfg.beforeAttempt = reserveAiAttempt(uid, "ecoguide");
   cfg.afterAttempt = (id, status, durationMs, errorCode) => finishQuotaAttempt(quotaCfg, id, status, durationMs, errorCode);
   try {
@@ -282,7 +266,7 @@ router.post("/guide/ask", async (req, res) => {
       db.select({ total: sql<string>`coalesce(sum(${pointMovements.delta}), 0)::text` }).from(pointMovements).where(eq(pointMovements.userId, uid)),
       db.select({ c: sql<number>`count(*)::int` }).from(scans).where(eq(scans.userId, uid)),
       db.select({ c: sql<number>`count(*)::int` }).from(deliveries).where(eq(deliveries.userId, uid)),
-      loadDeliveryOptions(pool, true),
+      loadDeliveryOptions(pool, deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED)),
       listUserDeliveries(pool, uid),
     ]);
     const userContext = {
@@ -352,13 +336,16 @@ router.get("/admin/catalog", async (_req, res) => {
 router.get("/admin/stats", async (_req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
   const pool = await databasePool();
+  const rewardSchemaReady = await hasRewardFulfillmentSchema(pool);
   const [usersRow, scansRow, deliveriesRow, redemptionsRow] = await Promise.all([
     pool.query<{ total: number }>("SELECT count(*)::integer AS total FROM users"),
     pool.query<{ total: number }>("SELECT count(*)::integer AS total FROM scans"),
     pool.query<{ status: string; total: number }>("SELECT status, count(*)::integer AS total FROM deliveries GROUP BY status ORDER BY status"),
-    pool.query<{ fulfillment_status: string | null; total: number }>(
-      "SELECT fulfillment_status, count(*)::integer AS total FROM redemptions GROUP BY fulfillment_status ORDER BY fulfillment_status",
-    ),
+    rewardSchemaReady
+      ? pool.query<{ fulfillment_status: string | null; total: number }>(
+        "SELECT fulfillment_status, count(*)::integer AS total FROM redemptions GROUP BY fulfillment_status ORDER BY fulfillment_status",
+      )
+      : Promise.resolve({ rows: [] as Array<{ fulfillment_status: string | null; total: number }> }),
   ]);
   const balanceRow = await pool.query<{ total: number }>("SELECT coalesce(sum(delta), 0)::integer AS total FROM point_movements");
   return res.json({
@@ -446,7 +433,7 @@ router.post("/admin/catalog/:kind/:id/deactivate", async (req, res) => {
 });
 router.get("/delivery-points", async (_req, res) => {
   const pool = await databasePool();
-  const options = await loadDeliveryOptions(pool, true);
+  const options = await loadDeliveryOptions(pool, deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED));
   return res.json({ points: options.points });
 });
 
@@ -454,6 +441,9 @@ router.get("/delivery-points", async (_req, res) => {
 // no persistence, never mixed with published centers). They are clearly
 // labelled as test data and never accept public physical deliveries.
 router.get("/evaluation-points", async (_req, res) => {
+  // Test points must never leak into the production catalogue. When the
+  // evaluation switch is off the endpoint stays available but empty.
+  if (process.env.EVALUATION_MODE_ENABLED !== "true") return res.json({ points: [], evaluation: false });
   return res.json({ points: listEvaluationTestPoints(), evaluation: true });
 });
 router.get("/delivery-options", async (_req, res) => {
@@ -482,6 +472,8 @@ router.post("/deliveries", async (req, res) => {
   const featureRequested = deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED);
   const schemaReady = await hasDeliveryDetailsSchema(pool);
   const detailedPayload = Object.keys(req.body).length > 0;
+
+  if (featureRequested && !schemaReady) return res.status(503).json({ error: "delivery_details_migration_required" });
 
   if (!detailedPayload) {
     if (featureRequested && schemaReady) {
@@ -645,6 +637,7 @@ router.get("/rewards", async (_req, res) => {
 router.get("/admin/rewards", async (_req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
   const pool = await databasePool();
+  if (!await hasRewardFulfillmentSchema(pool)) return res.json([]);
   const rows = await pool.query("SELECT id,title,description,cost,active,inventory_remaining AS \"inventoryRemaining\",fulfillment_reference IS NOT NULL AS \"fulfillmentDocumented\",validated_at IS NOT NULL AS \"validationRecorded\",created_at AS \"createdAt\" FROM rewards ORDER BY created_at DESC,id DESC LIMIT 100");
   return res.json(rows.rows);
 });
@@ -702,7 +695,77 @@ router.post("/admin/redemptions/:id/fulfill", async (req, res) => {
   return res.json(await fulfillRedemption(pool, res.locals.userId, String(req.params.id), req.body.reference));
 });
 
+// Administrative user management. Rules live in pilotRoles so they can be
+// unit-tested. The read/write happen inside a transaction that locks the current
+// administrator rows, otherwise two concurrent demotions could both believe a
+// second administrator still existed and leave the system with none.
+router.get("/admin/users", async (_req, res) => {
+  if (!canManageUsers(res.locals.role)) return res.status(403).json({ error: "admin_required" });
+  const pool = await databasePool();
+  const [rows, admins] = await Promise.all([
+    pool.query<{ clerkUserId: string; role: string; createdAt: string }>(
+      `SELECT clerk_user_id AS "clerkUserId", role, created_at AS "createdAt"
+       FROM users ORDER BY created_at DESC, clerk_user_id LIMIT 200`),
+    pool.query<{ total: number }>("SELECT count(*)::integer AS total FROM users WHERE role = 'admin'"),
+  ]);
+  return res.json({ users: rows.rows, adminCount: admins.rows[0]?.total ?? 0 });
+});
+
+router.patch("/admin/users/:clerkUserId/role", async (req, res) => {
+  if (!canManageUsers(res.locals.role)) return res.status(403).json({ error: "admin_required" });
+  const target = String(req.params.clerkUserId || "").trim();
+  if (!clerkUserIdPattern.test(target)) return res.status(400).json({ error: "invalid_target" });
+  if (!hasOnlyFields(req.body ?? {}, ["role"])) return res.status(400).json({ error: "unexpected_fields" });
+  const requestedRole = req.body?.role;
+  if (!isPilotRole(requestedRole)) return res.status(400).json({ error: "invalid_role" });
+
+  const db = await database();
+  const outcome = await db.transaction(async (tx) => {
+    // Serialize role changes and recheck the actor after acquiring the lock.
+    // Otherwise a concurrently demoted admin could still change another role.
+    // Advisory lock avoids requiring table-wide UPDATE privileges: the app
+    // intentionally has only UPDATE(role), and all API role changes share it.
+    await tx.execute(sql`select pg_advisory_xact_lock(170101, 1)`);
+    const [actor] = await tx.select({ role: users.role }).from(users).where(eq(users.clerkUserId, res.locals.userId));
+    if (actor?.role !== "admin") return { denied: true as const };
+    const [existing] = await tx.select({ role: users.role }).from(users).where(eq(users.clerkUserId, target));
+    if (!existing) return { missing: true as const };
+    // Aggregates cannot use FOR UPDATE, so lock each administrator row and count
+    // the rows the transaction actually sees.
+    const adminRows = await tx.execute(sql`select clerk_user_id from users where role = 'admin' for update`);
+    const decision = decideRoleChange({
+      actorId: res.locals.userId,
+      targetId: target,
+      currentRole: existing.role,
+      requestedRole,
+      adminCount: adminRows.rows.length,
+    });
+    if (decision.ok && !decision.noop) {
+      // Fail closed: no committed privilege change without its audit record.
+      await tx.execute(sql`insert into role_change_events
+        (actor_clerk_user_id, target_clerk_user_id, previous_role, next_role)
+        values (${res.locals.userId}, ${target}, ${existing.role}::user_role, ${decision.nextRole}::user_role)`);
+      await tx.update(users).set({ role: decision.nextRole }).where(eq(users.clerkUserId, target));
+    }
+    return { decision, previousRole: existing.role };
+  });
+
+  if ("denied" in outcome) return res.status(403).json({ error: "admin_required" });
+  if ("missing" in outcome) return res.status(404).json({ error: "user_not_found" });
+  if (!outcome.decision.ok) return res.status(outcome.decision.status).json({ error: outcome.decision.code });
+
+  return res.json({
+    ok: true,
+    user: { clerkUserId: target, role: outcome.decision.nextRole },
+    changed: !outcome.decision.noop,
+    auditRecorded: !outcome.decision.noop,
+  });
+});
+
 const pilotErrorHandler: ErrorRequestHandler = (error, req, res, _next) => {
+  const dbError = error?.cause ?? error;
+  if (dbError?.code === "42P01") return res.status(503).json({ error: "schema_migration_required" });
+  if (dbError?.code === "42501") return res.status(503).json({ error: "permissions_unavailable" });
   if (error instanceof DeliveryRequestError || error instanceof DeliveryLifecycleError || error instanceof CatalogError || error instanceof RewardError || error instanceof AiClassificationError || error instanceof AiGuideError) {
     return res.status(error.status).json({ error: error.code });
   }
@@ -717,34 +780,5 @@ const pilotErrorHandler: ErrorRequestHandler = (error, req, res, _next) => {
 };
 router.use(pilotErrorHandler);
 
-router.patch("/admin/users/:clerkUserId/role", async (req, res) => {
-  if (res.locals.role !== "admin") return res.status(403).json({ error: "forbidden" });
-  const target = String(req.params.clerkUserId || "").trim();
-  const requestedRole = String(req.body?.role || "").trim();
-  if (!target || !/^user_[A-Za-z0-9]+$/.test(target)) return res.status(400).json({ error: "invalid_target" });
-  if (!["participant", "verifier", "admin"].includes(requestedRole)) return res.status(400).json({ error: "invalid_role" });
-  const role: "participant" | "verifier" | "admin" = requestedRole as "participant" | "verifier" | "admin";
-  if (target === res.locals.userId && role !== "admin") return res.status(409).json({ error: "cannot_self_demote" });
-  try {
-    const db = await database();
-    const [existing] = await db.select({ role: users.role }).from(users).where(eq(users.clerkUserId, target));
-    if (!existing) return res.status(404).json({ error: "user_not_found" });
-    await db.update(users).set({ role }).where(eq(users.clerkUserId, target));
-    return res.json({ ok: true });
-  } catch (error) {
-    return res.status(500).json({ error: "pilot_api_error" });
-  }
-});
-
-router.get("/admin/users", async (_req, res) => {
-  if (res.locals.role !== "admin") return res.status(403).json({ error: "forbidden" });
-  try {
-    const db = await database();
-    const rows = await db.select({ clerkUserId: users.clerkUserId, role: users.role, createdAt: users.createdAt }).from(users).orderBy(desc(users.createdAt)).limit(100);
-    return res.json(rows);
-  } catch (error) {
-    return res.status(500).json({ error: "pilot_api_error" });
-  }
-});
 export default router;
 

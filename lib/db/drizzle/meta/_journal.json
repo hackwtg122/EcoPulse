@@ -29,6 +29,13 @@
       "when": 1792184553890,
       "tag": "0003_reward_fulfillment",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793646746910,
+      "tag": "0004_role_change_events",
+      "breakpoints": true
     }
   ]
 }

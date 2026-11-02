@@ -1,10 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { loadAdminUsers, updateAdminUserRole } from "./pilot-api.ts";
 import { createDetailedPilotDelivery, createPilotDelivery, createPilotScan, isCurrentPilotResponse, loadPilotDashboardData, loadPilotDeliveryOptions, loadPilotProgress, loadPilotPublicPoints, loadVerifierDeliveryQueue, loadVerifierCapabilities, loadPilotDeliveryEvents, receivePilotDelivery, verifyPilotDelivery, PilotApiError } from "./pilot-api.ts";
 
 function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
+
+test("admin users validate roles and counts without retaining identity fields", async () => {
+  const payload = { users: [{ clerkUserId: "user_Test123", role: "admin", createdAt: "2026-11-02T00:00:00Z", email: "not-retained" }], adminCount: 1 };
+  const result = await loadAdminUsers("https://ecopulse-3xb4.onrender.com", "mock-token", new AbortController().signal, async () => response(payload));
+  assert.equal(result.adminCount, 1);
+  assert.equal("email" in result.users[0], false);
+  await assert.rejects(loadAdminUsers("https://ecopulse-3xb4.onrender.com", "mock-token", new AbortController().signal,
+    async () => response({ ...payload, adminCount: -1 })), /invalid_admin_count/);
+});
+
+test("admin role writes require an audited success and preserve server denials", async () => {
+  const url = "https://ecopulse-3xb4.onrender.com";
+  const signal = new AbortController().signal;
+  const result = await updateAdminUserRole(url, "mock-token", "user_Test123", "verifier", signal, async (endpoint, options) => {
+    assert.equal(endpoint, `${url}/api/pilot/admin/users/user_Test123/role`);
+    assert.equal(options.method, "PATCH");
+    assert.deepEqual(JSON.parse(options.body), { role: "verifier" });
+    return response({ ok: true, changed: true, auditRecorded: true });
+  });
+  assert.deepEqual(result, { changed: true, auditRecorded: true });
+  await assert.rejects(updateAdminUserRole(url, "mock-token", "user_Test123", "verifier", signal,
+    async () => response({ ok: true, changed: true, auditRecorded: false })), /invalid_admin_role_update/);
+  await assert.rejects(updateAdminUserRole(url, "mock-token", "user_Test123", "verifier", signal,
+    async () => response({ error: "last_admin_protected" }, 409)), /last_admin_protected/);
+});
 
 test("loads and minimizes the authenticated dashboard snapshot", async () => {
   const bodies = {
