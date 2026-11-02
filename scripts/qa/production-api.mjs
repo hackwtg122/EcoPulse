@@ -3,7 +3,9 @@ import { setTimeout } from "node:timers/promises";
 
 const api = "https://ecopulse-3xb4.onrender.com";
 const frontend = "https://ecopulseef.netlify.app";
-const expected = process.env.GITHUB_SHA;
+const expected = process.env.EXPECTED_PRODUCTION_SHA || process.env.GITHUB_SHA;
+assert.match(expected || "", /^[a-f0-9]{40}$/i, "An exact deployed SHA is required");
+assert.equal(process.env.GITHUB_ACTIONS, "true", "Run functional QA on the remote GitHub runner, not locally");
 async function get(path, headers = {}) {
   return fetch(`${api}${path}`, { headers, signal: AbortSignal.timeout(45000), redirect: "error" });
 }
@@ -23,16 +25,29 @@ for (let attempt = 0; attempt < 16; attempt++) {
 }
 assert.equal(version?.commit, expected, "Render must expose the exact workflow SHA");
 console.log(JSON.stringify({ check: "deployed_sha", status: "PASS", commit: version.commit }));
+const site = await fetch("https://api.netlify.com/api/v1/sites/ecopulseef.netlify.app", { signal: AbortSignal.timeout(30000) });
+assert.equal(site.status, 200);
+const deploy = (await site.json()).published_deploy;
+assert.equal(deploy?.state, "ready");
+assert.equal(deploy?.commit_ref, expected, "Netlify must serve the same expected SHA");
+console.log(JSON.stringify({ check: "netlify_sha", status: "PASS", commit: deploy.commit_ref, deploy: deploy.id }));
 const health = await get("/api/healthz", { Origin: frontend });
 assert.equal(health.status, 200);
 assert.equal(health.headers.get("access-control-allow-origin"), frontend);
 assert.equal(health.headers.get("access-control-allow-credentials"), "true");
 assert.equal((await health.json()).status, "ok");
-for (const path of ["/api/pilot/me", "/api/pilot/admin/users", "/api/pilot/balance", "/api/pilot/verifier/deliveries"]) {
-  const response = await get(path);
-  assert.equal(response.status, 401, `anonymous access: ${path}`);
+// Derive every private endpoint from the checked-out router. Test denial for
+// each method without credentials; never send authenticated mutations.
+const { readFile } = await import("node:fs/promises");
+const source = await readFile(new URL("../../artifacts/api-server/src/routes/pilot.ts", import.meta.url), "utf8");
+const routes = [...source.matchAll(/^router\.(get|post|patch|delete)\("([^"]+)"/gm)];
+assert.ok(routes.length >= 44, "Private endpoint inventory unexpectedly shrank");
+for (const [, method, route] of routes) {
+  const path = `/api/pilot${route.replace(/:clerkUserId/g, "user_QaNotAnAccount").replace(/:kind/g, "points").replace(/:id/g, "00000000-0000-4000-8000-000000000000")}`;
+  const response = await fetch(`${api}${path}`, { method: method.toUpperCase(), signal: AbortSignal.timeout(45000), redirect: "error" });
+  assert.equal(response.status, 401, `anonymous access: ${method} ${path}`);
   assert.equal((await response.json()).error, "authentication_required");
-  console.log(JSON.stringify({ check: path, status: "PASS", http: response.status }));
+  console.log(JSON.stringify({ check: `${method.toUpperCase()} ${route}`, status: "PASS", scope: "anonymous_denial_only", http: response.status }));
 }
 const missing = await get("/api/qa-nonexistent-route");
 assert.equal(missing.status, 404);
