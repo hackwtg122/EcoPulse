@@ -3,12 +3,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+const buildCommit = (process.env.RENDER_GIT_COMMIT || process.env.GITHUB_SHA || execFileSync("git", ["rev-parse", "HEAD"], { cwd: artifactDir, encoding: "utf8" })).trim();
+if (!/^[a-f0-9]{40}$/i.test(buildCommit)) throw new Error("Exact build commit required");
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
@@ -102,6 +106,7 @@ async function buildAll() {
       "electron",
     ],
     sourcemap: "linked",
+    define: { "process.env.ECOPULSE_BUILD_COMMIT": JSON.stringify(buildCommit) },
     plugins: [
       // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
       esbuildPluginPino({ transports: ["pino-pretty"] })
@@ -118,6 +123,12 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+  const bundle = await readFile(path.join(distDir, "index.mjs"));
+  if (!bundle.includes(Buffer.from('"/version"')) || !bundle.includes(Buffer.from('"api_route_not_found"'))) {
+    throw new Error("Built API is missing required version/404 routes");
+  }
+  await writeFile(path.join(distDir, "build-info.json"), JSON.stringify({ commit: buildCommit, bundleSha256: createHash("sha256").update(bundle).digest("hex") }));
+  console.log(JSON.stringify({ check: "api_bundle_built", commit: buildCommit }));
 }
 
 buildAll().catch((err) => {

@@ -4,6 +4,35 @@
 
 ### Actualización de desbloqueo (posterior a la entrega inicial)
 
+- Corrección focalizada del run 41518313424: job role-policy remoto PASS;
+  deploy-render agotó su bucle de 35×15 s (log 20:20:51→20:29:41), no su límite
+  Actions de 12 minutos. public-api/public-browser quedaron SKIPPED, no PASS.
+  Live de dfdcb2f fue reportado por el usuario tras 9m02s. HTTP con cache-buster
+  confirmó health 200, version 404 HTML y también 404 genérico HTML. El bundle
+  compilado del repositorio sí contiene /version y 404 JSON: runtime servido no
+  acredita ese artefacto; el origen exacto de esa divergencia sigue pendiente.
+- Implementado plazo monotónico de sondeo de 20 minutos, reutilización por SHA
+  de deploy activo/Live, aborto temprano Failed/Cancelled y gate health+versión
+  esperada después de Live. Build emite manifiesto de SHA/hash; start verifica
+  ambos y carga ese mismo bundle, rechazando un artefacto desfasado. Imports del
+  router explícitos; versión devuelve SHA compilado, no solo variable runtime.
+  Tests puros con reloj/fetch simulados 5/5 PASS (incluyen Live 9m02s, timeout,
+  cancelación, version404/SHA incorrecto). TypeScript API y build exit 0; no se
+  arrancó servidor ni consultó BD. Estas pruebas no son PASS funcional remoto.
+- Diff mínimo para workflow en `PRODUCTION_CI_WORKFLOW.patch`: deploy job 25 min
+  y añadir tests puros al comando existente. El script necesita 20 min + hasta
+  2 min de verificación; no declarar compatible el límite antiguo de 12 min.
+
+- Última publicación: `55eed4891a8574d4b3a984a40402415f0b7a83ad`, Netlify
+  `published_deploy=6ae8ed2f26e129e85d8bd3ee`, ready, publicado 20:06:26 UTC.
+  Workflow endurecido en commit **local** `1c9adef`: push rechazado por PAT sin
+  scope workflow. No se eludió. Único paso de operador: publicar el archivo local
+  `.github/workflows/production-public-qa.yml` desde el editor web de GitHub en
+  main. RENDER_API_KEY ya está configurado; no pedirlo otra vez.
+  Render comprobado: healthz 200, version 404 HTML; SHA pendiente. Actions,
+  Playwright y flujos privados permanecen BLOCKED, no hay nuevas pruebas PASS
+  funcionales por validación de YAML/sintaxis.
+
 - Activación CI/CD: `RENDER_API_KEY` confirmado en Repository secrets; ya no falta
   ese secreto. Token Git aún scope `repo`, sin `workflow`; cero workflows
   publicados. Archivo local endurecido a repo oficial/main, sin PR, acciones por

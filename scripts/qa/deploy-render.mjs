@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
+import { reusableDeploy, waitForLive, verifyRuntime } from "./render-deploy-policy.mjs";
 
 assert.equal(process.env.GITHUB_ACTIONS, "true", "remote_runner_required");
 assert.equal(process.env.GITHUB_REPOSITORY, "hackwtg122/EcoPulse", "official_repository_required");
@@ -15,14 +16,14 @@ const head = await fetch("https://api.github.com/repos/hackwtg122/EcoPulse/git/r
 assert.equal(head.status, 200, "main_head_verification_failed");
 assert.equal((await head.json()).object?.sha, sha, "stale_workflow_refusing_to_deploy_old_main_commit");
 const api = "https://api.render.com/v1";
-async function request(path, body, method = body ? "POST" : "GET") {
+async function request(path, body, method = body ? "POST" : "GET", timeoutMs = 30000) {
   const response = await fetch(`${api}${path}`, {
     method,
     headers: { Authorization: `Bearer ${key}`, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
-    redirect: "error", signal: AbortSignal.timeout(30000),
+    redirect: "error", signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!response.ok) throw new Error(`render_api_http_${response.status}`);
+  if (!response.ok) throw Object.assign(new Error(`render_api_http_${response.status}`), { status: response.status });
   return response.json();
 }
 // Discover by the exact official URL; never guess a service ID or touch another
@@ -69,19 +70,18 @@ if ((details.rootDir || "") !== "" || details.serviceDetails?.envSpecificDetails
 assert.equal(details.rootDir || "", "", "render_root_update_not_confirmed");
 assert.equal(details.serviceDetails?.envSpecificDetails?.buildCommand?.trim(), buildCommand, "render_build_update_not_confirmed");
 assert.equal(details.serviceDetails?.envSpecificDetails?.startCommand?.trim(), startCommand, "render_start_update_not_confirmed");
+console.log(JSON.stringify({ check: "render_start_configuration", root: details.rootDir || "", buildCommand, startCommand }));
 // Trigger only a code deploy for the approved SHA. No migrations, environment
 // changes, role grants, billing actions or auto-deploy setting changes.
-const deploy = await request(`/services/${encodeURIComponent(service.id)}/deploys`, { commitId: sha, clearCache: "do_not_clear" });
+const deployPath = `/services/${encodeURIComponent(service.id)}/deploys`;
+const existing = reusableDeploy(await request(`${deployPath}?limit=100`), sha);
+const deploy = existing || await request(deployPath, { commitId: sha, clearCache: "do_not_clear" });
 assert.ok(deploy.id, "missing_render_deploy_id");
-console.log(JSON.stringify({ check: "render_deploy_requested", deploy: deploy.id, expectedCommit: sha }));
-for (let attempt = 0; attempt < 35; attempt++) {
-  const state = await request(`/services/${encodeURIComponent(service.id)}/deploys/${encodeURIComponent(deploy.id)}`);
-  if (state.status === "live") {
-    assert.equal(state.commit?.id, sha, "render_live_commit_mismatch");
-    console.log(JSON.stringify({ check: "render_live", status: "PASS", commit: state.commit.id, deploy: deploy.id }));
-    process.exit(0);
-  }
-  if (["build_failed", "update_failed", "canceled", "deactivated"].includes(state.status)) throw new Error(`render_deploy_${state.status}; inspect sanitized Render logs`);
-  await setTimeout(15000);
-}
-throw new Error("render_deploy_live_timeout");
+console.log(JSON.stringify({ check: existing ? "render_deploy_reused" : "render_deploy_requested", deploy: deploy.id, expectedCommit: sha }));
+await waitForLive({
+  read: timeout => request(`${deployPath}/${encodeURIComponent(deploy.id)}`, undefined, "GET", timeout),
+  sha, sleep: setTimeout,
+  onStatus: status => console.log(JSON.stringify({ check: "render_deploy_state", status })),
+});
+await verifyRuntime({ sha, sleep: setTimeout });
+console.log(JSON.stringify({ check: "render_live_and_runtime_verified", status: "PASS", commit: sha, deploy: deploy.id }));

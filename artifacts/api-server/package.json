@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node ./dev.mjs",
     "build": "node ./build.mjs",
-    "start": "node --enable-source-maps ./dist/index.mjs",
+    "start": "node --enable-source-maps ./start.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:policy": "node --experimental-strip-types src/lib/pilotPolicy.test.mjs",
     "test:access": "node --experimental-strip-types src/lib/pilotAccessPolicy.test.mjs",

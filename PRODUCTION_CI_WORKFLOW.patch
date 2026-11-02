@@ -1,0 +1,9 @@
+diff --git a/.github/workflows/production-public-qa.yml b/.github/workflows/production-public-qa.yml
+--- a/.github/workflows/production-public-qa.yml
++++ b/.github/workflows/production-public-qa.yml
+@@ -34 +34 @@
+-        run: node --experimental-strip-types --test artifacts/api-server/src/lib/pilotRoles.test.mjs
++        run: node --experimental-strip-types --test scripts/qa/render-deploy-policy.test.mjs artifacts/api-server/src/lib/pilotRoles.test.mjs
+@@ -43 +43 @@
+-    timeout-minutes: 12
++    timeout-minutes: 25
