@@ -187,3 +187,41 @@ test("providerSelfTest is a boolean probe that never throws", async () => {
   assert.equal(await providerSelfTest(baseCfg, async () => { throw new Error("offline"); }), false);
   assert.equal(await providerSelfTest({ ...baseCfg, apiKey: "" }, okFetch(JSON.stringify({ ok: true }))), false);
 });
+
+test("NVIDIA NIM routes only to official host with model-specific JSON instructions and validates chat/vision", async () => {
+  const cfg = { ...baseCfg, provider: "nvidia", apiKey: "unit-nvidia-key", baseUrl: "https://untrusted.invalid/v1", chatModel: "nvidia/nemotron-3-super-120b-a12b", visionModel: "nvidia/nemotron-3.5-super-vl-120b-a12b" };
+  const chat = {};
+  const result = await chatWithStructured(cfg, "EcoGuía", [], "¿Dónde va el vidrio?", undefined, okFetch('{"answer":"Separa el vidrio limpio."}', chat));
+  assert.equal(result.answer, "Separa el vidrio limpio.");
+  assert.equal(chat.url, "https://integrate.api.nvidia.com/v1/chat/completions");
+  assert.equal(chat.body.model, cfg.chatModel);
+  assert.equal(chat.body.response_format, undefined);
+  assert.equal(chat.body.store, undefined);
+  assert.equal(chat.body.top_p, 0.95);
+  assert.match(chat.body.messages[0].content, /objeto JSON válido/);
+  assert.equal(chat.options.headers.Authorization, `Bearer ${cfg.apiKey}`);
+  const vision = {};
+  const classified = await classifyImageWithVision(cfg, "aW1n", okFetch(JSON.stringify(goodPayload), vision));
+  assert.equal(classified.category, "plastic");
+  assert.equal(vision.body.model, cfg.visionModel);
+  assert.equal(vision.body.temperature, 0.6);
+  assert.equal(vision.body.messages.at(-1).content.at(-1).image_url.url, "data:image/png;base64,aW1n");
+  await rejectsWith(classifyImageWithVision({ ...cfg, visionModel: cfg.chatModel }, "aW1n", async () => assert.fail("invalid model must send nothing")), 503, "ai_provider_model_not_allowed");
+  await rejectsWith(chatWithStructured(cfg, "EcoGuía", [], "Hola", undefined, okFetch("no es JSON")), 502, "invalid_ai_response");
+});
+
+test("NVIDIA rate limits return Retry-After without retrying, and transport timeouts stay bounded", async () => {
+  const cfg = { ...baseCfg, provider: "nvidia", chatModel: "nvidia/nemotron-3-super-120b-a12b", maxRetries: 2 };
+  let calls = 0;
+  await assert.rejects(chatWithStructured(cfg, "EcoGuía", [], "Hola", undefined, async () => {
+    calls++;
+    return { ok: false, status: 429, headers: { get: () => "27" } };
+  }), error => error.code === "ai_rate_limited" && error.retryAfterSeconds === 27);
+  assert.equal(calls, 1);
+  await rejectsWith(chatWithStructured({ ...cfg, maxRetries: 0 }, "EcoGuía", [], "Hola", undefined,
+    async () => ({ ok: false, status: 401 })), 503, "ai_provider_auth_failed");
+  await rejectsWith(chatWithStructured({ ...cfg, maxRetries: 0 }, "EcoGuía", [], "Hola", undefined,
+    async () => ({ ok: false, status: 400 })), 502, "ai_provider_rejected_request");
+  await rejectsWith(chatWithStructured({ ...cfg, maxRetries: 0, timeoutMs: 5 }, "EcoGuía", [], "Hola", undefined,
+    async (_url, init) => new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true }))), 502, "ai_provider_unavailable");
+});

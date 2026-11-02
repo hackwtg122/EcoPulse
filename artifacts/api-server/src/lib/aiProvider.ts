@@ -28,7 +28,7 @@ function parseRetryAfter(headers: unknown): number | undefined {
 }
 
 export type ProviderConfig = {
-  provider: "openrouter" | "groq" | "custom";
+  provider: "openrouter" | "nvidia" | "groq" | "custom";
   apiKey: string;
   baseUrl?: string;
   visionModel: string;
@@ -86,6 +86,8 @@ function withJitter(ms: number): number {
 }
 
 function resolveBaseUrl(cfg: ProviderConfig): string {
+  // NIM must never be redirected to a configurable host carrying its key.
+  if (cfg.provider === "nvidia") return "https://integrate.api.nvidia.com/v1";
   if (cfg.baseUrl && cfg.baseUrl.trim()) return cfg.baseUrl.trim().replace(/\/$/, "");
   if (cfg.provider === "openrouter") return OPENROUTER_BASE;
   if (cfg.provider === "groq") return "https://api.groq.com/openai/v1";
@@ -104,9 +106,14 @@ function selectModel(
   requested: string,
   allowlist: string[] | undefined,
   requireOpen: boolean | undefined,
+  provider: ProviderConfig["provider"] = "openrouter",
 ): string {
   if (!requested) throw new AiProviderError(503, "ai_provider_unconfigured");
   const model = requested.trim();
+  if (provider === "nvidia") {
+    if (model === "nvidia/nemotron-3-super-120b-a12b" || model === "nvidia/nemotron-3.5-super-vl-120b-a12b") return model;
+    throw new AiProviderError(503, "ai_provider_model_not_allowed");
+  }
   const req = requireOpen !== false;
 
   if (model === "openrouter/free") {
@@ -147,18 +154,22 @@ async function chatCompletions(
     model,
     messages,
     max_tokens: maxTokens,
-    temperature: 0.2,
-    response_format: {
+    temperature: cfg.provider === "nvidia" ? (model.includes("super-vl") ? 0.6 : 1.0) : 0.2,
+    ...(cfg.provider === "nvidia" ? { top_p: 0.95, stream: false } : { response_format: {
       type: "json_schema",
       json_schema: {
         name: "ecopulse_schema",
         strict: true,
         schema: responseSchema,
       },
-    },
+    } }),
   };
-  // OpenRouter expects store flag? Test expects store false for OpenAI compat in some cases
-  const bodyWithStore = { store: false, ...body };
+  // NVIDIA's model-specific response_format support is unverified: request
+  // JSON explicitly and validate the result locally rather than send a schema
+  // option that might be rejected. Keep OpenRouter's existing strict contract.
+  const bodyWithStore = cfg.provider === "nvidia"
+    ? { ...body, messages: [{ role: "system", content: `Devuelve únicamente un objeto JSON válido con este esquema (sin markdown ni explicaciones): ${JSON.stringify(responseSchema)}` }, ...messages] }
+    : { store: false, ...body };
   let lastStatus = 0;
   for (let attempt = 0; attempt <= cfg.maxRetries; attempt++) {
     const controller = new AbortController();
@@ -207,7 +218,10 @@ async function chatCompletions(
         return parsed;
       }
       clearTimeout(timer);
-      if (!isTransientError(res.status, null) || attempt === cfg.maxRetries) {
+      if (!isTransientError(res.status, null) || (cfg.provider === "nvidia" && res.status === 429) || attempt === cfg.maxRetries) {
+        if (res.status === 401 || res.status === 403) throw new AiProviderError(503, "ai_provider_auth_failed");
+        if (res.status === 404) throw new AiProviderError(503, "ai_provider_model_unavailable");
+        if (res.status === 400) throw new AiProviderError(502, "ai_provider_rejected_request");
         throw new AiProviderError(
           res.status >= 500 ? 502 : res.status === 429 ? 429 : 502,
           res.status === 429 ? "ai_rate_limited" : "ai_provider_unavailable",
@@ -276,7 +290,8 @@ export async function classifyImageWithVision(
 ): Promise<ClassifyVisionResult> {
   // Defense in depth: never call the provider without a configured server-side key.
   if (!cfg.apiKey) throw new AiProviderError(503, "ai_provider_unconfigured");
-  const model = selectModel(cfg.visionModel, cfg.visionAllowlist, cfg.requireOpenLicense);
+  const model = selectModel(cfg.visionModel, cfg.visionAllowlist, cfg.requireOpenLicense, cfg.provider);
+  if (cfg.provider === "nvidia" && model !== "nvidia/nemotron-3.5-super-vl-120b-a12b") throw new AiProviderError(503, "ai_provider_model_not_allowed");
   const schema = {
     type: "object",
     properties: {
@@ -314,7 +329,8 @@ export async function chatWithStructured(
 ): Promise<{ answer: string }> {
   // Defense in depth: never call the provider without a configured server-side key.
   if (!cfg.apiKey) throw new AiProviderError(503, "ai_provider_unconfigured");
-  const model = selectModel(cfg.chatModel, cfg.chatAllowlist, cfg.requireOpenLicense);
+  const model = selectModel(cfg.chatModel, cfg.chatAllowlist, cfg.requireOpenLicense, cfg.provider);
+  if (cfg.provider === "nvidia" && model !== "nvidia/nemotron-3-super-120b-a12b") throw new AiProviderError(503, "ai_provider_model_not_allowed");
   const schema = {
     type: "object",
     properties: { answer: { type: "string" } },
@@ -341,7 +357,7 @@ export async function providerSelfTest(cfg: ProviderConfig, fetchImpl: typeof fe
   if (!cfg.apiKey) return false;
   let model: string;
   try {
-    model = selectModel(cfg.chatModel, cfg.chatAllowlist, cfg.requireOpenLicense);
+    model = selectModel(cfg.chatModel, cfg.chatAllowlist, cfg.requireOpenLicense, cfg.provider);
   } catch {
     return false;
   }
