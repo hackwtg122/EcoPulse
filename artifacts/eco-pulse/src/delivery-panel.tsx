@@ -62,7 +62,7 @@ function DeliveryHistory({ deliveries }: { deliveries: PilotDelivery[] }) {
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-semibold">{deliveryLabels[delivery.status]}</p>
             <span className="rounded-full border border-[hsl(var(--border))] px-2 py-0.5 text-[11px] font-bold text-[hsl(var(--muted-foreground))]">
-              {delivery.requestVersion === 1 ? "Solicitud anterior · V1" : "Solicitud detallada · V2"}
+              {delivery.requestVersion === 1 ? "Solicitud básica · V1" : "Solicitud detallada · V2"}
             </span>
           </div>
           <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{formatDate(delivery.createdAt)}</p>
