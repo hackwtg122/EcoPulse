@@ -1,10 +1,31 @@
 # QA privado: acceso mínimo y alcance seguro
 
+## Estado vigente: YA configurado, diagnóstico de ejecución fallida
+
+El workflow privado está publicado y activo (ID405072408) y el secreto
+`PRODUCTION_QA_ACCOUNTS` existe. No volver a crearlos. La ejecución41554609146
+pasó confirmación, checkout, Node, tests con mocks e instalación; falló antes de
+registrar ningún login y el catch anterior ocultó la causa con un mensaje genérico.
+
+El runner ahora distingue etapa y código seguro: JSON, versión, autorización,
+campo/índice de cuenta, marcador de ejemplo, despliegue/SHA, módulos/browser y
+respuesta de Clerk. Nunca imprime valores, estructura del secreto, stack, IDs,
+contraseñas ni respuestas del proveedor. `profilePreexists` es una declaración,
+no prueba que un perfil exista; una discrepancia de rol tampoco autoriza promoverlo.
+Markdown/BOM y roles en mayúsculas se normalizan sin alterar contraseñas ni
+relajar autorizaciones. Los placeholders de la plantilla se rechazan expresamente.
+
+Si la nueva ejecución requiere corregir un campo, la única intervención será
+**editar el secreto existente**, no crearlo:
+https://github.com/hackwtg122/EcoPulse/settings/secrets/actions/PRODUCTION_QA_ACCOUNTS.
+El diagnóstico indicará campo/índice sin recuperar su valor. No sustituir por
+cuentas reales ni marcar declaraciones como true sin haberlas comprobado.
+
 CI/CD existente no se cambia. La corrida #3 (`41522011151`) confirmó
 `2ab7b490326a0d3c2fa94dbeec66f6369d87f5e7` en ambos servicios, 44 denegaciones
 anónimas y 21/21 pruebas públicas. Esto NO certifica ninguna escritura privada.
 
-## Configuración imprescindible, agrupada una sola vez
+## Referencia de formato y cuentas (no repetir la configuración ya realizada)
 
 Para **crear o designar** las cuentas: en la misma instancia de Clerk que usa
 Netlify, abrir **Users → Create user** y usar correos controlados destinados solo
@@ -17,16 +38,13 @@ Clerk para intentar elevar privilegios. Puede empezarse solo con PARTICIPANT.
 El admin de prueba no puede ser el último admin y no se crea/promueve desde el
 runner. El workflow exacto sigue en `.github/workflows/production-private-qa.yml`.
 
-1. GitHub → EcoPulse → **Settings → Secrets and variables → Actions**:
-   crear **`PRODUCTION_QA_ACCOUNTS`** con el JSON de abajo, reemplazando valores
+1. Solo si un diagnóstico pide corregirlo: GitHub → EcoPulse → **Settings → Secrets and variables → Actions**:
+   editar el **`PRODUCTION_QA_ACCOUNTS`** existente con el JSON de abajo, reemplazando valores
    únicamente en GitHub. No pegarlo en chat ni guardarlo/versionarlo con datos
    reales. Deben ser cuentas Clerk de prueba autorizadas, distintas entre sí,
    **ya existentes**, con perfil EcoPulse provisionado y rol correcto.
-2. Publicar el archivo nuevo **`.github/workflows/production-private-qa.yml`**
-   desde GitHub (Add file → Create new file, misma ruta, contenido local, commit
-   a main/PR requerido). La credencial Git de esta sesión no dispone de workflow;
-   no se ampliará ni eludirá. Es un workflow privado separado, no reconfigura el
-   pipeline que ya funciona. Sus scripts/dependencias deben estar publicados antes.
+2. El archivo **`.github/workflows/production-private-qa.yml`** ya está publicado.
+   Se usa tal cual, sin ampliar permisos ni reconfigurar el CI/CD.
 3. Con el commit desplegado y el secreto disponible, la sesión puede disparar
    este workflow mediante GitHub API (`workflow_dispatch`, main,
    `confirm_test_accounts=true`). No hace falta compartir contraseñas ni desplegar

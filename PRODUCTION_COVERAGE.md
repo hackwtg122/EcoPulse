@@ -2,7 +2,40 @@
 
 ## Veredicto: NO TERMINADO
 
+## Estado E2E privado vigente — sustitución de bloqueos anteriores
+
+Workflow privado activo405072408 y secretoPRODUCTION_QA_ACCOUNTS **confirmados
+existentes**. Run41554609146 de b782056 falló en setup, no en un login acreditado.
+Confirmación explícita, checkout, Node, mocks e instalación PASS; el catch genérico
+impedía diferenciar fixture, despliegue o browser. No inferir cuentas inexistentes,
+roles erróneos o secreto ausente de ese mensaje. Se añadió diagnóstico seguro por
+etapa/campo/índice y códigos cerrados, sin recuperar ni volcar el secreto.
+Se usa el workflow publicado sin editarlo. Se permiten únicamente normalizaciones
+de formato inocuas; no se infieren permisos/roles/declaraciones de perfiles.
+La identidad Clerk debe coincidir antes de habilitar cualquier lectura/upsert de
+la API. Diagnóstico, credenciales y MFA se distinguen sin exponer respuestas.
+Pruebas puras del parser/redacción:7/7 PASS; no constituyen login real.
+
 ## Correcciones de los tres FAIL — bloque en curso
+
+### Publicación comprobada (posterior a la implementación)
+
+Commits publicados: `bde56a4` (sin cita), `f7bf82b` (publicación rewards),
+`1418d6e` (seed protegido), **`a6a2e1af0266e5f9b5c0c34cc551b661722684fd`**
+(regresiones/build/condiciones QA). Actions **#5 / 41538114143 SUCCESS**:
+https://github.com/hackwtg122/EcoPulse/actions/runs/41538114143.
+Render `dep-dbkgv4qjnfac73c1e4ig` Live+health/version/SHA verificados; Netlify
+`6ae90f758c9be12cf3a80cf3` ready mismoSHA (ambos confirmados también por HTTP/API).
+El gate de seguridad comprobó **45 denegaciones anónimas** (44 originales+publish)
+y21/21 navegador público del pipeline normal. No es verificación autenticada.
+
+Los tres defectos tienen corrección de código desplegada, **NO PASS de escritura**:
+sin datos/roles QA autorizados no se publicó recompensa ni centro ni se creó
+entrega. Seed y auditoría no ejecutados. Nueva consulta de nombres al finalizar:
+secret `PRODUCTION_QA_ACCOUNTS` y workflow privado todavía ausentes. Archivo exacto
+local listo para GitHub; la plantilla se entregó primero en la conversación.
+Las escrituras siguen BLOCKED hasta autorización/aislamiento/reversión; respaldo
+restaurable no acreditado, por lo que no se solicita ejecutar0004 a ciegas.
 
 Causas contrastadas antes de editar con source y consulta **READ ONLY a Neon**:
 trigger `enforce_delivery_destination` admite slotNULL cuando no requiere cita;

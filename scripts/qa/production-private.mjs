@@ -1,49 +1,80 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseQAAccounts, qaRoles, commonReads, adminReads, verifierReads, privatePages, expectedReadStatus } from "./private-qa-policy.mjs";
+import { setTimeout } from "node:timers/promises";
+import { parseQAAccounts, qaRoles, commonReads, adminReads, verifierReads, privatePages, expectedReadStatus, PrivateQAError, safePrivateDiagnostic } from "./private-qa-policy.mjs";
 
 const frontend = "https://ecopulseef.netlify.app";
 const api = "https://ecopulse-3xb4.onrender.com";
 const results = [];
-const report = (role, check, status, reason, scope = "authenticated_reads_and_session") => results.push({ role, check, status, scope, ...(reason ? { reason } : {}) });
+const report = (role, check, status, reason, scope = "authenticated_reads_and_session") => {
+  const row = { role, check, status, scope, ...(reason ? { reason } : {}) };
+  results.push(row);
+  return row;
+};
 let browser;
+let setupStage = "runner_validation";
 async function readAccount(page, path, account) {
   expectedReadStatus(account.role, path); // rejects all non-allowlisted paths
   return page.evaluate(async ({ api, path, expectedId, expectedRole }) => {
-    const token = await window.Clerk?.session?.getToken();
-    if (!token) return { status: 0, identityMatches: false };
-    const response = await fetch(`${api}/api/pilot/${path}`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", credentials: "omit", redirect: "error" });
+    let token;
+    try { token = await window.Clerk?.session?.getToken(); } catch { /* report only a boolean */ }
+    if (!token) return { status: 0, identityMatches: false, tokenAvailable: false };
+    let response;
+    try { response = await fetch(`${api}/api/pilot/${path}`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", credentials: "omit", redirect: "error", signal: AbortSignal.timeout(30000) }); }
+    catch { return { status: 0, json: false, tokenAvailable: true }; }
     let body;
     try { body = await response.json(); } catch { return { status: response.status, json: false }; }
     // No rows, tokens, emails or account IDs leave the browser process.
     return { status: response.status, json: true,
       identityMatches: path === "me" ? body.id === expectedId && body.role === expectedRole : undefined,
+      userMatches: path === "me" ? body.id === expectedId : undefined,
+      roleMatches: path === "me" ? body.role === expectedRole : undefined,
       adminCount: path === "admin/users" ? body.adminCount : undefined,
       aiEnabled: path === "scans/ai-capabilities" || path === "guide/capabilities" ? body.enabled : undefined };
   }, { api, path, expectedId: account.userId, expectedRole: account.role });
 }
 
 async function run() {
-  if (process.env.GITHUB_ACTIONS !== "true" || process.env.GITHUB_REPOSITORY !== "hackwtg122/EcoPulse" || process.env.GITHUB_REF !== "refs/heads/main") throw new Error("official_main_remote_runner_required");
-  if (process.env.GITHUB_EVENT_NAME !== "workflow_dispatch" || process.env.PRIVATE_QA_AUTHORIZED !== "true") throw new Error("explicit_private_run_authorization_required");
+  if (process.env.GITHUB_ACTIONS !== "true" || process.env.GITHUB_REPOSITORY !== "hackwtg122/EcoPulse" || process.env.GITHUB_REF !== "refs/heads/main") throw new PrivateQAError("official_main_remote_runner_required");
+  if (process.env.GITHUB_EVENT_NAME !== "workflow_dispatch" || process.env.PRIVATE_QA_AUTHORIZED !== "true") throw new PrivateQAError("explicit_private_run_authorization_required");
+  report("all", "setup_runner", "PASS", undefined, "setup_validation");
+  setupStage = "fixture_validation";
   const accounts = parseQAAccounts(process.env.PRODUCTION_QA_ACCOUNTS);
+  report("all", "setup_fixture_structure", "PASS", undefined, "setup_validation");
+  setupStage = "expected_commit";
   const expectedSha = process.env.GITHUB_SHA;
-  if (!/^[a-f0-9]{40}$/i.test(expectedSha || "")) throw new Error("expected_commit_required");
+  if (!/^[a-f0-9]{40}$/i.test(expectedSha || "")) throw new PrivateQAError("expected_commit_required");
   const assertVersion = async () => {
     const options = { headers: { "Cache-Control": "no-cache" }, signal: AbortSignal.timeout(30000), redirect: "error" };
     const [response, site] = await Promise.all([
       fetch(`${api}/api/version`, options),
       fetch("https://api.netlify.com/api/v1/sites/ecopulseef.netlify.app", options),
     ]);
-    if (!response.ok || (await response.json()).commit !== expectedSha) throw new Error("private_run_deployed_commit_mismatch");
-    if (!site.ok) throw new Error("private_run_frontend_commit_unverified");
+    if (!response.ok || (await response.json()).commit !== expectedSha) throw new PrivateQAError("private_run_deployed_commit_mismatch");
+    if (!site.ok) throw new PrivateQAError("private_run_frontend_commit_unverified");
     const deploy = (await site.json()).published_deploy;
-    if (deploy?.state !== "ready" || deploy?.commit_ref !== expectedSha) throw new Error("private_run_frontend_commit_mismatch");
+    if (deploy?.state !== "ready" || deploy?.commit_ref !== expectedSha) throw new PrivateQAError("private_run_frontend_commit_mismatch");
   };
-  await assertVersion();
-  if (!process.env.PROD_QA_MODULES_DIR || !process.env.CHROME_PATH) throw new Error("remote_browser_dependencies_required");
-  const { chromium } = await import(pathToFileURL(join(process.env.PROD_QA_MODULES_DIR, "playwright-core", "index.mjs")).href);
-  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
+  setupStage = "deployment_identity";
+  const deadline = Date.now() + 180000;
+  while (true) {
+    try { await assertVersion(); break; }
+    catch (error) {
+      if (Date.now() >= deadline) throw error instanceof PrivateQAError ? error : new PrivateQAError("private_run_remote_identity_unavailable");
+      await setTimeout(5000);
+    }
+  }
+  report("all", "setup_deployed_commits", "PASS", undefined, "setup_validation");
+  setupStage = "browser_dependencies";
+  if (!process.env.PROD_QA_MODULES_DIR || !process.env.CHROME_PATH) throw new PrivateQAError("remote_browser_dependencies_required");
+  let chromium;
+  try { ({ chromium } = await import(pathToFileURL(join(process.env.PROD_QA_MODULES_DIR, "playwright-core", "index.mjs")).href)); }
+  catch { throw new PrivateQAError("remote_browser_module_unavailable"); }
+  setupStage = "browser_launch";
+  try { browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true }); }
+  catch { throw new PrivateQAError("remote_browser_launch_failed"); }
+  report("all", "setup_browser", "PASS", undefined, "setup_validation");
+  setupStage = "account_checks";
   for (const role of qaRoles) {
     const account = accounts.find(row => row.role === role);
     if (!account) { report(role, "private_suite", "BLOCKED", "authorized_test_account_not_supplied"); continue; }
@@ -51,29 +82,58 @@ async function run() {
     // This first suite does not mutate app records. Clerk login/logout does
     // create/revoke a test session. The API may attempt profile INSERT on GET;
     // fixtures must refer to already provisioned profiles, never real users.
-    await context.route(`${api}/api/pilot/**`, route => ["GET", "HEAD", "OPTIONS"].includes(route.request().method()) ? route.continue() : route.abort());
+    let identityApproved = false;
+    await context.route(`${api}/api/pilot/**`, route => identityApproved && ["GET", "HEAD", "OPTIONS"].includes(route.request().method()) ? route.continue() : route.abort());
     const page = await context.newPage();
     let jsErrors = 0;
     page.on("pageerror", () => { jsErrors++; });
     let identityVerified = false;
+    let accountStage = "login_identifier";
+    let clerkFailure;
+    const clerkCodes = { form_identifier_not_found: "qa_clerk_account_not_found", identifier_not_found: "qa_clerk_account_not_found", form_password_incorrect: "qa_clerk_password_rejected", captcha_invalid: "qa_clerk_captcha_required", captcha_failed: "qa_clerk_captcha_required" };
+    page.on("response", async response => {
+      try {
+        const url = new URL(response.url());
+        const trusted = url.hostname.endsWith(".clerk.accounts.dev") || (url.origin === api && url.pathname.startsWith("/api/__clerk/"));
+        if (trusted && url.pathname.includes("/client/sign_ins") && response.status() >= 400) {
+          const code = (await response.json())?.errors?.[0]?.code;
+          if (Object.hasOwn(clerkCodes, code)) clerkFailure = clerkCodes[code];
+        }
+      } catch { /* Never emit provider response bodies or exception messages. */ }
+    });
     try {
       await page.goto(`${frontend}/sign-in`, { waitUntil: "domcontentloaded", timeout: 45000 });
       const identifier = page.locator('input[name="identifier"], input[name="emailAddress"], input[type="email"]').first();
       await identifier.waitFor({ state: "visible", timeout: 30000 });
       await identifier.fill(account.email);
+      accountStage = "login_password";
       const password = page.locator('input[type="password"]').first();
       if (!await password.isVisible()) await page.locator('button[type="submit"]').first().click();
       await password.waitFor({ state: "visible", timeout: 30000 });
       await password.fill(account.password);
       await page.locator('button[type="submit"]').first().click();
+      accountStage = "login_completion";
       // Do not bypass CAPTCHA, OTP, recovery or MFA. Such a factor blocks this
       // fixture until an authorized runner-compatible test session is provided.
       await page.waitForURL(`${frontend}/dashboard`, { timeout: 60000 });
+      await page.waitForFunction(() => Boolean(window.Clerk?.session && window.Clerk?.user), null, { timeout: 30000 });
+      accountStage = "principal_identity";
+      const principalMatches = await page.evaluate(expectedId => window.Clerk?.user?.id === expectedId, account.userId);
+      if (!principalMatches) throw new PrivateQAError("qa_fixture_identity_mismatch");
+      // No app request/profile upsert is allowed before checking the Clerk ID.
+      identityApproved = true;
+      await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForFunction(() => Boolean(window.Clerk?.session), null, { timeout: 30000 });
+      accountStage = "profile_and_role";
       const me = await readAccount(page, "me", account);
-      if (me.status !== 200 || !me.identityMatches) throw new Error("fixture_identity_or_role_mismatch");
+      if (me.tokenAvailable === false) throw new PrivateQAError("qa_api_session_token_unavailable");
+      if (me.status === 401) throw new PrivateQAError("qa_api_session_rejected");
+      if (me.status !== 200) throw new PrivateQAError("qa_profile_or_api_unavailable");
+      if (!me.userMatches) throw new PrivateQAError("qa_fixture_identity_mismatch");
+      if (!me.roleMatches) throw new PrivateQAError("qa_application_role_mismatch");
       identityVerified = true;
       report(role, "login_and_expected_identity", "PASS");
+      accountStage = "authenticated_reads";
       if (role === "admin") {
         const users = await readAccount(page, "admin/users", account);
         if (users.status !== 200 || !Number.isInteger(users.adminCount) || users.adminCount < 2) {
@@ -113,8 +173,9 @@ async function run() {
       await page.waitForURL(`${frontend}/`, { timeout: 30000 });
       report(role, "logout_and_private_route_denial", "PASS");
     } catch (error) {
-      const reason = ["fixture_identity_or_role_mismatch"].includes(error?.message) ? error.message : identityVerified ? "authenticated_check_failed_details_suppressed" : "login_requires_factor_or_credentials_rejected";
-      report(role, "private_suite", identityVerified ? "FAIL" : "BLOCKED", reason);
+      const diagnostic = safePrivateDiagnostic(error);
+      const reason = diagnostic.reason !== "private_setup_unexpected_error" ? diagnostic.reason : identityVerified ? "authenticated_check_failed_details_suppressed" : clerkFailure || "qa_login_interactive_factor_or_incomplete";
+      report(role, "private_suite", identityVerified ? "FAIL" : "BLOCKED", reason).stage = accountStage;
     } finally {
       // Only this newly created browser's test session; no backend master key,
       // sign-in token minting, role changes, screenshots or trace artifacts.
@@ -122,13 +183,14 @@ async function run() {
       await context.close().catch(() => {});
     }
   }
+  setupStage = "final_deployment_identity";
   await assertVersion();
   for (const check of ["registration_and_profile_bootstrap", "password_recovery_and_mfa", "profile_mutation_persistence", "favorites_mutation_persistence", "manual_scan_persistence", "delivery_create_and_events", "physical_verification_and_points", "reward_publication_redemption_fulfillment", "role_changes_and_audit", "cross_user_record_isolation"]) {
     report("all", check, "BLOCKED", "requires_separately_authorized_test_records_or_sensitive_operation", "deferred_write_flows");
   }
 }
 try { await run(); }
-catch { report("all", "private_suite_setup", "BLOCKED", "missing_or_invalid_authorized_fixtures_or_runner_configuration"); }
+catch (error) { Object.assign(report("all", "private_suite_setup", "BLOCKED", safePrivateDiagnostic(error).reason), safePrivateDiagnostic(error), { stage: setupStage }); }
 finally { await browser?.close().catch(() => {}); }
 for (const result of results) console.log(JSON.stringify(result));
 const tested = results.filter(x => x.scope === "authenticated_reads_and_session");
