@@ -3,11 +3,11 @@ import test from "node:test";
 import { AiGuideError, parseGuideRequest, askGuideWithOpenAI, askGuideWithProvider, consumeGuideQuota } from "./aiGuide.ts";
 import { guideAccountDetails, guideSystemPrompt } from "./aiGuideCore.ts";
 
-test("academic catalog entries cannot be presented as physical operations even outside evaluation mode", () => {
+test("catalog entries cannot be presented as physical operations without confirmed data", () => {
   for (const academic of [false, true]) {
     const prompt = guideSystemPrompt({ balance: 0, scanCount: 0, deliveryCount: 0, activeCenters: 1, pointsPolicyEnabled: false, academic });
-    assert.match(prompt, /académicos, ilustrativos o de ensayo no acreditan operación física ni valor real/);
-    assert.match(prompt, /No recomiendes desplazarse físicamente/);
+    assert.match(prompt, /No presentes centros ni recompensas como operativos/);
+    assert.match(prompt, /No recomiendes desplazarte a un punto sin dirección confirmada/);
   }
 });
 

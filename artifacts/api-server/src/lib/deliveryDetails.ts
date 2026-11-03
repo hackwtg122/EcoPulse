@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { deliveryIdForIdempotency, scanCategories, uuidPattern, type DeliveryCursor } from "./pilotPolicy.ts";
+import { presentDeliveryPoint } from "./pointPresentation.ts";
 
 export type DeliveryStatus = "pending" | "scheduled" | "received" | "approved" | "rejected" | "cancelled";
 export type DeliveryMaterialInput = { categoryCode: (typeof scanCategories)[number]; estimatedGrams: number };
@@ -35,6 +36,8 @@ export type DeliveryOptionPoint = {
   municipality: string;
   timeZone: string;
   appointmentRequired: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
   materials?: DeliveryMaterialInput["categoryCode"][];
   slots: Array<{ id: string; startsAt: Date; endsAt: Date; remainingCapacity: number }>;
 };
@@ -233,17 +236,22 @@ export async function loadDeliveryOptions(
     municipality: string;
     time_zone: string;
     appointment_required: boolean;
-  }>(pointResult).map((row) => ({
-    id: row.id,
-    code: row.code,
-    name: row.name,
-    address: row.address,
-    municipality: row.municipality,
-    timeZone: row.time_zone,
-    appointmentRequired: row.appointment_required,
-    ...(materialResult ? { materials: materialsByPoint.get(row.id) ?? [] } : {}),
-    slots: slotsByPoint.get(row.id) ?? [],
-  }));
+  }>(pointResult).map((row) => {
+    const presented = presentDeliveryPoint(row);
+    return {
+      id: row.id,
+      code: row.code,
+      name: presented.name,
+      address: presented.address,
+      municipality: row.municipality,
+      timeZone: row.time_zone,
+      appointmentRequired: row.appointment_required,
+      latitude: presented.latitude,
+      longitude: presented.longitude,
+      ...(materialResult ? { materials: materialsByPoint.get(row.id) ?? [] } : {}),
+      slots: slotsByPoint.get(row.id) ?? [],
+    };
+  });
   const configured = categories.length > 0 && points.some((point) => !point.appointmentRequired || point.slots.length > 0);
   return {
     mode: "detailed",
@@ -257,17 +265,22 @@ export async function loadDeliveryOptions(
 function mapPublicDeliveryRow(row: Record<string, unknown>): PublicDelivery {
   const requestVersion = Number(row.request_version);
   const materials = Array.isArray(row.materials) ? row.materials : [];
+  const deliveryPoint = row.delivery_point_id ? presentDeliveryPoint({
+    code: String(row.delivery_point_code),
+    name: String(row.delivery_point_name),
+    address: String(row.delivery_point_address),
+  }) : null;
   return {
     id: String(row.id),
     status: row.status as DeliveryStatus,
     requestVersion: requestVersion === 2 ? 2 : 1,
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at ?? row.created_at) as Date,
-    deliveryPoint: row.delivery_point_id ? {
+    deliveryPoint: deliveryPoint ? {
       id: String(row.delivery_point_id),
       code: String(row.delivery_point_code),
-      name: String(row.delivery_point_name),
-      address: String(row.delivery_point_address),
+      name: deliveryPoint.name,
+      address: deliveryPoint.address,
       municipality: String(row.delivery_point_municipality),
     } : null,
     slot: row.slot_id ? {

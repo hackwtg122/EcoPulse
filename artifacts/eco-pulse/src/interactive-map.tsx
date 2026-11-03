@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
-import { ArrowRight, Heart, MapPin, Navigation, Search, FlaskConical, Building2 } from "lucide-react";
+import { ArrowRight, Heart, MapPin, Navigation, Search, Building2 } from "lucide-react";
 import { materialCategoryLabels } from "./materials-catalog";
 import type { PilotDeliveryOptions } from "./pilot-api";
 import { mapAcademicCenters } from "./map-catalog";
@@ -19,7 +19,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadowUrl,
 });
 
-// Icono propio (SVG en data-URI) para los puntos de PRUEBA: identifica de forma
+// Icono propio (SVG en data-URI) para los puntos internos de evaluación: identifica de forma
 // visual y consistente los registros de evaluación sin depender de imágenes externas.
 function testPointIcon(selected: boolean): L.Icon {
   const size = selected ? 42 : 34;
@@ -60,7 +60,7 @@ const defaultZoom = 13;
 
 type MapControllerProps = {
   selectedId: string | null;
-  points: TestPoint[];
+  points: Array<{ id: string; lat: number; lng: number }>;
   bounds: LatLngBounds | null;
 };
 
@@ -184,7 +184,7 @@ export function InteractiveMap({
                       Zona: {p.zone} · {p.lat.toFixed(3)}, {p.lng.toFixed(3)}
                     </p>
                     <p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))] sm:text-xs">
-                       {p.address ? `${p.address} · ` : ""}{p.slots ? `${p.slots.length} horarios con cupo` : p.hours} · {p.slots ? `${p.capacity} cupos` : `Cupo ilustrativo: ${p.capacity}`} · Resp.: {p.responsible}
+                       {p.address ? `${p.address} · ` : ""}{p.slots ? `${p.slots.length} horarios con cupo` : p.hours} · {p.slots ? `${p.capacity} cupos` : `Cupo de referencia: ${p.capacity}`} · Resp.: {p.responsible}
                     </p>
                      <div className="mt-2 flex flex-wrap items-center gap-2">
                        {p.slots && onToggleFavorite && <button type="button" aria-label={favoriteIds?.has(p.id) ? `Quitar ${p.name} de favoritos` : `Agregar ${p.name} a favoritos`} aria-pressed={favoriteIds?.has(p.id) ?? false} onClick={event => { event.stopPropagation(); onToggleFavorite(p.id); }} className="inline-flex items-center gap-1 text-xs font-semibold text-[hsl(var(--primary))]"><Heart size={16} fill={favoriteIds?.has(p.id) ? "currentColor" : "none"} /> Favorito</button>}
@@ -223,7 +223,7 @@ export function InteractiveMap({
                          <div className="border-t border-[hsl(var(--border))] pt-2 text-xs">
                            <p className="font-semibold">Horarios y cupos disponibles</p>
                            {p.slots?.map(slot => <p key={slot.id}>{new Date(slot.startsAt).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })} · {slot.remainingCapacity} cupos</p>)}
-                           {p.slots === undefined && <p>Agenda ilustrativa: {p.hours}. Reservas aún no disponibles.</p>}
+                           {p.slots === undefined && <p>Horario de referencia: {p.hours}. Reservas aún no disponibles.</p>}
                            {p.slots && p.slots.length === 0 && <p>Por ahora no hay cupos futuros.</p>}
                            {p.slots && p.slots.length > 0 && <a href={`/deliveries?point=${encodeURIComponent(p.id)}&slot=${encodeURIComponent(p.slots[0].id)}`} className="mt-2 inline-block font-semibold text-[hsl(var(--primary))] underline">Solicitar entrega en este centro</a>}
                          </div>
@@ -305,6 +305,16 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
     const needle = query.trim().toLocaleLowerCase("es-CO");
     return points.filter(point => !needle || `${point.name} ${point.address} ${point.municipality}`.toLocaleLowerCase("es-CO").includes(needle));
   }, [points, query]);
+  const located = useMemo(() => filtered.flatMap(point =>
+    typeof point.latitude === "number" && typeof point.longitude === "number"
+      ? [{ ...point, lat: point.latitude, lng: point.longitude }]
+      : []), [filtered]);
+  const bounds = useMemo(() => {
+    if (located.length === 0) return null;
+    const box = L.latLngBounds([]);
+    for (const point of located) box.extend([point.lat, point.lng]);
+    return box;
+  }, [located]);
 
   return <div className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
     <section className="order-2 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:p-5 lg:order-1" aria-label="Centros publicados">
@@ -314,25 +324,27 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
       <div className="mt-4 max-h-[60vh] space-y-3 overflow-auto">
         {filtered.map(point => {
           const open = selectedId === point.id;
+          const hasCoordinates = typeof point.latitude === "number" && typeof point.longitude === "number";
           return <article key={point.id} className={`rounded-2xl border p-4 transition ${open ? "border-[hsl(var(--primary))] bg-[hsl(var(--muted)/.4)]" : "border-[hsl(var(--border))]"}`}>
             <div className="flex gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[hsl(var(--secondary)/.32)] text-[hsl(var(--primary))]"><Building2 size={18} /></span>
               <div className="min-w-0 flex-1">
                 <h2 className="font-semibold">{point.name}</h2>
-                {/^Centro académico\b/i.test(point.name) && <p className="mt-1 text-xs font-semibold text-amber-800">Centro de ensayo académico; no acredita operación ni recepción física.</p>}
                 <p className="mt-1 text-sm">{point.address}, {point.municipality}</p>
                 <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{point.appointmentRequired ? `${point.slots.length} horarios con cupo publicados` : "Consulta disponibilidad antes de acudir"}</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-sm">
                   <button type="button" onClick={() => setSelectedId(open ? null : point.id)} aria-pressed={open} className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))]">{open ? "Cerrar ficha" : "Ver ficha"}<ArrowRight size={14} className={`transition ${open ? "rotate-90" : ""}`} /></button>
                   {favoriteIds && onToggleFavorite && <button type="button" disabled={favoriteBusy} aria-pressed={favoriteIds.has(point.id)} onClick={() => onToggleFavorite(point.id)} className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))] disabled:opacity-50" data-testid={`favorite-${point.id}`}><Heart size={14} fill={favoriteIds.has(point.id) ? "currentColor" : "none"} />{favoriteIds.has(point.id) ? "Quitar favorito" : "Guardar favorito"}</button>}
-                  <a className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))] underline" href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(`${point.address}, ${point.municipality}, Colombia`)}`} target="_blank" rel="noopener noreferrer">Buscar dirección en OpenStreetMap</a>
+                  {hasCoordinates
+                    ? <a className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))] underline" href={`https://www.openstreetmap.org/?mlat=${point.latitude}&mlon=${point.longitude}#map=16/${point.latitude}/${point.longitude}`} target="_blank" rel="noopener noreferrer"><Navigation size={14} /> Abrir en OpenStreetMap</a>
+                    : <a className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))] underline" href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(`${point.address}, ${point.municipality}, Colombia`)}`} target="_blank" rel="noopener noreferrer"><Navigation size={14} /> Buscar dirección en OpenStreetMap</a>}
                 </div>
                 {open && <div className="mt-3 space-y-2 rounded-2xl bg-[hsl(var(--muted)/.5)] p-3 text-xs sm:text-sm">
                   {point.slots.length > 0 && <div>
                     <p className="text-[10px] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))] sm:text-xs">Horarios con cupo</p>
                     <ul className="mt-2 space-y-1">{point.slots.map(slot => <li key={slot.id}>{new Date(slot.startsAt).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })} → {new Date(slot.endsAt).toLocaleTimeString("es-CO", { timeStyle: "short" })} · {slot.remainingCapacity} cupos</li>)}</ul>
                   </div>}
-                  <p className="border-t border-[hsl(var(--border))] pt-2 text-[11px] text-[hsl(var(--muted-foreground))]">Centro publicado desde el catálogo administrativo de EcoPulse. Confirma la dirección con el operador antes de desplazarte.</p>
+                  <p className="border-t border-[hsl(var(--border))] pt-2 text-[11px] text-[hsl(var(--muted-foreground))]">Centro publicado desde el catálogo administrativo de EcoPulse. Confirma la dirección y el horario con el operador antes de desplazarte.</p>
                 </div>}
               </div>
             </div>
@@ -340,7 +352,7 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
         })}
         {points.length === 0 && <div role="status" className="rounded-2xl border border-dashed border-[hsl(var(--border))] px-4 py-8 text-center text-sm text-[hsl(var(--muted-foreground))]">
           <p className="font-semibold text-[hsl(var(--primary))]">Aún no hay centros publicados.</p>
-          <p className="mt-1">Los borradores del catálogo no aparecen aquí hasta que un administrador registre evidencia verificable y active la publicación. El mapa base sigue disponible; no indica centros ni cupos inventados.</p>
+          <p className="mt-1">Los centros aparecen aquí cuando un administrador registra la información y activa la publicación.</p>
         </div>}
         {points.length > 0 && filtered.length === 0 && <p className="rounded-2xl border border-dashed p-4 text-sm">Ningún centro coincide con la búsqueda.</p>}
       </div>
@@ -348,19 +360,30 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
     <section className="relative order-1 min-h-[320px] overflow-hidden rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(158_25%_28%)] sm:min-h-[420px] lg:order-2" aria-label="Mapa de Montería">
       <MapContainer center={[defaultCenter.lat, defaultCenter.lng]} zoom={defaultZoom} scrollWheelZoom className="absolute inset-0 h-full w-full" style={{ height: "100%", width: "100%" }}>
         <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        {located.map(point => <Marker key={point.id} position={[point.lat, point.lng]} icon={testPointIcon(selectedId === point.id)} eventHandlers={{ click: () => setSelectedId(selectedId === point.id ? null : point.id) }}>
+          <Popup>
+            <div className="max-w-[240px] space-y-2 text-sm">
+              <p className="font-semibold">{point.name}</p>
+              <p className="text-xs">{point.address}, {point.municipality}</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">{point.slots.length} horarios con cupo publicados</p>
+              <p className="text-[11px]">{point.slots.length ? <a href={`/deliveries?point=${encodeURIComponent(point.id)}`}>Solicitar entrega</a> : <span>Consulta disponibilidad antes de acudir</span>}</p>
+            </div>
+          </Popup>
+        </Marker>)}
+        <MapController selectedId={selectedId} points={located} bounds={bounds} />
       </MapContainer>
       <div className="pointer-events-none absolute left-2 right-2 top-2 rounded-2xl bg-[hsl(var(--card)/.96)] p-3 text-xs shadow-lg sm:left-4 sm:right-auto sm:top-4 sm:max-w-xs">
-        <strong>Montería, Córdoba</strong><p className="mt-1">Los centros publicados aparecen en la lista con su dirección y enlace a OpenStreetMap. No se colocan marcadores aproximados sin coordenadas verificadas.</p>
+        <strong>Centros de acopio · Montería</strong><p className="mt-1">Explora los centros publicados y consulta sus horarios disponibles.</p>
       </div>
     </section>
   </div>;
 }
 
-// The catalog, not the illustrative coordinate list, determines which points
-// are selectable and which slots have capacity.
-export function MapExperience({ publishedPoints, evaluationPoints, initialMaterial = "", apiUrl = "" }: {
+// The published catalog always drives the visible map. Evaluation coordinates
+// are only a fallback for an explicitly enabled internal evaluation environment.
+export function MapExperience({ publishedPoints, evaluationPoints = [], initialMaterial = "", apiUrl = "" }: {
   publishedPoints: PilotDeliveryOptions["points"];
-  evaluationPoints: TestPoint[];
+  evaluationPoints?: TestPoint[];
   initialMaterial?: string;
   apiUrl?: string;
 }) {
@@ -406,14 +429,17 @@ export function MapExperience({ publishedPoints, evaluationPoints, initialMateri
     } catch { setFavoriteError("No se pudo actualizar el favorito. Inténtalo de nuevo."); }
     finally { setFavoriteBusy(false); }
   };
-  const coordinates = useMemo(() => new Map(evaluationPoints.map(point => [point.id, point])), [evaluationPoints]);
-  const mapped = useMemo(() => mapAcademicCenters(publishedPoints, evaluationPoints), [publishedPoints, evaluationPoints]);
-  const withoutCoordinates = useMemo(() => publishedPoints.filter(point => !coordinates.has(point.code)), [publishedPoints, coordinates]);
+  const fallback = useMemo(() => publishedPoints.length ? [] : mapAcademicCenters(publishedPoints, evaluationPoints), [publishedPoints, evaluationPoints]);
+  const favoriteProps = {
+    favoriteIds: favorites ?? undefined,
+    favoriteBusy,
+    onToggleFavorite: favorites ? (id: string) => { void toggleFavorite(id); } : undefined,
+  };
 
   return <div className="space-y-4">
     {initialMaterial && <p role="status" className="rounded-2xl border p-3 text-sm" data-testid="map-material-notice">Material desde tu escaneo: {categoryLabels[initialMaterial] ?? initialMaterial}. Confirma los materiales aceptados al solicitar.</p>}
     {favoriteError && <p role="alert" className="rounded-xl border p-3 text-sm">{favoriteError}</p>}
-    {mapped.length > 0 && <InteractiveMap points={mapped} selectedId={selectedId} onSelect={setSelectedId} query={query} materialFilter={materialFilter} onQueryChange={setQuery} onMaterialChange={setMaterialFilter} favoriteIds={favorites ?? undefined} onToggleFavorite={favorites ? id => { void toggleFavorite(id); } : undefined} />}
-    {(withoutCoordinates.length > 0 || mapped.length === 0) && <PublishedCentersMap points={withoutCoordinates} favoriteIds={favorites ?? undefined} favoriteBusy={favoriteBusy} onToggleFavorite={favorites ? id => { void toggleFavorite(id); } : undefined} />}
+    {fallback.length > 0 && <InteractiveMap points={fallback} selectedId={selectedId} onSelect={setSelectedId} query={query} materialFilter={materialFilter} onQueryChange={setQuery} onMaterialChange={setMaterialFilter} favoriteIds={favorites ?? undefined} onToggleFavorite={favorites ? id => { void toggleFavorite(id); } : undefined} />}
+    {(publishedPoints.length > 0 || fallback.length === 0) && <PublishedCentersMap points={publishedPoints} {...favoriteProps} />}
   </div>;
 }

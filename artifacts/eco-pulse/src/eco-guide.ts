@@ -17,7 +17,7 @@ export function guideAnswer(input: string, context: GuideContext = publicContext
     if (context.centerStatus === "signed_out") return "Inicia sesión y consulta Puntos cercanos. Allí se muestran únicamente centros activos registrados en EcoPulse.";
     if (context.centerStatus === "loading") return "Estoy consultando los centros activos. Abre Puntos cercanos para ver los datos actualizados.";
     if (context.centerStatus === "error") return "No pude confirmar los centros disponibles. Intenta actualizar Puntos cercanos antes de planear una entrega.";
-    if (context.centerCount === 0) return "Consulta el mapa para explorar los centros educativos. Las solicitudes solo estarán disponibles cuando haya horarios con cupo.";
+    if (context.centerCount === 0) return "Consulta el mapa para explorar los centros de acopio publicados. Las solicitudes solo estarán disponibles cuando haya horarios con cupo.";
     return `EcoPulse registra ${context.centerCount} centro${context.centerCount === 1 ? "" : "s"} activo${context.centerCount === 1 ? "" : "s"}. Consulta Puntos cercanos para comprobar dirección y disponibilidad antes de ir.`;
   }
   if (/saldo|ganar puntos|gano puntos|canje|recompensa/.test(query)) {

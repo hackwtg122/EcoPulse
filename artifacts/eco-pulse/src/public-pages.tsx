@@ -35,13 +35,13 @@ export function PublicLayout({ children }: { children: ReactNode }) {
       <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-8 sm:px-8">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <Brand />
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">Información educativa honesta sobre separación de residuos en Montería.</p>
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">Información clara sobre separación de residuos en Montería.</p>
         </div>
         <nav className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[hsl(var(--muted-foreground))]" aria-label="Enlaces legales">
           {publicFooterLinks.map((link) => <Link key={link.href} href={link.href} className="hover:text-[hsl(var(--primary))]">{link.label}</Link>)}
           <Link href="/" className="hover:text-[hsl(var(--primary))]">Inicio</Link>
         </nav>
-         <p className="text-xs text-[hsl(var(--muted-foreground))]">EcoPulse es un proyecto universitario: sus centros y operaciones representan una simulación educativa, no establecimientos físicos.</p>
+         <p className="text-xs text-[hsl(var(--muted-foreground))]">EcoPulse conecta a la comunidad con centros de acopio y hábitos responsables. Confirma siempre direcciones y horarios antes de desplazarte.</p>
       </div>
     </footer>
   </div>;
@@ -77,15 +77,15 @@ function DraftNotice({ testId }: { testId: string }) {
 }
 
 const faqItems: Array<{ q: string; a: string }> = [
-  { q: "¿Qué es EcoPulse?", a: "Una plataforma educativa para identificar y preparar la entrega de residuos aprovechables en Montería. Reúne una biblioteca pública de materiales, una guía de separación y un mapa con referencias ilustrativas para practicar dónde entregar." },
+  { q: "¿Qué es EcoPulse?", a: "Una plataforma para identificar y preparar la entrega de residuos aprovechables en Montería. Reúne una biblioteca pública de materiales, una guía de separación y un mapa con los centros de acopio publicados." },
   { q: "¿Necesito una cuenta para consultar las guías?", a: "No. La biblioteca de materiales y sus fichas se leen sin registrarte. La cuenta solo es necesaria para registrar clasificaciones, solicitar entregas y ver tu actividad." },
   { q: "¿Un escaneo o una foto me dan EcoPuntos?", a: "No. Una clasificación manual o una sugerencia de imagen no certifican un reciclaje, así que no suman puntos ni kilogramos. Escanear y reciclar son cosas distintas." },
   { q: "¿Cómo se ganan puntos, entonces?", a: "Con entregas recibidas y verificadas por un operador distinto al participante. El saldo y los canjes disponibles se muestran al iniciar sesión." },
-  { q: "¿Hay centros de entrega disponibles?", a: "El mapa permite explorar ocho centros educativos. Los horarios con cupo aparecen al iniciar sesión cuando están disponibles para solicitar una entrega." },
+  { q: "¿Hay centros de entrega disponibles?", a: "El mapa muestra los centros de acopio publicados. Los horarios con cupo aparecen al iniciar sesión cuando están disponibles para solicitar una entrega." },
   { q: "¿EcoGuía usa inteligencia artificial?", a: "Sí, si está disponible y aceptas enviar tu consulta. Sin consentimiento o conexión, ofrece una guía local claramente diferenciada." },
   { q: "¿Qué hago con residuos peligrosos como pilas o medicamentos?", a: "Revísalos en la categoría «Manejo especial» de la biblioteca: pilas, medicamentos vencidos, lámparas, electrónicos, cortopunzantes, aceite usado y químicos requieren canales posconsumo o autorizados, nunca la basera común." },
   { q: "¿Cómo corrijo o elimino mis datos?", a: "Tu cuenta (nombre, correo, contraseña y 2FA) se gestiona con Clerk. Para solicitudes de rectificación o eliminación de datos operativos, el canal público está en preparación; la política de privacidad describe qué tratamos y qué está pendiente." },
-  { q: "¿Tiene algún costo?", a: "El uso educativo y la creación de cuenta no requieren pagos. Las recompensas forman parte de la simulación universitaria." },
+  { q: "¿Tiene algún costo?", a: "Crear una cuenta y usar la app no tienen costo. Las recompensas se obtienen con entregas verificadas." },
 ];
 
 export function FaqPage() {
@@ -113,7 +113,7 @@ export function PrivacyPage() {
       <p><strong className="text-[hsl(var(--primary))]">Ubicación GPS:</strong> EcoPulse no solicita ni almacena tu ubicación.</p>
     </InfoBlock>
     <InfoBlock title="Para qué usamos tus datos">
-      <p>Operar tu cuenta y mostrar tu actividad registrada, permitir la verificación de entregas por parte de operadores autorizados, y responder consultas educativas. No usamos tus datos para publicidad ni para venderlos.</p>
+      <p>Operar tu cuenta y mostrar tu actividad registrada, permitir la verificación de entregas por parte de operadores autorizados, y responder consultas sobre separación de residuos. No usamos tus datos para publicidad ni para venderlos.</p>
     </InfoBlock>
     <InfoBlock title="Con quién se comparten">
       <p>Con proveedores técnicos necesarios: Clerk para autenticación. El mapa base se carga como contenido de OpenStreetMap, que puede recibir la dirección IP de tu navegador al mostrarse. No compartimos tu actividad privada entre cuentas ni con terceros ajenos a la operación.</p>
@@ -129,7 +129,7 @@ export function PrivacyPage() {
       <p>Las sesiones las administra Clerk; puedes activar verificación en dos pasos con aplicación autenticadora desde la sección Seguridad. La API de EcoPulse autoriza por rol en el servidor, no solo ocultando pantallas.</p>
     </InfoBlock>
     <InfoBlock title="Menores de edad">
-      <p>EcoPulse es de carácter educativo y no está dirigido a menores de 18 años sin acompañamiento de una persona adulta responsable.</p>
+      <p>EcoPulse no está dirigido a menores de 18 años sin acompañamiento de una persona adulta responsable.</p>
     </InfoBlock>
     <p className="text-xs text-[hsl(var(--muted-foreground))]">Última revisión: 17 de octubre de 2026. Este documento se actualizará publicando una nueva fecha.</p>
   </InfoPageShell>;
@@ -138,7 +138,7 @@ export function PrivacyPage() {
 export function TermsPage() {
   return <InfoPageShell icon={<FileText size={26} />} eyebrow="Uso responsable" title="Términos de uso." intro="Reglas básicas y alcance real del servicio. Este texto es informativo y está pendiente de revisión jurídica; no constituye un contrato final." testId="page-terms">
     <InfoBlock title="Objeto del servicio">
-      <p>EcoPulse ofrece información educativa sobre separación de residuos, una biblioteca de materiales y herramientas de registro. No sustituye la asesoría ni las condiciones del prestador de aseo o del centro de entrega.</p>
+      <p>EcoPulse ofrece información sobre separación de residuos, una biblioteca de materiales y herramientas de registro. No sustituye la asesoría ni las condiciones del prestador de aseo o del centro de entrega.</p>
     </InfoBlock>
     <InfoBlock title="Sin garantías operativas">
       <p>No garantizamos la disponibilidad de centros, horarios, premios ni resultados ambientales. Mientras la operación física esté desactivada, no existen puntos, canjes ni recompensas activas, y ninguna pantalla los simula.</p>

@@ -55,7 +55,7 @@ export function ProgressPanel({ apiUrl }: { apiUrl: string }) {
         <div>
           <p className="text-sm text-[hsl(var(--primary-foreground)/.7)]">Nivel actual</p>
           <p className="mt-1 font-display text-5xl text-[hsl(var(--secondary))]" data-testid="progress-level">{progress.level}. {progress.levelTitle}</p>
-          <p className="mt-2 text-sm text-[hsl(var(--primary-foreground)/.75)]"><Sparkles size={15} className="mr-1 inline text-[hsl(var(--secondary))]" /><span data-testid="progress-xp">{progress.ecoXp.toLocaleString("es-CO")}</span> EcoXP · progreso educativo, no canjeable</p>
+          <p className="mt-2 text-sm text-[hsl(var(--primary-foreground)/.75)]"><Sparkles size={15} className="mr-1 inline text-[hsl(var(--secondary))]" /><span data-testid="progress-xp">{progress.ecoXp.toLocaleString("es-CO")}</span> EcoXP · progreso dentro de la app, no canjeable</p>
         </div>
         <div className="text-right"><p className="text-sm text-[hsl(var(--primary-foreground)/.7)]">Racha actual</p><p className="font-display text-4xl text-[hsl(var(--secondary))]" data-testid="progress-streak">{progress.streakDays}</p><p className="text-xs text-[hsl(var(--primary-foreground)/.62)]">días consecutivos</p></div>
       </div>

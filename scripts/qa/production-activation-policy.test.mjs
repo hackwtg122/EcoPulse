@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activateDraftEditing, activationMarker, activationLiveMarker, activationRevision, draftFlags, safeActivationSnapshot } from "./production-activation-policy.mjs";
+import { activateDraftEditing, activateRewardFulfillment, activationMarker, activationLiveMarker, activationRevision, draftFlags, rewardActivationLiveMarker, rewardActivationMarker, rewardActivationRevision, rewardFlags, rewardPolicyReference, safeActivationSnapshot } from "./production-activation-policy.mjs";
 
 function adapter(initial = []) {
   const environment = new Map(initial), writes = [];
@@ -52,4 +52,35 @@ test("diagnostics emit only allowlisted flags and closed status values", () => {
   assert.ok(!JSON.stringify(result).includes("secret-sentinel"));
   assert.ok(!JSON.stringify(result).includes("PRIVATE_KEY"));
   assert.deepEqual(result.find(row => row.flag === "PILOT_AI_ENABLED"), { flag: "PILOT_AI_ENABLED", state: "invalid" });
+});
+test("reward activation enables only the catalog and fulfillment flags plus a policy reference", async () => {
+  const api = adapter([["PILOT_POINTS_ENABLED", "false"], ["PILOT_VERIFICATION_ENABLED", "false"], ["PILOT_REWARD_PUBLICATION_ENABLED", "false"]]);
+  const result = await activateRewardFulfillment(api);
+  assert.deepEqual(api.writes, [...rewardFlags.map(flag => [flag, "true"]), ["REWARD_POLICY_REFERENCE", rewardPolicyReference], [rewardActivationMarker, rewardActivationRevision]]);
+  for (const closed of ["PILOT_POINTS_ENABLED", "PILOT_VERIFICATION_ENABLED", "PILOT_REWARD_PUBLICATION_ENABLED"]) {
+    assert.equal(api.environment.get(closed), "false");
+  }
+  assert.equal(result.status, "PASS");
+  assert.equal(result.policyConfigured, true);
+  assert.equal(result.deployRequired, true);
+});
+test("reward activation preserves operator kill switches after the one-time activation", async () => {
+  const api = adapter([[rewardActivationMarker, rewardActivationRevision], [rewardActivationLiveMarker, rewardActivationRevision],
+    ["REWARD_POLICY_REFERENCE", rewardPolicyReference], ...rewardFlags.map(flag => [flag, "false"])]);
+  const result = await activateRewardFulfillment(api);
+  assert.equal(result.alreadyApplied, true);
+  assert.deepEqual(api.writes, []);
+  assert.equal(result.deployRequired, false);
+});
+test("reward activation refuses evaluation mode and never enables points", async () => {
+  const api = adapter([["EVALUATION_MODE_ENABLED", "true"], ["PILOT_POINTS_ENABLED", "false"]]);
+  await assert.rejects(activateRewardFulfillment(api), /unexpected_evaluation_service/);
+  assert.deepEqual(api.writes, []);
+  assert.equal(api.environment.get("PILOT_POINTS_ENABLED"), "false");
+});
+test("an invalid reward policy reference is replaced before the marker is written", async () => {
+  const api = adapter([["REWARD_POLICY_REFERENCE", "short"]]);
+  await activateRewardFulfillment(api);
+  assert.equal(api.environment.get("REWARD_POLICY_REFERENCE"), rewardPolicyReference);
+  assert.equal(api.environment.get(rewardActivationMarker), rewardActivationRevision);
 });

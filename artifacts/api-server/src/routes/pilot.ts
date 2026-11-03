@@ -11,6 +11,7 @@ import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, has
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { guideAccountDetails } from "../lib/aiGuideCore";
+import { presentReward } from "../lib/pointPresentation";
 import { AiProviderError, ProviderConfig, classifyImageWithVision } from "../lib/aiProvider";
 import { resolveAiSettings, resolveAiRuntimeLimits } from "../lib/aiProviderConfig";
 import { QuotaConfig, QuotaStoreError, reserveQuota, finishQuotaAttempt } from "../lib/aiQuota";
@@ -632,14 +633,14 @@ router.get("/rewards", async (_req, res) => {
   const rows = await pool.query(`SELECT id,title,description,cost,active,inventory_remaining AS "inventoryRemaining" FROM rewards
     WHERE active=true AND inventory_remaining>0 AND fulfillment_reference IS NOT NULL
     ORDER BY created_at DESC,id DESC LIMIT 50`);
-  return res.json(rows.rows);
+  return res.json((rows.rows as Array<{ title: string; description: string }>).map(presentReward));
 });
 router.get("/admin/rewards", async (_req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
   const pool = await databasePool();
   if (!await hasRewardFulfillmentSchema(pool)) return res.json([]);
   const rows = await pool.query("SELECT id,title,description,cost,active,inventory_remaining AS \"inventoryRemaining\",fulfillment_reference IS NOT NULL AS \"fulfillmentDocumented\",validated_at IS NOT NULL AS \"validationRecorded\",created_at AS \"createdAt\" FROM rewards ORDER BY created_at DESC,id DESC LIMIT 100");
-  return res.json(rows.rows);
+  return res.json((rows.rows as Array<{ title: string; description: string }>).map(presentReward));
 });
 router.post("/admin/rewards", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });

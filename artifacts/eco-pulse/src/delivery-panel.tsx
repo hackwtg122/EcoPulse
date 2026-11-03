@@ -199,7 +199,7 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
     <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
       <div><div className="flex items-center gap-2 text-[hsl(var(--primary))]"><ShieldCheck size={19} /><span className="text-xs font-bold uppercase tracking-[.14em]">Acceso autorizado</span></div>
         <h2 id="verifier-queue-title" className="mt-3 font-display text-3xl text-[hsl(var(--primary))]">Recepción y verificación</h2>
-        <p className="mt-2 max-w-2xl text-sm text-[hsl(var(--muted-foreground))]">La cola omite nombres, correos e identificadores de cuenta. En la simulación, el operador registra recepción y peso académico; los estimados nunca conceden puntos.</p></div>
+        <p className="mt-2 max-w-2xl text-sm text-[hsl(var(--muted-foreground))]">La cola omite nombres, correos e identificadores de cuenta. El operador registra la recepción y el peso verificado; los estimados nunca conceden puntos.</p></div>
       <button type="button" onClick={() => void load(null, false)} disabled={status === "loading"} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[hsl(var(--border))] px-4 py-2 text-sm font-semibold disabled:opacity-60" data-testid="button-refresh-verifier-queue"><Clock3 size={16} /> Actualizar</button>
     </div>
     {capabilities && !capabilities.receiptEnabled && !capabilities.decisionEnabled && <p role="status" className="mt-4 rounded-2xl bg-[hsl(var(--muted))] p-4 text-sm">La recepción y verificación reales siguen desactivadas. Puedes consultar la bandeja y los eventos, sin modificar entregas ni puntos.</p>}
@@ -222,10 +222,10 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
           {auditStatus === "ready" && events.length === 0 && <p className="text-sm text-[hsl(var(--muted-foreground))]">Esta solicitud no tiene eventos de estado registrados.</p>}
           {auditStatus === "ready" && events.length > 0 && <ol className="space-y-1 text-sm">{events.map((event, index) => <li key={`${event.createdAt}-${index}`}>{formatDate(event.createdAt)} · {deliveryLabels[event.toStatus]}{event.toStatus === "rejected" && event.reasonCode ? ` · ${rejectionLabels[event.reasonCode as RejectionReason] ?? "Motivo registrado"}` : ""}</li>)}</ol>}
           {action && <form onSubmit={event => { event.preventDefault(); void submitAction(delivery.id); }} className="mt-4 space-y-3 rounded-2xl bg-[hsl(var(--muted)/.65)] p-4">
-            <h3 className="font-semibold">{action === "receive" ? "Registrar recepción académica" : action === "approve" ? "Aprobar peso verificado" : "Rechazar entrega"}</h3>
+            <h3 className="font-semibold">{action === "receive" ? "Registrar recepción" : action === "approve" ? "Aprobar peso verificado" : "Rechazar entrega"}</h3>
             {action === "approve" && <><label className="block text-sm">Peso real total (gramos)<input required type="number" min={1} max={100000} step={1} value={weightGrams} onChange={event => setWeightGrams(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" /></label><label className="block text-sm">Código de comprobante físico<input required minLength={8} maxLength={64} pattern="[A-Za-z0-9_-]{8,64}" value={receiptCode} onChange={event => setReceiptCode(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" /></label></>}
             {action === "reject" && <label className="block text-sm">Motivo<select value={reasonCode} onChange={event => setReasonCode(event.target.value as RejectionReason)} className="mt-1 min-h-11 w-full rounded-xl border p-2">{Object.entries(rejectionLabels).map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>}
-            <label className="flex items-start gap-2 text-sm"><input required type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} className="mt-1" />Confirmo que esta decisión pertenece a la simulación académica y que no verifico mi propia solicitud.</label>
+            <label className="flex items-start gap-2 text-sm"><input required type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} className="mt-1" />Confirmo que no verifico mi propia solicitud.</label>
             <div className="flex flex-wrap gap-3"><button disabled={!confirmed || saving} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 py-2 font-semibold text-[hsl(var(--primary-foreground))] disabled:opacity-50">{saving ? "Guardando…" : "Confirmar"}</button><button type="button" onClick={() => { setAction(null); setConfirmed(false); }} className="min-h-11 underline">Cancelar</button></div>
           </form>}
         </div>}
@@ -364,7 +364,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
     <section className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 sm:p-8" aria-labelledby="delivery-request-title" data-testid="delivery-request-panel">
       <div className="flex items-start gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[hsl(var(--secondary)/.32)] text-[hsl(var(--primary))]"><PackageCheck size={21} /></span>
-        <div><h2 id="delivery-request-title" className="font-display text-3xl text-[hsl(var(--primary))]">Solicitar entrega</h2><p className="mt-2 text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Registra una solicitud académica. La solicitud no confirma recepción ni concede puntos.</p></div>
+        <div><h2 id="delivery-request-title" className="font-display text-3xl text-[hsl(var(--primary))]">Solicitar entrega</h2><p className="mt-2 text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Registra una solicitud de entrega. La solicitud no confirma recepción ni concede puntos.</p></div>
       </div>
 
       {optionsStatus === "loading" && <p className="mt-6 rounded-2xl bg-[hsl(var(--muted))] p-4 text-sm" aria-live="polite">Consultando centros y horarios disponibles…</p>}
@@ -384,7 +384,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
         {options.mode === "detailed" && <>
           <fieldset>
             <legend className="text-sm font-bold">1. Materiales y cantidades estimadas</legend>
-             <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Selecciona entre 0,001 y 100 kg totales. El peso validado lo registrará un operador académico.</p>
+             <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Selecciona entre 0,001 y 100 kg totales. El peso validado lo registrará un operador autorizado.</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
                {options.categories.filter(({ code }) => !selectedPoint?.materials || selectedPoint.materials.includes(code)).map(({ code }) => {
                 const selected = materialKg[code] !== undefined;
@@ -398,7 +398,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
           </fieldset>
 
           <div>
-             <label htmlFor="delivery-point" className="text-sm font-bold">2. Centro académico</label>
+             <label htmlFor="delivery-point" className="text-sm font-bold">2. Centro de acopio</label>
              <div className="relative mt-2"><MapPin className="pointer-events-none absolute left-3 top-3.5 text-[hsl(var(--muted-foreground))]" size={18} /><select id="delivery-point" value={selectedPointId} onChange={(event) => { setSelectedPointId(event.target.value); setSelectedSlotId(""); setMaterialKg({}); }} required className="min-h-12 w-full appearance-none rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] py-3 pl-10 pr-4 text-sm"><option value="">Selecciona un punto disponible</option>{options.points.map((point) => <option key={point.id} value={point.id}>{point.name} · {point.municipality}</option>)}</select></div>
             {selectedPoint && <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{selectedPoint.address}, {selectedPoint.municipality}</p>}
           </div>
@@ -413,7 +413,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
 
         <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.45)] p-4 text-sm">
           <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={status === "submitting"} className="mt-0.5 h-5 w-5 accent-[hsl(var(--primary))]" data-testid="checkbox-confirm-delivery-request" />
-           <span><strong className="block text-[hsl(var(--foreground))]">Entiendo el estado pendiente</strong><span className="mt-1 block text-[hsl(var(--muted-foreground))]">Las cantidades son estimadas y el operador académico deberá verificar la solicitud posteriormente.</span></span>
+           <span><strong className="block text-[hsl(var(--foreground))]">Entiendo el estado pendiente</strong><span className="mt-1 block text-[hsl(var(--muted-foreground))]">Las cantidades son estimadas y un operador autorizado deberá verificar la solicitud posteriormente.</span></span>
         </label>
         <button type="submit" disabled={!confirmed || status === "submitting" || (options.mode === "detailed" && !detailedValid)} className="min-h-12 w-full rounded-full bg-[hsl(var(--primary))] px-5 py-3 font-semibold text-[hsl(var(--primary-foreground))] disabled:cursor-not-allowed disabled:opacity-55" data-testid="button-request-delivery">{status === "submitting" ? "Registrando…" : status === "error" ? "Reintentar solicitud" : "Registrar solicitud pendiente"}</button>
       </form>}

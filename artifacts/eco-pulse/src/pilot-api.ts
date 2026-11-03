@@ -15,6 +15,8 @@ export type PilotDeliveryPoint = {
   name: string;
   address: string;
   municipality: string;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 export type PilotDeliverySlot = { id: string; startsAt: string; endsAt: string };
 export type PilotDelivery = {
@@ -191,15 +193,26 @@ function parseScan(row: Record<string, unknown>): PilotScan {
   };
 }
 
+function parseCoordinate(value: unknown, name: string, limit: number): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > limit) {
+    throw new PilotApiError(502, `invalid_${name}`);
+  }
+  return value;
+}
+
 function parseDeliveryPoint(value: unknown): PilotDeliveryPoint | null {
   if (value === null || value === undefined) return null;
   const row = requireObject(value, "delivery_point");
+  const latitude = parseCoordinate(row.latitude, "delivery_point_latitude", 90);
+  const longitude = parseCoordinate(row.longitude, "delivery_point_longitude", 180);
   return {
     id: requireString(row.id, "delivery_point_id"),
     code: requireString(row.code, "delivery_point_code"),
     name: requireString(row.name, "delivery_point_name"),
     address: requireString(row.address, "delivery_point_address"),
     municipality: requireString(row.municipality, "delivery_point_municipality"),
+    ...(latitude !== null && longitude !== null ? { latitude, longitude } : {}),
   };
 }
 
