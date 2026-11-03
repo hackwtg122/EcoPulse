@@ -1,1 +1,47 @@
+name: Production private QA (authorized test accounts)
 
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_test_accounts:
+        description: Confirmo cuentas de prueba existentes y perfiles provisionados; sin usuarios reales
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecopulse-production-private-qa
+  cancel-in-progress: false
+
+jobs:
+  authenticated-reads:
+    if: github.repository == 'hackwtg122/EcoPulse' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require explicit authorization of isolated test accounts
+        run: test "$CONFIRMED" = true
+        env:
+          CONFIRMED: ${{ inputs.confirm_test_accounts && 'true' || 'false' }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: scripts/qa/package-lock.json
+      - name: Validate private fixture security policy with mocks
+        run: node --test scripts/qa/private-qa-policy.test.mjs
+      - name: Install pinned browser tools
+        run: npm ci --prefix scripts/qa --no-audit --no-fund --ignore-scripts
+      - name: Authenticated read/session checks on production only
+        run: node scripts/qa/production-private.mjs
+        env:
+          PRIVATE_QA_AUTHORIZED: ${{ inputs.confirm_test_accounts && 'true' || 'false' }}
+          PRODUCTION_QA_ACCOUNTS: ${{ secrets.PRODUCTION_QA_ACCOUNTS }}
+          PROD_QA_MODULES_DIR: ${{ github.workspace }}/scripts/qa/node_modules
+          CHROME_PATH: /usr/bin/google-chrome
