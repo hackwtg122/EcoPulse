@@ -5,7 +5,7 @@ import { activateStructuredAI, validateStructuredFreeModel, structuredFreeModel,
 const catalog = () => ({ data: [{ id: structuredFreeModel, pricing: { prompt: "0", completion: "0" },
   architecture: { input_modalities: ["text", "image"] }, supported_parameters: ["response_format", "structured_outputs"] }] });
 function adapter(initial = []) {
-  const env = new Map([["PILOT_AI_ENABLED", "true"], ...initial]), writes = [];
+  const env = new Map([["PILOT_AI_ENABLED", "true"], ["AI_TIMEOUT_MS", "45000"], ["AI_MAX_RETRIES", "1"], ["AI_MAX_TOKENS_VISION", "2048"], ...initial]), writes = [];
   return { env, writes, readEnvironment: async () => new Map(env), readCatalog: async () => catalog(),
     setVariable: async (key, value) => { writes.push([key, value]); env.set(key, value); } };
 }
@@ -42,4 +42,16 @@ test("an unavailable catalog or partial update cannot complete the activation", 
   await assert.rejects(activateStructuredAI(api)); assert.deepEqual(api.writes, []);
   const other = adapter(); other.setVariable = async () => {};
   await assert.rejects(activateStructuredAI(other), /structured_ai_activation_not_confirmed/);
+});
+
+test("only legacy runtime defaults are upgraded; quotas and operator limits are never raised", async () => {
+  const api = adapter([["AI_TIMEOUT_MS", "15000"], ["AI_MAX_RETRIES", "2"], ["AI_MAX_TOKENS_VISION", "1000"], ["AI_DAILY_PER_USER_FREE_REQ", "3"]]);
+  await activateStructuredAI(api);
+  assert.equal(api.env.get("AI_TIMEOUT_MS"), "45000");
+  assert.equal(api.env.get("AI_MAX_RETRIES"), "1");
+  assert.equal(api.env.get("AI_MAX_TOKENS_VISION"), "2048");
+  assert.equal(api.env.get("AI_DAILY_PER_USER_FREE_REQ"), "3");
+  const custom = adapter([["AI_TIMEOUT_MS", "25000"], ["AI_MAX_RETRIES", "0"], ["AI_MAX_TOKENS_VISION", "4096"]]);
+  await activateStructuredAI(custom);
+  assert.ok(custom.writes.every(([key]) => !["AI_TIMEOUT_MS", "AI_MAX_RETRIES", "AI_MAX_TOKENS_VISION"].includes(key)));
 });

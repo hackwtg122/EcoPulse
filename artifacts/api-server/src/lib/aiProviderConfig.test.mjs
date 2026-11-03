@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NVIDIA_CHAT_MODEL, NVIDIA_VISION_MODEL, NVIDIA_NIM_BASE, resolveAiSettings } from "./aiProviderConfig.ts";
+import { NVIDIA_CHAT_MODEL, NVIDIA_VISION_MODEL, NVIDIA_NIM_BASE, resolveAiSettings, resolveAiRuntimeLimits } from "./aiProviderConfig.ts";
 
 test("OpenRouter stays the default and NVIDIA cannot activate without an explicit verified trial gate", () => {
   const open = resolveAiSettings("ecoguide", { PILOT_AI_ENABLED: "true", AI_API_KEY: "unit-key" });
@@ -31,4 +31,16 @@ test("both official NIM models require exact configuration and a fixed host", ()
   assert.equal(vision.baseUrl, NVIDIA_NIM_BASE);
   assert.deepEqual(chat.missing, []);
   assert.deepEqual(vision.missing, []);
+});
+
+test("runtime limits are bounded and an explicit zero retry policy remains zero", () => {
+  assert.equal(resolveAiRuntimeLimits({ AI_MAX_RETRIES: "0" }).maxRetries, 0);
+  const defaults = resolveAiRuntimeLimits({});
+  assert.equal(defaults.maxRetries, 1);
+  assert.equal(defaults.visionMaxTokens, 2048);
+  for (const invalid of ["-1", "NaN", "100000000", "0.5"]) {
+    const limits = resolveAiRuntimeLimits({ AI_TIMEOUT_MS: invalid, AI_MAX_TOKENS_VISION: invalid });
+    assert.equal(limits.timeoutMs, defaults.timeoutMs);
+    assert.equal(limits.visionMaxTokens, defaults.visionMaxTokens);
+  }
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 export const structuredFreeModel = "nvidia/nemotron-3.5-super-vl:free";
-export const aiRevision = "congress-structured-free-v1";
+export const aiRevision = "congress-structured-free-v2";
 export const aiMarker = "ECOPULSE_AI_ACTIVATION_REVISION";
 export const aiLiveMarker = "ECOPULSE_AI_ACTIVATION_LIVE_REVISION";
 const legacyModels = new Set(["openrouter/free", "nvidia/nemotron-3-super-120b-a12b:free",
@@ -36,6 +36,17 @@ export async function activateStructuredAI({ readEnvironment, setVariable, readC
     }
     // Public catalog metadata only: no key, input image or account data is sent.
     validateStructuredFreeModel(await readCatalog());
+    const runtimeChanges = [];
+    // Upgrade only the former sample defaults. Respect deliberate operator
+    // limits and never raise user/global daily quotas to make a test pass.
+    for (const [flag, previous, value] of [["AI_TIMEOUT_MS", "15000", "45000"],
+      ["AI_MAX_RETRIES", "2", "1"], ["AI_MAX_TOKENS_VISION", "1000", "2048"]]) {
+      if (!environment.has(flag) || environment.get(flag) === previous) {
+        await setVariable(flag, value);
+        changed.push(flag);
+        runtimeChanges.push([flag, value]);
+      }
+    }
     for (const flag of ["AI_CHAT_MODEL", "AI_VISION_MODEL"]) {
       if (environment.get(flag) !== structuredFreeModel) {
         await setVariable(flag, structuredFreeModel);
@@ -44,6 +55,7 @@ export async function activateStructuredAI({ readEnvironment, setVariable, readC
     }
     const updated = await readEnvironment();
     assert.ok(["AI_CHAT_MODEL", "AI_VISION_MODEL"].every(flag => updated.get(flag) === structuredFreeModel), "structured_ai_activation_not_confirmed");
+    assert.ok(runtimeChanges.every(([flag, value]) => updated.get(flag) === value), "ai_runtime_limits_not_confirmed");
     await setVariable(aiMarker, aiRevision);
   }
   const confirmed = await readEnvironment();

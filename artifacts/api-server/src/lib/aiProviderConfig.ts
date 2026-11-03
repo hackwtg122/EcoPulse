@@ -7,6 +7,21 @@ export const NVIDIA_NIM_BASE = "https://integrate.api.nvidia.com/v1";
 type AiKind = "ecoscan" | "ecoguide";
 type Env = Record<string, string | undefined>;
 
+export function resolveAiRuntimeLimits(env: Env) {
+  const bounded = (name: string, fallback: number, minimum: number, maximum: number) => {
+    const raw = env[name];
+    const value = raw?.trim() ? Number(raw) : fallback;
+    return Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : fallback;
+  };
+  return {
+    timeoutMs: bounded("AI_TIMEOUT_MS", 45000, 1000, 60000),
+    maxRetries: bounded("AI_MAX_RETRIES", 1, 0, 2),
+    retryBackoffMs: bounded("AI_RETRY_BACKOFF_MS", 500, 0, 5000),
+    visionMaxTokens: bounded("AI_MAX_TOKENS_VISION", 2048, 256, 8192),
+    chatMaxTokens: bounded("AI_MAX_TOKENS_CHAT", 2000, 256, 8192),
+  };
+}
+
 export function resolveAiSettings(kind: AiKind, env: Env): {
   provider: ProviderConfig["provider"] | null;
   model: string;

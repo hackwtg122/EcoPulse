@@ -12,7 +12,7 @@ import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/ai
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { guideAccountDetails } from "../lib/aiGuideCore";
 import { AiProviderError, ProviderConfig, classifyImageWithVision } from "../lib/aiProvider";
-import { resolveAiSettings } from "../lib/aiProviderConfig";
+import { resolveAiSettings, resolveAiRuntimeLimits } from "../lib/aiProviderConfig";
 import { QuotaConfig, QuotaStoreError, reserveQuota, finishQuotaAttempt } from "../lib/aiQuota";
 import { computeProgress } from "../lib/progressService";
 import { listEvaluationTestPoints } from "../lib/evaluationPoints";
@@ -24,7 +24,8 @@ const mutationCounts = new Map<string, { count: number; resetAt: number }>();
 // Provider retries belong to the same user action, so the per-minute budget must
 // allow every attempt of one analysis; otherwise the retry itself is rejected
 // with a quota error and the user sees "limit reached" after a single click.
-const aiMaxRetries = Math.max(0, Number(process.env.AI_MAX_RETRIES) || 2);
+const aiRuntimeLimits = resolveAiRuntimeLimits(process.env);
+const aiMaxRetries = aiRuntimeLimits.maxRetries;
 const minuteAttemptFloor = aiMaxRetries + 1;
 
 const quotaCfg: QuotaConfig = {
@@ -73,7 +74,8 @@ function sendAiError(res: Response, e: unknown): Response {
   const code = providerError ? providerError.code : "ai_provider_unavailable";
   const retryAfterSeconds = providerError?.retryAfterSeconds;
   if (retryAfterSeconds) res.set("Retry-After", String(retryAfterSeconds));
-  return res.status(status).json({ error: code, ...(retryAfterSeconds ? { retryAfterSeconds } : {}) });
+  return res.status(status).json({ error: code, ...(retryAfterSeconds ? { retryAfterSeconds } : {}),
+    ...(providerError?.diagnostic ? { diagnostic: providerError.diagnostic } : {}) });
 }
 
 function buildProviderConfig(settings: ReturnType<typeof resolveAiSettings>): ProviderConfig {
@@ -86,11 +88,7 @@ function buildProviderConfig(settings: ReturnType<typeof resolveAiSettings>): Pr
     visionAllowlist: (process.env.AI_VISION_MODEL_ALLOW || "").split(",").map((s) => s.trim()).filter(Boolean),
     chatAllowlist: (process.env.AI_CHAT_MODEL_ALLOW || "").split(",").map((s) => s.trim()).filter(Boolean),
     requireOpenLicense: true,
-    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 15000,
-    maxRetries: Number(process.env.AI_MAX_RETRIES) || 2,
-    retryBackoffMs: Number(process.env.AI_RETRY_BACKOFF_MS) || 500,
-    visionMaxTokens: Number(process.env.AI_MAX_TOKENS_VISION) || 1000,
-    chatMaxTokens: Number(process.env.AI_MAX_TOKENS_CHAT) || 2000,
+    ...aiRuntimeLimits,
   };
 }
 
@@ -266,7 +264,7 @@ router.post("/guide/ask", async (req, res) => {
       db.select({ total: sql<string>`coalesce(sum(${pointMovements.delta}), 0)::text` }).from(pointMovements).where(eq(pointMovements.userId, uid)),
       db.select({ c: sql<number>`count(*)::int` }).from(scans).where(eq(scans.userId, uid)),
       db.select({ c: sql<number>`count(*)::int` }).from(deliveries).where(eq(deliveries.userId, uid)),
-      loadDeliveryOptions(pool, deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED)),
+      loadDeliveryOptions(pool, true),
       listUserDeliveries(pool, uid),
     ]);
     const userContext = {

@@ -43,6 +43,34 @@ test("verified free open models are exported and exist as catalog ids", () => {
   for (const id of VERIFIED_FREE_OPEN_MODELS) assert.match(id, /^[a-z0-9._-]+\/[a-z0-9._:-]+:free$/i);
 });
 
+test("OpenRouter requires schema-capable free routing and excludes private reasoning", async () => {
+  const capture = {};
+  await classifyImageWithVision(baseCfg, "aW1n", okFetch(JSON.stringify(goodPayload), capture));
+  assert.deepEqual(capture.body.provider, { require_parameters: true, max_price: { prompt: 0, completion: 0 } });
+  assert.deepEqual(capture.body.reasoning, { effort: "low", exclude: true });
+});
+
+test("truncated output is rejected without retrying or exposing provider content", async () => {
+  let calls = 0;
+  await assert.rejects(classifyImageWithVision({ ...baseCfg, maxRetries: 2 }, "aW1n", async () => {
+    calls++;
+    return { ok: true, status: 200, async json() { return { choices: [{ finish_reason: "length", message: { content: 'private-provider-sentinel' } }] }; } };
+  }), error => {
+    assert.equal(error.code, "invalid_ai_response");
+    assert.equal(error.diagnostic, "output_truncated");
+    assert.ok(!JSON.stringify(error).includes("private-provider-sentinel"));
+    return true;
+  });
+  assert.equal(calls, 1);
+  assert.equal(new AiProviderError(502, "invalid_ai_response", undefined, "private-provider-sentinel").diagnostic, undefined);
+});
+
+test("safe vision diagnostics distinguish JSON, shape and explanation without weakening validation", async () => {
+  await assert.rejects(classifyImageWithVision(baseCfg, "aW1n", okFetch("private-provider-sentinel")), { diagnostic: "json_syntax_invalid" });
+  assert.throws(() => parseVisionPayload({ ...goodPayload, extra: "private-provider-sentinel" }), { diagnostic: "vision_shape_invalid" });
+  assert.throws(() => parseVisionPayload({ ...goodPayload, explanation: "x".repeat(401) }), { diagnostic: "vision_explanation_invalid" });
+});
+
 test("model gate never admits unconfigured, paid or unverified models", async () => {
   // No server-side key: the provider must not be called at all.
   await rejectsWith(classifyImageWithVision({ ...baseCfg, apiKey: "" }, "aW1n", okFetch("{}")), 503, "ai_provider_unconfigured");

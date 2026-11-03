@@ -2,6 +2,40 @@
 
 ## Veredicto: NO TERMINADO
 
+## Resultados funcionales posteriores a la activación
+
+- **PASS EcoGuía, inferencia real**: tras desplegar7bb34ec, el reintento desde
+  Firefox produjo POSTguide/ask HTTP200 y respuesta IA sobre vidrio. No se
+  duplicó la pregunta del intento fallido. Alcance: una respuesta remota; no
+  acredita historial durable entre sesiones ni todas las preguntas/contextos.
+- **PASS mapa/directorio visible**: Actions41572070420 SUCCESS de
+  `08cf595fa0d62a0eac9f906ae16550fbd089270b`, Renderdep-dbkl8aajnfac7398r5s0
+  Live/runtimeverificado. MapaOSM carga y muestra8de8 centros, sin marcadores
+  geográficos inventados; todos rotulados como ensayo académico.
+- **PASS favoritos, escritura reversible real**: primer centro inicialmente no
+  favorito; guardar cambia estado, recarga conserva favorito; quitar y recargar
+  devuelve estado inicial. Solo2operacionesUI del propietario, sin tocar roles,
+  puntos o entregas. No se alteraron favoritos preexistentes.
+- **FAIL EcoScan, inferencia real**: foto pública de botella PNG del fixture,
+  sin datos personales, consentimiento marcado; proveedor respondió pero el
+  resultado fue rechazado como inválido. No se confirmó ni guardó clasificación.
+  Corrección en curso: parámetros estructurados obligatorios y techo precio0,
+  razonamiento bajo/excluido, presupuesto visión2048, timeoutacotado y menos
+  reintentos; diagnóstico cerrado de truncamiento/JSON/esquema, sin contenido
+  proveedor ni secretos. No se acepta JSON parcial ni se relaja la validación.
+
+PreflightNeon focalizadoREADONLY/ROLLBACK:8centrosactivos, los8académicos;
+8horariosfuturosactivos;1admin,0verifiers,0participants; auditoría de roles
+role_change_events ausente; tablas materiales/favoritos presentes. No existe
+una tabla catalog_validations, pero NO es requisito del código: la validación
+de catálogo usa columnas validated_at en centros/horarios, no esa tabla.
+No deducir una migración de catálogo pendiente de ese nombre inexistente.
+
+Pruebas puras posteriores de IA/configuración/activación/despliegue36/36PASS,
+TypeScriptAPI0. Incluyen rechazo de respuesta truncada sin reintentar, redacción
+de diagnósticos y respeto de AI_MAX_RETRIES=0. Pendiente desplegar/volver a probar
+EcoScan; no declarar el sistema completo ni inferencia de visiónPASS.
+
 ## Activación final autorizada — ejecución en curso
 
 ### Evidencia de despliegue y diagnóstico real

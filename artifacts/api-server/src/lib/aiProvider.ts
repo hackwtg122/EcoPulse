@@ -1,13 +1,16 @@
+const safeAiDiagnostics = new Set(["output_truncated", "empty_content", "json_syntax_invalid", "vision_shape_invalid", "vision_confidence_invalid", "vision_explanation_invalid"]);
 export class AiProviderError extends Error {
   readonly status: number;
   readonly code: string;
   /** Provider-advertised or window-based wait before retrying, when known. */
   readonly retryAfterSeconds?: number;
-  constructor(status: number, code: string, retryAfterSeconds?: number) {
+  readonly diagnostic?: string;
+  constructor(status: number, code: string, retryAfterSeconds?: number, diagnostic?: string) {
     super(code);
     this.status = status;
     this.code = code;
     this.retryAfterSeconds = retryAfterSeconds;
+    if (diagnostic && safeAiDiagnostics.has(diagnostic)) this.diagnostic = diagnostic;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
@@ -155,6 +158,11 @@ async function chatCompletions(
     messages,
     max_tokens: maxTokens,
     temperature: cfg.provider === "nvidia" ? (model.includes("super-vl") ? 0.6 : 1.0) : 0.2,
+    ...(cfg.provider === "openrouter" ? {
+      // Route only to free endpoints that actually honor the requested schema.
+      provider: { require_parameters: true, max_price: { prompt: 0, completion: 0 } },
+      reasoning: { effort: "low", exclude: true },
+    } : {}),
     ...(cfg.provider === "nvidia" ? { top_p: 0.95, stream: false } : { response_format: {
       type: "json_schema",
       json_schema: {
@@ -195,6 +203,11 @@ async function chatCompletions(
       attemptStatus = String(res.status);
       if (res.ok) {
         const payload: any = await res.json();
+        // More identical retries cannot repair an exhausted output budget.
+        // Never parse a partial answer or expose provider content/reasoning.
+        if (payload?.choices?.[0]?.finish_reason === "length") {
+          throw new AiProviderError(502, "invalid_ai_response", undefined, "output_truncated");
+        }
         const content = payload?.choices?.[0]?.message?.content;
         if (!content || typeof content !== "string") {
           attemptError = "invalid_ai_response";
@@ -205,14 +218,14 @@ async function chatCompletions(
             await sleep(backoff);
             continue;
           }
-          throw new AiProviderError(502, "invalid_ai_response");
+          throw new AiProviderError(502, "invalid_ai_response", undefined, "empty_content");
         }
         let parsed: unknown;
         try {
           parsed = JSON.parse(content);
         } catch {
           attemptError = "invalid_ai_response";
-          throw new AiProviderError(502, "invalid_ai_response");
+          throw new AiProviderError(502, "invalid_ai_response", undefined, "json_syntax_invalid");
         }
         clearTimeout(timer);
         return parsed;
@@ -262,7 +275,7 @@ export function parseVisionPayload(value: unknown): ClassifyVisionPayload {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiProviderError(502, "invalid_ai_response");
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 4 || !["ambiguous", "category", "confidence", "explanation"].every((key) => Object.hasOwn(row, key))) {
-    throw new AiProviderError(502, "invalid_ai_response");
+    throw new AiProviderError(502, "invalid_ai_response", undefined, "vision_shape_invalid");
   }
   if (typeof row.category !== "string" || !visionCategories.has(row.category as ClassifyVisionPayload["category"])) {
     throw new AiProviderError(502, "invalid_ai_category");
@@ -271,12 +284,12 @@ export function parseVisionPayload(value: unknown): ClassifyVisionPayload {
   let confidence: ClassifyVisionPayload["confidence"] = null;
   if (row.confidence !== null) {
     if (typeof row.confidence !== "string" || !confidenceLevels.has(row.confidence as NonNullable<ClassifyVisionPayload["confidence"]>)) {
-      throw new AiProviderError(502, "invalid_ai_response");
+      throw new AiProviderError(502, "invalid_ai_response", undefined, "vision_confidence_invalid");
     }
     confidence = row.confidence as NonNullable<ClassifyVisionPayload["confidence"]>;
   }
   const explanation = typeof row.explanation === "string" ? row.explanation.trim().replace(/\s+/g, " ") : "";
-  if (!explanation || explanation.length > 400) throw new AiProviderError(502, "invalid_ai_response");
+  if (!explanation || explanation.length > 400) throw new AiProviderError(502, "invalid_ai_response", undefined, "vision_explanation_invalid");
   const category = row.category as ClassifyVisionPayload["category"];
   // Without a clear category there is no grounded assessment to display.
   if (category === "unknown" || row.ambiguous) return { category, explanation, ambiguous: true, confidence: null };
@@ -296,7 +309,7 @@ export async function classifyImageWithVision(
     type: "object",
     properties: {
       category: { type: "string", enum: ["paper", "plastic", "glass", "metal", "organic", "other", "unknown"] },
-      explanation: { type: "string" },
+      explanation: { type: "string", minLength: 1, maxLength: 400 },
       ambiguous: { type: "boolean" },
       confidence: { type: ["string", "null"], enum: ["high", "medium", "low", null] },
     },
@@ -309,7 +322,7 @@ export async function classifyImageWithVision(
       content: [
         {
           type: "text",
-          text: "Clasifica el material visible predominante en la imagen. Categorías válidas: paper, plastic, glass, metal, organic, other o unknown. Devuelve explanation en español (1-2 frases, solo rasgos visibles). ambiguous=true si no hay material predominante claro. confidence solo si puedes fundamentarlo (high/medium/low), si no null. Nunca certifiques reciclaje, peso, centros ni puntos.",
+          text: "Clasifica el material visible predominante en la imagen. Categorías válidas: paper, plastic, glass, metal, organic, other o unknown. Devuelve explanation en español (1-2 frases, máximo 400 caracteres, solo rasgos visibles). ambiguous=true si no hay material predominante claro. confidence solo si puedes fundamentarlo (high/medium/low), si no null. Devuelve únicamente el objeto JSON del esquema. Nunca certifiques reciclaje, peso, centros ni puntos.",
         },
         { type: "image_url", image_url: { url: `data:image/png;base64,${pngBase64}` } },
       ],
