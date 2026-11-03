@@ -4,6 +4,7 @@ import { activateDraftEditing, activateRewardFulfillment, activationMarker, acti
 import { configureApprovedPointsPolicy, pointsPolicyMarker, pointsPolicyLiveMarker, pointsPolicyRevision } from "./production-activation-policy.mjs";
 import { activateVerifierActions, verifierActivationMarker, verifierActivationLiveMarker, verifierActivationRevision, verifierFlags } from "./production-activation-policy.mjs";
 import { activateApprovedPoints, pointsActivationMarker, pointsActivationLiveMarker, pointsActivationRevision } from "./production-activation-policy.mjs";
+import { activateDetailedDeliveries, deliveryActivationMarker, deliveryActivationLiveMarker, deliveryActivationRevision } from "./production-activation-policy.mjs";
 
 function adapter(initial = []) {
   const environment = new Map(initial), writes = [];
@@ -145,4 +146,16 @@ test("points activation respects later operator kill switches", async () => {
   const api = adapter([[pointsActivationMarker, pointsActivationRevision], [pointsActivationLiveMarker, pointsActivationRevision], ["PILOT_POINTS_ENABLED", "false"]]);
   assert.equal((await activateApprovedPoints(api)).deployRequired, false);
   assert.deepEqual(api.writes, []);
+});
+
+test("detailed delivery activation requires protected runtime and preserves kill switches", async () => {
+  const blocked = adapter();
+  await assert.rejects(activateDetailedDeliveries({ ...blocked, confirmProtectedRuntime: async () => false }), /protected_delivery_runtime_required/);
+  assert.deepEqual(blocked.writes, []);
+  const api = adapter();
+  assert.equal((await activateDetailedDeliveries({ ...api, confirmProtectedRuntime: async () => true })).deployRequired, true);
+  assert.deepEqual(api.writes, [["PILOT_DELIVERY_DETAILS_ENABLED", "true"], [deliveryActivationMarker, deliveryActivationRevision]]);
+  const done = adapter([[deliveryActivationMarker, deliveryActivationRevision], [deliveryActivationLiveMarker, deliveryActivationRevision], ["PILOT_DELIVERY_DETAILS_ENABLED", "false"]]);
+  assert.equal((await activateDetailedDeliveries({ ...done, confirmProtectedRuntime: async () => { throw Error("unexpected"); } })).deployRequired, false);
+  assert.deepEqual(done.writes, []);
 });

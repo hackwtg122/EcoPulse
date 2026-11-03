@@ -26,6 +26,32 @@ export const pointsPolicyValues = Object.freeze({ POINTS_PER_KG: "20", POINTS_MA
 export const pointsActivationRevision = "ecopulse:points/activation-v1";
 export const pointsActivationMarker = "ECOPULSE_POINTS_ACTIVATION_REVISION";
 export const pointsActivationLiveMarker = "ECOPULSE_POINTS_ACTIVATION_LIVE_REVISION";
+export const deliveryActivationRevision = "ecopulse:delivery/detailed-v1";
+export const deliveryActivationMarker = "ECOPULSE_DELIVERY_ACTIVATION_REVISION";
+export const deliveryActivationLiveMarker = "ECOPULSE_DELIVERY_ACTIVATION_LIVE_REVISION";
+
+export async function activateDetailedDeliveries({ readEnvironment, setVariable, confirmProtectedRuntime }) {
+  const environment = await readEnvironment();
+  assert.ok(environment instanceof Map, "render_environment_invalid");
+  const alreadyApplied = environment.get(deliveryActivationMarker) === deliveryActivationRevision;
+  const changed = [];
+  if (!alreadyApplied) {
+    assert.notEqual(environment.get("EVALUATION_MODE_ENABLED"), "true", "unexpected_evaluation_service");
+    assert.equal(await confirmProtectedRuntime(), true, "protected_delivery_runtime_required");
+    if (environment.get("PILOT_DELIVERY_DETAILS_ENABLED") !== "true") {
+      await setVariable("PILOT_DELIVERY_DETAILS_ENABLED", "true");
+      changed.push("PILOT_DELIVERY_DETAILS_ENABLED");
+    }
+    const updated = await readEnvironment();
+    assert.equal(updated.get("PILOT_DELIVERY_DETAILS_ENABLED"), "true", "delivery_activation_not_confirmed");
+    await setVariable(deliveryActivationMarker, deliveryActivationRevision);
+  }
+  const confirmed = await readEnvironment();
+  assert.equal(confirmed.get(deliveryActivationMarker), deliveryActivationRevision, "delivery_activation_marker_not_confirmed");
+  return { check: "production_delivery_activation", status: "PASS", alreadyApplied, changed,
+    deployRequired: confirmed.get(deliveryActivationLiveMarker) !== deliveryActivationRevision,
+    flags: safeActivationSnapshot(confirmed) };
+}
 
 export async function activateApprovedPoints({ readEnvironment, setVariable }) {
   const environment = await readEnvironment();
