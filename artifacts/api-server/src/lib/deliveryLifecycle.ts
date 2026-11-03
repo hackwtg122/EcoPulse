@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { canAccessVerifierQueue, canVerifyDelivery, pointsForVerifiedGrams, uuidPattern, validReceiptCode, validRejectionReason, type RejectionReasonCode } from "./pilotPolicy.ts";
+import { hasOperationalEvidence } from "./deliveryDetails.ts";
 
 type Decision = "approved" | "rejected";
 type DeliveryRow = { id: string; user_id: string; status: string };
@@ -23,6 +24,29 @@ async function lockedDelivery(client: PoolClient, deliveryId: string): Promise<D
   const delivery = result.rows[0];
   if (!delivery) throw new DeliveryLifecycleError(404, "delivery_not_found");
   return delivery;
+}
+
+async function requireVerifiedDestination(client: PoolClient, deliveryId: string): Promise<void> {
+  const request = await client.query<{ request_version: number; delivery_point_id: string | null; slot_id: string | null }>(
+    "SELECT request_version, delivery_point_id, slot_id FROM deliveries WHERE id = $1", [deliveryId],
+  );
+  const details = request.rows[0];
+  if (!details || details.request_version !== 2 || !details.delivery_point_id) {
+    throw new DeliveryLifecycleError(409, "delivery_destination_unverified");
+  }
+  const point = await client.query<{ active: boolean; appointment_required: boolean; validation_reference: string | null; validated_by: string | null; validated_at: Date | null }>(
+    "SELECT active, appointment_required, validation_reference, validated_by, validated_at FROM delivery_points WHERE id = $1 FOR SHARE", [details.delivery_point_id],
+  );
+  const destination = point.rows[0];
+  if (!destination?.active || !hasOperationalEvidence(destination) || (destination.appointment_required && !details.slot_id)) {
+    throw new DeliveryLifecycleError(409, "delivery_destination_unverified");
+  }
+  if (details.slot_id) {
+    const slot = await client.query<{ validation_reference: string | null; validated_by: string | null; validated_at: Date | null }>(
+      "SELECT validation_reference, validated_by, validated_at FROM delivery_slots WHERE id = $1 AND delivery_point_id = $2 FOR SHARE", [details.slot_id, details.delivery_point_id],
+    );
+    if (!slot.rows[0] || !hasOperationalEvidence(slot.rows[0])) throw new DeliveryLifecycleError(409, "delivery_destination_unverified");
+  }
 }
 
 function requireVerifier(role: unknown, actorId: string, deliveryId: string) {
@@ -49,6 +73,31 @@ async function inTransaction<T>(pool: Pool, task: (client: PoolClient) => Promis
   } finally {
     client.release();
   }
+}
+
+export async function updateOwnDeliveryStatus(
+  pool: Pool, userId: string, deliveryId: string, action: "schedule" | "cancel",
+): Promise<{ deliveryId: string; status: "scheduled" | "cancelled"; replayed: boolean }> {
+  if (!userId || !uuidPattern.test(deliveryId)) throw new DeliveryLifecycleError(400, "invalid_delivery");
+  const target = action === "schedule" ? "scheduled" : "cancelled";
+  return inTransaction(pool, async client => {
+    const delivery = await lockedDelivery(client, deliveryId);
+    if (delivery.user_id !== userId) throw new DeliveryLifecycleError(404, "delivery_not_found");
+    if (delivery.status === target) return { deliveryId, status: target, replayed: true };
+    if (action === "schedule") {
+      if (delivery.status !== "pending") throw new DeliveryLifecycleError(409, "delivery_not_schedulable");
+      await requireVerifiedDestination(client, deliveryId);
+      const slot = await client.query(`SELECT s.id FROM deliveries d JOIN delivery_slots s ON s.id=d.slot_id AND s.delivery_point_id=d.delivery_point_id
+        WHERE d.id=$1 AND s.active=true AND s.starts_at>now() FOR SHARE OF s`, [deliveryId]);
+      if (!slot.rowCount) throw new DeliveryLifecycleError(409, "delivery_slot_unavailable");
+    } else if (delivery.status !== "pending" && delivery.status !== "scheduled") {
+      throw new DeliveryLifecycleError(409, "delivery_not_cancellable");
+    }
+    await client.query(`INSERT INTO delivery_status_events (id,delivery_id,actor_user_id,from_status,to_status)
+      VALUES ($1,$2,$3,$4,$5)`, [randomUUID(), deliveryId, userId, delivery.status, target]);
+    await client.query("UPDATE deliveries SET status=$2 WHERE id=$1", [deliveryId, target]);
+    return { deliveryId, status: target, replayed: false };
+  });
 }
 
 export async function receivePhysicalDelivery(
@@ -131,6 +180,7 @@ export async function verifyPhysicalDelivery(
       return { deliveryId, decision, verifiedGrams, points: Number(movement.rows[0].points), replayed: true };
     }
     if (delivery.status !== "received") throw new DeliveryLifecycleError(409, "receipt_required");
+    if (decision === "approved") await requireVerifiedDestination(client, deliveryId);
     const verificationId = randomUUID();
     await client.query(`
       INSERT INTO verifications (id, delivery_id, verifier_id, decision, verified_grams, receipt_code)

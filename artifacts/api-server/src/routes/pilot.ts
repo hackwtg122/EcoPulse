@@ -5,7 +5,7 @@ import { pointMovements, scans, users, deliveries } from "@workspace/db/schema";
 import { canAccessVerifierQueue, encodeDeliveryCursor, hasOnlyFields, parseDeliveryCursor, parseDeliveryPageLimit, quotaRetryAfterSeconds, scanIdForIdempotency, uuidPattern, validIdempotencyKey, validReceiptCode, validRejectionReason, validScanCategory, parsePointsPolicy, verificationActionsEnabled, type QuotaDenialReason } from "../lib/pilotPolicy";
 import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } from "../lib/pilotRoles";
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, loadPublishedDeliveryPoints, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
-import { DeliveryLifecycleError, receivePhysicalDelivery, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
+import { DeliveryLifecycleError, receivePhysicalDelivery, updateOwnDeliveryStatus, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
 import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
 import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
@@ -513,6 +513,23 @@ router.get("/verifier/capabilities", async (_req, res) => {
     pointsEnabled: schemaReady && verificationActionsEnabled(process.env.PILOT_VERIFICATION_ENABLED)
       && verificationActionsEnabled(process.env.PILOT_POINTS_ENABLED) && policyReady,
   });
+});
+router.post("/deliveries/:id/schedule", async (req, res) => {
+  if (!hasOnlyFields(req.body ?? {}, []) || !uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_delivery" });
+  if (!deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED)) return res.status(503).json({ error: "delivery_details_disabled" });
+  const pool = await databasePool();
+  if (!await hasDeliveryDetailsSchema(pool)) return res.status(503).json({ error: "delivery_details_migration_required" });
+  const result = await updateOwnDeliveryStatus(pool, res.locals.userId, String(req.params.id), "schedule");
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.json(result);
+});
+router.post("/deliveries/:id/cancel", async (req, res) => {
+  if (!hasOnlyFields(req.body ?? {}, []) || !uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_delivery" });
+  const pool = await databasePool();
+  if (!await hasDeliveryDetailsSchema(pool)) return res.status(503).json({ error: "delivery_details_migration_required" });
+  const result = await updateOwnDeliveryStatus(pool, res.locals.userId, String(req.params.id), "cancel");
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.json(result);
 });
 router.get("/deliveries/:id/events", async (req, res) => {
   const id = String(req.params.id);

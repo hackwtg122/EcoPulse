@@ -532,7 +532,7 @@ export async function loadPilotDeliveryEvents(
 }
 
 async function postVerifierAction(
-  apiUrl: string, token: string, deliveryId: string, action: "receive" | "verify", payload: object,
+  apiUrl: string, token: string, deliveryId: string, action: "receive" | "verify" | "schedule" | "cancel", payload: object,
   signal: AbortSignal, fetchImplementation: FetchImplementation,
 ) {
   const response = await fetchImplementation(`${apiUrl}/api/pilot/deliveries/${encodeURIComponent(deliveryId)}/${action}`, {
@@ -549,6 +549,18 @@ export function receivePilotDelivery(
   fetchImplementation: FetchImplementation = fetch,
 ) {
   return postVerifierAction(apiUrl, token, deliveryId, "receive", {}, signal, fetchImplementation);
+}
+
+export async function updateOwnPilotDelivery(
+  apiUrl: string, token: string, deliveryId: string, action: "schedule" | "cancel", signal: AbortSignal,
+  fetchImplementation: FetchImplementation = fetch,
+) {
+  const result = await postVerifierAction(apiUrl, token, deliveryId, action, {}, signal, fetchImplementation);
+  const expected = action === "schedule" ? "scheduled" : "cancelled";
+  if (result.deliveryId !== deliveryId || result.status !== expected || typeof result.replayed !== "boolean") {
+    throw new PilotApiError(502, "invalid_delivery_action_response");
+  }
+  return { deliveryId, status: expected, replayed: result.replayed };
 }
 
 export function verifyPilotDelivery(

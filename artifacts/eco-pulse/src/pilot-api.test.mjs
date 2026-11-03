@@ -1,11 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadAdminUsers, updateAdminUserRole } from "./pilot-api.ts";
+import { updateOwnPilotDelivery } from "./pilot-api.ts";
 import { createDetailedPilotDelivery, createPilotDelivery, createPilotScan, isCurrentPilotResponse, loadPilotDashboardData, loadPilotDeliveryOptions, loadPilotProgress, loadPilotPublicPoints, loadVerifierDeliveryQueue, loadVerifierCapabilities, loadPilotDeliveryEvents, receivePilotDelivery, verifyPilotDelivery, PilotApiError } from "./pilot-api.ts";
 
 function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
+
+test("owner scheduling and cancellation validate server results and send no owner data", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const signal = new AbortController().signal;
+  for (const action of ["schedule", "cancel"]) {
+    const expected = action === "schedule" ? "scheduled" : "cancelled";
+    const result = await updateOwnPilotDelivery("https://ecopulse-3xb4.onrender.com", "session", id, action, signal, async (url, options) => {
+      assert.match(String(url), new RegExp(`/${action}$`));
+      assert.deepEqual(JSON.parse(options.body), {});
+      return response({ deliveryId: id, status: expected, replayed: false });
+    });
+    assert.equal(result.status, expected);
+  }
+  await assert.rejects(updateOwnPilotDelivery("https://ecopulse-3xb4.onrender.com", "session", id, "cancel", signal,
+    async () => response({ deliveryId: id, status: "approved", replayed: false })), /invalid_delivery_action_response/);
+});
 
 test("admin users validate roles and counts without retaining identity fields", async () => {
   const payload = { users: [{ clerkUserId: "user_Test123", role: "admin", createdAt: "2026-11-02T00:00:00Z", email: "not-retained" }], adminCount: 1 };

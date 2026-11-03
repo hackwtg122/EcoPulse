@@ -9,6 +9,7 @@ import {
   loadVerifierCapabilities,
   loadPilotDeliveryEvents,
   receivePilotDelivery,
+  updateOwnPilotDelivery,
   verifyPilotDelivery,
   PilotApiError,
   type PilotDeliveryEvent,
@@ -54,7 +55,7 @@ function statusTone(status: PilotDelivery["status"]) {
   return "bg-amber-100 text-amber-900";
 }
 
-function DeliveryHistory({ deliveries }: { deliveries: PilotDelivery[] }) {
+function DeliveryHistory({ deliveries, busy, onAction }: { deliveries: PilotDelivery[]; busy: boolean; onAction: (id: string, action: "schedule" | "cancel") => void }) {
   return <div className="mt-5 space-y-3" data-testid="delivery-history">
     {deliveries.slice(0, 20).map((delivery) => <article key={delivery.id} className="rounded-2xl bg-[hsl(var(--muted)/.65)] px-4 py-4" data-testid={`row-delivery-${delivery.id}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -81,6 +82,10 @@ function DeliveryHistory({ deliveries }: { deliveries: PilotDelivery[] }) {
           <p className="mt-1 text-[hsl(var(--muted-foreground))]">{delivery.deliveryPoint ? `${delivery.deliveryPoint.name}, ${delivery.deliveryPoint.municipality}` : "Sin punto disponible"}</p>
           {delivery.slot && <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Horario: {formatDate(delivery.slot.startsAt)}</p>}
         </div>
+      </div>}
+      {(delivery.status === "pending" || delivery.status === "scheduled") && <div className="mt-4 flex flex-wrap gap-4 text-sm">
+        {delivery.status === "pending" && delivery.requestVersion === 2 && delivery.slot && <button type="button" disabled={busy} onClick={() => onAction(delivery.id, "schedule")} className="font-semibold underline disabled:opacity-50">Programar horario</button>}
+        <button type="button" disabled={busy} onClick={() => { if (window.confirm("¿Cancelar esta solicitud?")) onAction(delivery.id, "cancel"); }} className="font-semibold underline disabled:opacity-50">Cancelar solicitud</button>
       </div>}
     </article>)}
     {!deliveries.length && <p className="py-8 text-center text-sm text-[hsl(var(--muted-foreground))]" data-testid="empty-deliveries">No hay solicitudes de entrega registradas.</p>}
@@ -188,7 +193,9 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
       await load(null, false); onRefresh(); await refreshEvents(deliveryId);
     } catch (cause) {
       const code = cause instanceof PilotApiError ? cause.code : "request_failed";
-      setActionError(code === "already_verified" || code === "delivery_state_conflict"
+      setActionError(code === "delivery_destination_unverified"
+        ? "No se pueden acreditar puntos: la solicitud no tiene un destino y horario verificados."
+        : code === "already_verified" || code === "delivery_state_conflict"
         ? "La entrega cambió de estado. Actualiza la bandeja antes de intentar otra acción."
         : "No se pudo registrar la operación. Puedes reintentar; el servidor evita duplicados.");
     } finally { setSaving(false); }
@@ -255,6 +262,9 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
   const [materialKg, setMaterialKg] = useState<Partial<Record<ManualScanCategory, string>>>({});
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState("");
+  const historyInFlight = useRef(false);
   const inFlight = useRef(false);
   const controller = useRef<AbortController | null>(null);
 
@@ -314,6 +324,22 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
     const key = `delivery_${crypto.randomUUID().replaceAll("-", "")}`;
     try { sessionStorage.setItem(pendingOperationStorageKey(userId), JSON.stringify({ key, signature })); } catch { /* Server idempotency remains authoritative. */ }
     return key;
+  };
+
+  const updateHistory = async (id: string, action: "schedule" | "cancel") => {
+    if (historyInFlight.current) return;
+    historyInFlight.current = true; setHistoryBusy(true); setHistoryMessage("");
+    try {
+      const token = await getToken();
+      if (!token) throw new PilotApiError(401, "missing_session_token");
+      await updateOwnPilotDelivery(pilotApiUrl, token, id, action, new AbortController().signal);
+      setHistoryMessage(action === "schedule" ? "Horario programado." : "Solicitud cancelada.");
+      onRefresh();
+      void loadOptions();
+    } catch (error) {
+      const code = error instanceof PilotApiError ? error.code : "request_failed";
+      setHistoryMessage(code === "delivery_slot_unavailable" ? "El horario ya no está disponible." : code === "delivery_destination_unverified" ? "El destino o el horario aún no está verificado." : "No se pudo actualizar la solicitud. Actualiza el historial e inténtalo de nuevo.");
+    } finally { historyInFlight.current = false; setHistoryBusy(false); }
   };
 
   const submit = async (event: FormEvent) => {
@@ -425,7 +451,8 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
         <div><h2 id="delivery-history-title" className="font-display text-3xl text-[hsl(var(--primary))]">Historial de entregas</h2><p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">Información persistente y aislada de esta cuenta.</p></div>
         <button type="button" onClick={onRefresh} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[hsl(var(--border))] px-4 py-2 text-sm font-semibold" data-testid="button-refresh-deliveries"><Clock3 size={16} /> Actualizar</button>
       </div>
-      <DeliveryHistory deliveries={deliveries} />
+      {historyMessage && <p role="status" className="mt-3 text-sm">{historyMessage}</p>}
+      <DeliveryHistory deliveries={deliveries} busy={historyBusy} onAction={(id, action) => { void updateHistory(id, action); }} />
     </section>
 
     {showVerifierQueue && <div className="lg:col-span-2"><VerifierQueue role={role} onRefresh={onRefresh} /></div>}
