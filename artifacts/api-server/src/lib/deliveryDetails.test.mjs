@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DeliveryRequestError,
+  createDetailedDelivery,
   deliveryDetailsEnabled,
   hashDetailedDeliveryInput,
   hashDeliveryIdempotencyKey,
@@ -104,7 +105,7 @@ test("a validated walk-in center enables detailed requests without a slot", asyn
     const options = await loadDeliveryOptions({ async query(text) {
       if (text.includes("to_regclass")) return { rows: [{ ready: true }] };
       if (text.includes("SELECT code FROM material_categories")) return { rows: [{ code: "paper" }] };
-      if (text.includes("FROM delivery_point_materials")) return { rows: [] };
+      if (text.includes("FROM delivery_point_materials")) return { rows: [{ delivery_point_id: pointId, category_code: "paper" }] };
       if (text.includes("FROM delivery_points")) return { rows: [{ id: pointId, code: "test-walk-in", name: "Test", address: "Test", municipality: "Test", time_zone: "America/Bogota", appointment_required: false }] };
       if (text.includes("FROM delivery_slots")) return { rows: [] };
       throw new Error("unexpected_mock_query");
@@ -115,6 +116,38 @@ test("a validated walk-in center enables detailed requests without a slot", asyn
   } finally {
     if (mode === undefined) delete process.env.EVALUATION_MODE_ENABLED; else process.env.EVALUATION_MODE_ENABLED = mode;
   }
+});
+
+test("a center without configured materials cannot enable deliveries", async () => {
+  const database = { async query(text) {
+    if (text.includes("to_regclass") || text.includes("information_schema.columns")) return { rows: [{ ready: true }] };
+    if (text.includes("FROM material_categories")) return { rows: [{ code: "paper" }] };
+    if (text.includes("FROM delivery_point_materials")) return { rows: [] };
+    if (text.includes("FROM delivery_points")) return { rows: [{ id: pointId, code: "center", name: "Centro", address: "Dirección", municipality: "Montería", time_zone: "America/Bogota", appointment_required: false, validation_reference: "https://example.org/center", validated_by: "admin", validated_at: new Date() }] };
+    if (text.includes("FROM delivery_slots")) return { rows: [] };
+    throw Error("unexpected_mock_query");
+  } };
+  const options = await loadDeliveryOptions(database, true, true);
+  assert.equal(options.enabled, false);
+  assert.deepEqual(options.points[0].materials, []);
+});
+
+test("creation rejects unconfigured center materials and rolls back", async () => {
+  const queries = [];
+  const client = { release() {}, async query(sql) {
+    const text = sql.trim(); queries.push(text);
+    if (text === "BEGIN" || text === "ROLLBACK" || text.startsWith("SELECT pg_advisory") || text.startsWith("INSERT INTO delivery_idempotency")) return { rows: [] };
+    if (text.startsWith("SELECT request_hash")) return { rows: [] };
+    if (text.startsWith("SELECT code FROM material_categories")) return { rows: [{ code: "paper" }], rowCount: 1 };
+    if (text.startsWith("SELECT appointment_required")) return { rows: [{ appointment_required: false, validation_reference: "https://example.org/center", validated_by: "admin", validated_at: new Date() }] };
+    if (text.includes("to_regclass('public.delivery_point_materials')")) return { rows: [{ present: true, ready: true }] };
+    if (text.startsWith("SELECT category_code FROM delivery_point_materials")) return { rows: [] };
+    throw Error(`unexpected query: ${text}`);
+  } };
+  const input = parseDetailedDeliveryInput({ deliveryPointId: pointId, slotId: null, materials: [{ categoryCode: "paper", estimatedGrams: 1000 }] });
+  await assert.rejects(createDetailedDelivery({ connect: async () => client }, "user_owner", "delivery_test_123", input), error => error.code === "material_category_unavailable");
+  assert.equal(queries.at(-1), "ROLLBACK");
+  assert.ok(!queries.some(text => text.startsWith("INSERT INTO deliveries")));
 });
 
 test("delivery details require an exact and bounded payload", () => {

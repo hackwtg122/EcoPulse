@@ -311,7 +311,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
   }).sort((left, right) => left.categoryCode.localeCompare(right.categoryCode)), [materialKg]);
   const estimatedTotal = selectedMaterials.reduce((sum, material) => sum + material.estimatedGrams, 0);
   const detailedValid = options?.mode === "detailed" && options.enabled && selectedMaterials.length > 0 && estimatedTotal <= 100_000 && Boolean(selectedPoint) &&
-    (!selectedPoint?.materials || selectedMaterials.every(material => selectedPoint.materials?.includes(material.categoryCode))) &&
+    Boolean(selectedPoint?.materials && selectedMaterials.every(material => selectedPoint.materials?.includes(material.categoryCode))) &&
     (!selectedPoint?.appointmentRequired || Boolean(selectedSlotId));
 
   const operationKey = (signature: string) => {
@@ -396,8 +396,8 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
       {optionsStatus === "loading" && <p className="mt-6 rounded-2xl bg-[hsl(var(--muted))] p-4 text-sm" aria-live="polite">Consultando centros y horarios disponibles…</p>}
       {optionsStatus === "error" && <div className="mt-6 rounded-2xl bg-red-50 p-4 text-sm text-red-900" role="alert"><p>No pudimos consultar la configuración de entregas.</p><button type="button" onClick={() => void loadOptions()} className="mt-2 font-bold underline">Intentar de nuevo</button></div>}
       {detailsUnavailable && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" role="status">
-        <p className="font-semibold">Por ahora no hay horarios disponibles.</p>
-        <p className="mt-1">Explora los centros en el mapa y vuelve más tarde para consultar nuevos horarios.</p>
+        <p className="font-semibold">Por ahora no hay centros con materiales y disponibilidad confirmados.</p>
+        <p className="mt-1">Explora los centros en el mapa y vuelve más tarde para consultar disponibilidad.</p>
         <button type="button" onClick={() => void loadOptions()} className="mt-3 font-bold underline">Actualizar disponibilidad</button>
       </div>}
 
@@ -426,7 +426,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
           <div>
              <label htmlFor="delivery-point" className="text-sm font-bold">2. Centro de acopio</label>
              <div className="relative mt-2"><MapPin className="pointer-events-none absolute left-3 top-3.5 text-[hsl(var(--muted-foreground))]" size={18} /><select id="delivery-point" value={selectedPointId} onChange={(event) => { setSelectedPointId(event.target.value); setSelectedSlotId(""); setMaterialKg({}); }} required className="min-h-12 w-full appearance-none rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] py-3 pl-10 pr-4 text-sm"><option value="">Selecciona un punto disponible</option>{options.points.map((point) => <option key={point.id} value={point.id}>{point.name} · {point.municipality}</option>)}</select></div>
-            {selectedPoint && <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{selectedPoint.address}, {selectedPoint.municipality}</p>}
+             {selectedPoint && <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{selectedPoint.address}, {selectedPoint.municipality}{!selectedPoint.materials?.length && " · Materiales aceptados aún no confirmados"}</p>}
           </div>
 
           {selectedPoint && !selectedPoint.appointmentRequired && <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]" data-testid="walk-in-delivery-notice">Centro sin cita: esta solicitud queda pendiente y no reserva horario ni garantiza recepción. Confirma la atención con el centro.</p>}

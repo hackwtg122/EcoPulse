@@ -186,7 +186,7 @@ export async function loadDeliveryOptions(
   const materialsSchema = await database.query("SELECT to_regclass('public.delivery_point_materials') IS NOT NULL AS present, CASE WHEN to_regclass('public.delivery_point_materials') IS NULL THEN false ELSE has_table_privilege(current_user,'public.delivery_point_materials','SELECT') END AS ready");
   const materialState = rowsOf<{ present?: boolean; ready: boolean }>(materialsSchema)[0];
   const materialsReady = materialState?.ready === true;
-  if (materialState?.present === true && !materialsReady) {
+  if ((operationalOnly || materialState?.present === true) && !materialsReady) {
     return { mode: "detailed", enabled: false, reason: "configuration_pending", categories: [], points: [] };
   }
   if (process.env.EVALUATION_MODE_ENABLED === "true") {
@@ -273,11 +273,11 @@ export async function loadDeliveryOptions(
       appointmentRequired: row.appointment_required,
       latitude: typeof row.latitude === "number" && typeof row.longitude === "number" ? row.latitude : presented.latitude,
       longitude: typeof row.latitude === "number" && typeof row.longitude === "number" ? row.longitude : presented.longitude,
-      ...(materialsByPoint.has(row.id) ? { materials: materialsByPoint.get(row.id)! } : process.env.EVALUATION_MODE_ENABLED === "true" && materialResult ? { materials: [] } : {}),
+      ...(materialResult ? { materials: materialsByPoint.get(row.id) ?? [] } : {}),
       slots: slotsByPoint.get(row.id) ?? [],
     };
   });
-  const configured = categories.length > 0 && points.some((point) => !point.appointmentRequired || point.slots.length > 0);
+  const configured = categories.length > 0 && points.some((point) => point.materials?.some(code => categories.some(category => category.code === code)) && (!point.appointmentRequired || point.slots.length > 0));
   return {
     mode: "detailed",
     enabled: configured,
@@ -508,11 +508,11 @@ export async function createDetailedDelivery(
     if (process.env.EVALUATION_MODE_ENABLED !== "true" && !hasOperationalEvidence(point)) throw new DeliveryRequestError(409, "delivery_point_unavailable");
     const materialSchema = await client.query("SELECT to_regclass('public.delivery_point_materials') IS NOT NULL AS present, CASE WHEN to_regclass('public.delivery_point_materials') IS NULL THEN false ELSE has_table_privilege(current_user,'public.delivery_point_materials','SELECT') END AS ready");
     const materialState = rowsOf<{ present?: boolean; ready: boolean }>(materialSchema)[0];
-    if (materialState?.present === true && materialState.ready !== true) throw new DeliveryRequestError(503, "delivery_details_configuration_unavailable");
+    if (materialState?.ready !== true) throw new DeliveryRequestError(503, "delivery_details_configuration_unavailable");
     if (materialState?.ready === true) {
       const accepted = await client.query<{ category_code: string }>("SELECT category_code FROM delivery_point_materials WHERE delivery_point_id = $1", [input.deliveryPointId]);
       const acceptedCodes = new Set(accepted.rows.map(row => row.category_code));
-      if ((acceptedCodes.size > 0 || process.env.EVALUATION_MODE_ENABLED === "true") && input.materials.some(material => !acceptedCodes.has(material.categoryCode))) {
+      if (input.materials.some(material => !acceptedCodes.has(material.categoryCode))) {
         throw new DeliveryRequestError(409, "material_category_unavailable");
       }
     }
