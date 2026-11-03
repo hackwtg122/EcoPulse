@@ -10,6 +10,11 @@ export class RewardError extends Error {
 
 export type RewardDraft = { title: string; description: string; cost: number };
 export type RewardPublication = { expected: RewardDraft; inventoryRemaining: number; fulfillmentReference: string };
+
+// Audit references are not download URLs; only an explicit known marker grants an asset.
+export function digitalAssetForFulfillment(status: unknown, reference: unknown): "nature-v1" | null {
+  return status === "fulfilled" && reference === "digital:ecopulse/nature-v1" ? "nature-v1" : null;
+}
 export function hasRewardFulfillmentEvidence(reference: unknown, validatedAt: unknown, validatedBy: unknown): boolean {
   if (typeof reference !== "string" || reference.length < 10 || reference.length > 500 || reference !== reference.trim() ||
       !validatedAt || typeof validatedBy !== "string" || !validatedBy) return false;

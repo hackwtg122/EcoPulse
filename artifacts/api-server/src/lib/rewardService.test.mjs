@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { digitalAssetForFulfillment } from "./rewardService.ts";
+
+test("digital fulfillment exposes only an explicitly delivered known asset", () => {
+  assert.equal(digitalAssetForFulfillment("fulfilled", "digital:ecopulse/nature-v1"), "nature-v1");
+  assert.equal(digitalAssetForFulfillment("reserved", "digital:ecopulse/nature-v1"), null);
+  assert.equal(digitalAssetForFulfillment("fulfilled", "https://example.org/audit"), null);
+  assert.equal(digitalAssetForFulfillment("fulfilled", "digital:ecopulse/unknown"), null);
+});
 import { RewardError, hasRewardFulfillmentEvidence, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, rewardIdForKey, redemptionActionsEnabled } from "./rewardService.ts";
 
 const draft = { title: "Test reward", description: "Mock fixture only", cost: 20 };

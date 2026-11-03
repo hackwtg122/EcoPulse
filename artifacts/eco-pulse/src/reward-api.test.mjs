@@ -12,6 +12,16 @@ function mock(routes) {
   };
   return {fetcher,requests};
 }
+test("digital delivery is based on a recognized fulfilled asset, not reward ID", async () => {
+  const row = { id: "r1", rewardId: "any-reward-id", rewardTitle: "Nature", cost: 10, createdAt: "2026-01-01T00:00:00Z" };
+  const { fetcher } = mock({ "/api/pilot/redemptions": [
+    { ...row, fulfillmentStatus: "fulfilled", digitalAsset: "nature-v1" },
+    { ...row, id: "r2", fulfillmentStatus: "reserved", digitalAsset: "nature-v1" },
+    { ...row, id: "r3", fulfillmentStatus: "fulfilled", digitalAsset: "unknown" },
+  ] });
+  const result = await loadRedemptions("https://ecopulse-3xb4.onrender.com", "token", new AbortController().signal, fetcher);
+  assert.deepEqual(result.map(item => item.digitalAsset), ["nature-v1", null, null]);
+});
 test("rewards client reads only authenticated server data", async () => {
   const {fetcher,requests}=mock({
     "/api/pilot/rewards":[],

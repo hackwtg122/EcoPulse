@@ -7,7 +7,7 @@ import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } fro
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, loadPublishedDeliveryPoints, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, updateOwnDeliveryStatus, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
 import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
-import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
+import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { guideAccountDetails } from "../lib/aiGuideCore";
@@ -711,9 +711,10 @@ router.get("/redemptions", async (_req, res) => {
   const pool = await databasePool();
   const schemaReady = await hasRewardFulfillmentSchema(pool);
   const rows = await pool.query(`SELECT r.id,r.reward_id AS "rewardId",w.title AS "rewardTitle",r.cost,r.created_at AS "createdAt",
-    ${schemaReady ? "r.fulfillment_status" : "'reserved'::text"} AS "fulfillmentStatus"
+    ${schemaReady ? "r.fulfillment_status" : "'reserved'::text"} AS "fulfillmentStatus",
+    ${schemaReady ? "r.fulfillment_reference" : "NULL::text"} AS fulfillment_reference
     FROM redemptions r JOIN rewards w ON w.id=r.reward_id WHERE r.user_id=$1 ORDER BY r.created_at DESC,r.id DESC LIMIT 50`, [res.locals.userId]);
-  return res.json(rows.rows);
+  return res.json(rows.rows.map(({ fulfillment_reference, ...row }) => ({ ...row, digitalAsset: digitalAssetForFulfillment(row.fulfillmentStatus, fulfillment_reference) })));
 });
 router.post("/redemptions", async (req, res) => {
   const pool = await databasePool();

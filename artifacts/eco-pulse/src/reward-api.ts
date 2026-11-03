@@ -1,5 +1,5 @@
 export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean };
-export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled" };
+export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled"; digitalAsset?: "nature-v1" | null };
 export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean };
 export type RewardDraftInput = { title: string; description: string; cost: number };
 export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number; fulfillmentReference: string };
@@ -54,7 +54,8 @@ export async function loadRedemptions(apiUrl: string, token: string, signal: Abo
       !Number.isSafeInteger(row.cost) || typeof row.createdAt !== "string" ||
       (row.fulfillmentStatus !== "reserved" && row.fulfillmentStatus !== "fulfilled")) throw new RewardApiError(502, "invalid_redemption_response");
     return { id: row.id, rewardId: row.rewardId, rewardTitle: row.rewardTitle, cost: row.cost as number,
-      createdAt: row.createdAt, fulfillmentStatus: row.fulfillmentStatus };
+      createdAt: row.createdAt, fulfillmentStatus: row.fulfillmentStatus,
+      digitalAsset: row.fulfillmentStatus === "fulfilled" && row.digitalAsset === "nature-v1" ? "nature-v1" : null };
   });
 }
 export async function loadAdminRedemptions(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<RedemptionItem[]> {
