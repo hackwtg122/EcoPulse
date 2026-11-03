@@ -103,7 +103,7 @@ export function CatalogAdminPanel({ role }: { role: string | undefined }) {
       <h2 id="admin-stats-title" className="font-display text-2xl">Resumen operativo</h2>
       <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Conteos agregados del servidor. No incluye datos personales ni exportaciones.</p>
       <dl className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border p-4"><dt className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">Participantes</dt><dd className="mt-1 font-display text-3xl text-[hsl(var(--primary))]" data-testid="admin-stat-users">{stats.users}</dd></div>
+        <div className="rounded-xl border p-4"><dt className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">Cuentas registradas</dt><dd className="mt-1 font-display text-3xl text-[hsl(var(--primary))]" data-testid="admin-stat-users">{stats.users}</dd></div>
         <div className="rounded-xl border p-4"><dt className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">Escaneos registrados</dt><dd className="mt-1 font-display text-3xl text-[hsl(var(--primary))]" data-testid="admin-stat-scans">{stats.scans}</dd></div>
         <div className="rounded-xl border p-4"><dt className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">Saldo EcoPuntos en circulación</dt><dd className="mt-1 font-display text-3xl text-[hsl(var(--primary))]" data-testid="admin-stat-points">{stats.pointsBalance}</dd></div>
       </dl>
