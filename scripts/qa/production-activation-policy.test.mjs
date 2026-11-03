@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { activateDraftEditing, activateRewardFulfillment, activationMarker, activationLiveMarker, activationRevision, draftFlags, rewardActivationLiveMarker, rewardActivationMarker, rewardActivationRevision, rewardFlags, rewardPolicyReference, safeActivationSnapshot } from "./production-activation-policy.mjs";
 import { configureApprovedPointsPolicy, pointsPolicyMarker, pointsPolicyLiveMarker, pointsPolicyRevision } from "./production-activation-policy.mjs";
+import { activateVerifierActions, verifierActivationMarker, verifierActivationLiveMarker, verifierActivationRevision, verifierFlags } from "./production-activation-policy.mjs";
 
 function adapter(initial = []) {
   const environment = new Map(initial), writes = [];
@@ -107,4 +108,23 @@ test("points policy preserves later operator overrides and interrupted deploy re
   assert.deepEqual(api.writes, []);
   api.environment.set(pointsPolicyLiveMarker, pointsPolicyRevision);
   assert.equal((await configureApprovedPointsPolicy(api)).deployRequired, false);
+});
+
+test("verifier activation changes only receipt and decision flags", async () => {
+  const api = adapter();
+  const result = await activateVerifierActions(api);
+  assert.deepEqual(api.writes, [...verifierFlags.map(flag => [flag, "true"]), [verifierActivationMarker, verifierActivationRevision]]);
+  assert.equal(api.environment.has("PILOT_POINTS_ENABLED"), false);
+  assert.equal(api.environment.has("PILOT_DELIVERY_DETAILS_ENABLED"), false);
+  assert.equal(result.deployRequired, true);
+});
+test("verifier activation preserves kill switches and rejects unexpected environments", async () => {
+  const done = adapter([[verifierActivationMarker, verifierActivationRevision], [verifierActivationLiveMarker, verifierActivationRevision], ...verifierFlags.map(flag => [flag, "false"])]);
+  assert.equal((await activateVerifierActions(done)).deployRequired, false);
+  assert.deepEqual(done.writes, []);
+  for (const flag of ["EVALUATION_MODE_ENABLED", "PILOT_POINTS_ENABLED"]) {
+    const api = adapter([[flag, "true"]]);
+    await assert.rejects(activateVerifierActions(api));
+    assert.deepEqual(api.writes, []);
+  }
 });

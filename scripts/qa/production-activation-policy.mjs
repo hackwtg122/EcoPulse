@@ -24,6 +24,36 @@ export const pointsPolicyMarker = "ECOPULSE_POINTS_POLICY_REVISION";
 export const pointsPolicyLiveMarker = "ECOPULSE_POINTS_POLICY_LIVE_REVISION";
 export const pointsPolicyValues = Object.freeze({ POINTS_PER_KG: "20", POINTS_MAX_PER_DELIVERY: "100" });
 
+export const verifierActivationRevision = "ecopulse:verifier/receipt-decision-v1";
+export const verifierActivationMarker = "ECOPULSE_VERIFIER_ACTIVATION_REVISION";
+export const verifierActivationLiveMarker = "ECOPULSE_VERIFIER_ACTIVATION_LIVE_REVISION";
+export const verifierFlags = Object.freeze(["PILOT_RECEIPT_ENABLED", "PILOT_VERIFICATION_ENABLED"]);
+
+export async function activateVerifierActions({ readEnvironment, setVariable }) {
+  const environment = await readEnvironment();
+  assert.ok(environment instanceof Map, "render_environment_invalid");
+  const alreadyApplied = environment.get(verifierActivationMarker) === verifierActivationRevision;
+  const changed = [];
+  if (!alreadyApplied) {
+    assert.notEqual(environment.get("EVALUATION_MODE_ENABLED"), "true", "unexpected_evaluation_service");
+    assert.equal(environment.get("PILOT_POINTS_ENABLED"), undefined, "points_gate_must_remain_unchanged");
+    for (const flag of verifierFlags) {
+      if (environment.get(flag) !== "true") {
+        await setVariable(flag, "true");
+        changed.push(flag);
+      }
+    }
+    const updated = await readEnvironment();
+    assert.ok(verifierFlags.every(flag => updated.get(flag) === "true"), "verifier_activation_not_confirmed");
+    await setVariable(verifierActivationMarker, verifierActivationRevision);
+  }
+  const confirmed = await readEnvironment();
+  assert.equal(confirmed.get(verifierActivationMarker), verifierActivationRevision, "verifier_activation_marker_not_confirmed");
+  return { check: "production_verifier_activation", status: "PASS", alreadyApplied, changed,
+    deployRequired: confirmed.get(verifierActivationLiveMarker) !== verifierActivationRevision,
+    flags: safeActivationSnapshot(confirmed) };
+}
+
 export async function configureApprovedPointsPolicy({ readEnvironment, setVariable }) {
   const environment = await readEnvironment();
   assert.ok(environment instanceof Map, "render_environment_invalid");
