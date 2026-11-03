@@ -4,6 +4,8 @@ Fecha de inicio: 18 de octubre de 2026, hora de Colombia. El árbol de Git conti
 
 ## Bloque activo
 
+- Continuación tras loginNeon confirmado por propietario: reserva documental AUDIT_BACKUP_APPROVAL.md/CONGRESS_ACTIVATION_STATUS.md/COORDINATION.md. Inspección UI exclusivamente metadata proyecto/branch/compute/BackupRestore, sin SQL ni leer sesiones/passwords/connectionstrings. No crear snapshot/branch ni pulsar Restore sin permiso específico; prepara alcance snapshotmanual+restore aislado enplanFree, noDDL niroles.
+
 - Cierre verificable del bloqueIA: reserva aiGuideCore.ts/test y packageAPI para añadir regla explícita de no presentar centros/recompensas académicos como operación física, independiente del flagglobal evaluación; gatepruebasguía enbuildremoto. Matriz de funciones y dependencias aCONGRESS_ACTIVATION_STATUS.md. NeonConsole enventanaautorizada requierelogin: nohay sesión de gestión disponible; soloSQLread no pruebarespaldo. No intentarloginconclave/extraercookies ni aplicarDDL.
 
 - Continuación autorizada sigue: reserva aiProvider.ts/tests y runtimeconfig/tests, .env.example, pilot.ts diagnóstico seguro/contexto y activaciónIAv2/tests. EcoGuíaPASSrealHTTP200 trasmodeloactual; EcoScanFAILrealinvalidresponse conPNGbotellaconsentido, sinpersistir. Ajusteslimitadosdeformato/budget/routing0precio, sinsubirlímitesdiarios ni relajarschema. Fuentecontextoguía alineadaa lectorcatálogo sin activarcreación. Favoritosownsessionprueba reversible completada yrestaurada, sinroles/valorreal.
@@ -70,6 +72,8 @@ Desde el 18 oct 2026, por instrucción del usuario, OpenCode es el único agente
 - Para reanudar OpenCode: definir una tarea acotada y reservar archivos exclusivos aquí primero. La terminal integrada de VS Code aún no está accesible mediante la herramienta UI; no afirmar que la sesión CLI independiente estuvo allí.
 
 ## Entregas
+
+- NeonConsole autenticada comprobada: proyectoEcoPulse summer-scene-27362851, única rama production br-plain-pine-b5o29nbi, planFree. Compute ep-misty-lake-b53pj4as coincide con endpoint de URLSQL autorizada (comparaciónenmemoria, solo booleanos), base neondb coincide. BackupRestore muestra historia6h, 0snapshots y sinprogramación; snapshot/restauraciónNOejecutados y no prueba de restore. No confundir disponibilidadPITR con respaldo ya restaurado/verificado. No Connect/password/APIkeys niSQL ni cambiosinfra. Archivosdocumentales actualizan dependencia: pedir autorización específica para snapshotpre-audit-0004 y ramaisoladaqa-restore-0004, solo siincluidoenFree, sinrestaurarproduction niDDL/grants/roles. TypeScript/tests/build NOejecutados (sin código cambiado); gitdiffcheck pendiente. Registrodoc/publicación bajoautorizaciónprevia; privadoQA ypolíticas reales siguenBLOCKED. No volver a pedir loginNeon ya realizado.
 
 - Verificación posterior796a55e: Actions41573979385SUCCESS, Renderdep-dbklhenb9u1s73fomc50 Live/runtimeSHA; configruntimev2confirmada sinquotaoverride. EcoScan realPASS botellaPNGclasificóPlástico/conexplicación/confianza, consentimiento marcado,nopersistencia ni puntos. UIlabelCuentasregistradasPASS ydraftscentros/horarios/recompensas habilitados (noCRUDpositivo). NeonConsoleloginnecesario: sin gestiónautenticada ni pruebarespaldo, nocredencial/tokenleído ni SQLwrites. MatrizCOMPLETAporoperación enCONGRESS_ACTIVATION_STATUS.md noclaim100%. Regla guíaacadémica reforzada ytests8enbuildAPI:31/31+bundlePASS, tscAPI0. Publicarregla/docs yverificarfollowupcontextual; únicointervenciónindispensableposterior loginNeonpara inspeccionarbackup, sinpedirworkflow/secreto otra vez.
 

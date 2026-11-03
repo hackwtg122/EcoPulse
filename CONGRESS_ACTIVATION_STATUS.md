@@ -42,12 +42,17 @@ todos los botones del módulo. No se activaron planes de pago ni SQL de escritur
 
 ## Próximo requisito indispensable
 
-NeonConsole está en la pantalla de login en una pestaña de la ventana de revisión.
-No hay sesión de gestión ni clave de administración Neon disponible. La conexión
-SQL solo lectura no acredita respaldo restaurable. **Iniciar sesión personalmente
-en https://console.neon.tech, sin compartir credenciales**, permite inspeccionar
-el proyecto EcoPulse, puntos de restauración y recursos existentes. No es crear
-otro secreto ni publicar workflows; ambos de QA ya existen.
+El propietario **ya inició sesión en NeonConsole** y se inspeccionó el proyecto
+EcoPulse (`summer-scene-27362851`), rama `production` (`br-plain-pine-b5o29nbi`).
+La identidad de su compute coincide con el endpoint SQL autorizado/neondb.
+PlanFree, una sola rama, historial6h, **0snapshots y sin restore probado**.
+No volver a pedir login ni crear secretos/workflows que ya existen.
+
+La intervención indispensable ahora es autorizar únicamente un snapshot manual
+`pre-audit-0004` y su comprobación mediante restore en una rama nueva aislada
+`qa-restore-0004`, solo si está incluido en Free. Alcance exacto en
+`AUDIT_BACKUP_APPROVAL.md`. Sin restaurar production, SQL de escritura, cambios
+de roles/conexiones ni recursos de pago. No se ha ejecutado ninguna de esas acciones.
 
 Después de inspeccionar respaldo y aislamiento se pedirá la autorización acotada
 exacta para0004 y permisos nuevos según `AUDIT_BACKUP_APPROVAL.md`. No aplicar
