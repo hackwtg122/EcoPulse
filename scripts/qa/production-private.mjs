@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { setTimeout } from "node:timers/promises";
 import { parseQAAccounts, qaRoles, commonReads, adminReads, verifierReads, privatePages, expectedReadStatus, PrivateQAError, safePrivateDiagnostic } from "./private-qa-policy.mjs";
+import { reversibleFavoriteCheck } from "./private-write-check.mjs";
 
 const frontend = "https://ecopulseef.netlify.app";
 const api = "https://ecopulse-3xb4.onrender.com";
@@ -83,7 +84,12 @@ async function run() {
     // create/revoke a test session. The API may attempt profile INSERT on GET;
     // fixtures must refer to already provisioned profiles, never real users.
     let identityApproved = false;
-    await context.route(`${api}/api/pilot/**`, route => identityApproved && ["GET", "HEAD", "OPTIONS"].includes(route.request().method()) ? route.continue() : route.abort());
+    let reversibleWriteApproved = false;
+    await context.route(`${api}/api/pilot/**`, route => {
+      const request = route.request(), method = request.method(), url = new URL(request.url());
+      const allowedFavorite = reversibleWriteApproved && role === "participant" && ["POST", "DELETE"].includes(method) && /^\/api\/pilot\/favorites\/[0-9a-f-]{36}$/i.test(url.pathname);
+      return identityApproved && (["GET", "HEAD", "OPTIONS"].includes(method) || allowedFavorite) ? route.continue() : route.abort();
+    });
     const page = await context.newPage();
     let jsErrors = 0;
     page.on("pageerror", () => { jsErrors++; });
@@ -152,6 +158,17 @@ async function run() {
           report(role, `${path}_real_inference`, "BLOCKED", response.aiEnabled ? "real_free_provider_call_and_input_not_authorized_by_this_read_suite" : "provider_capability_disabled", "deferred_inference");
         }
       }
+      if (role === "participant") {
+        if (account.reversibleWritesAuthorized !== true) {
+          report(role, "favorite_write_and_cleanup", "BLOCKED", "reversible_writes_not_authorized", "reversible_writes");
+        } else {
+          reversibleWriteApproved = true;
+          try {
+            const result = await page.evaluate(reversibleFavoriteCheck, api);
+            report(role, "favorite_write_and_cleanup", result.status, result.reason, "reversible_writes");
+          } finally { reversibleWriteApproved = false; }
+        }
+      }
       const pages = [...privatePages, ...(role === "participant" ? [] : ["/admin"]), ...(role === "admin" ? ["/admin/users", "/admin/centers", "/admin/rewards"] : [])];
       for (const path of pages) {
         jsErrors = 0;
@@ -196,4 +213,4 @@ for (const result of results) console.log(JSON.stringify(result));
 const tested = results.filter(x => x.scope === "authenticated_reads_and_session");
 const summary = { scope: "authenticated_reads_and_session_only", passed: tested.filter(x => x.status === "PASS").length, failed: tested.filter(x => x.status === "FAIL").length, blocked: tested.filter(x => x.status === "BLOCKED").length, deferredBlocked: results.filter(x => x.scope !== "authenticated_reads_and_session" && x.status === "BLOCKED").length, systemComplete: false };
 console.log(JSON.stringify(summary));
-if (summary.failed || summary.blocked) process.exitCode = 1;
+if (summary.failed || summary.blocked || results.some(x => x.scope === "reversible_writes" && x.status === "FAIL")) process.exitCode = 1;
