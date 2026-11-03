@@ -325,13 +325,14 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
         {filtered.map(point => {
           const open = selectedId === point.id;
           const hasCoordinates = typeof point.latitude === "number" && typeof point.longitude === "number";
+          const referenceOnly = /^eval-0[1-8]$/i.test(point.code);
           return <article key={point.id} className={`rounded-2xl border p-4 transition ${open ? "border-[hsl(var(--primary))] bg-[hsl(var(--muted)/.4)]" : "border-[hsl(var(--border))]"}`}>
             <div className="flex gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[hsl(var(--secondary)/.32)] text-[hsl(var(--primary))]"><Building2 size={18} /></span>
               <div className="min-w-0 flex-1">
                 <h2 className="font-semibold">{point.name}</h2>
                 <p className="mt-1 text-sm">{point.address}, {point.municipality}</p>
-                <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{point.appointmentRequired ? `${point.slots.length} horarios con cupo publicados` : "Consulta disponibilidad antes de acudir"}</p>
+                <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{referenceOnly ? "Ubicación de referencia: recepción física no confirmada." : point.appointmentRequired ? `${point.slots.length} horarios con cupo publicados` : "Consulta disponibilidad antes de acudir"}</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-sm">
                   <button type="button" onClick={() => setSelectedId(open ? null : point.id)} aria-pressed={open} className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))]">{open ? "Cerrar ficha" : "Ver ficha"}<ArrowRight size={14} className={`transition ${open ? "rotate-90" : ""}`} /></button>
                   {favoriteIds && onToggleFavorite && <button type="button" disabled={favoriteBusy} aria-pressed={favoriteIds.has(point.id)} onClick={() => onToggleFavorite(point.id)} className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))] disabled:opacity-50" data-testid={`favorite-${point.id}`}><Heart size={14} fill={favoriteIds.has(point.id) ? "currentColor" : "none"} />{favoriteIds.has(point.id) ? "Quitar favorito" : "Guardar favorito"}</button>}
@@ -340,11 +341,11 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
                     : <a className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))] underline" href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(`${point.address}, ${point.municipality}, Colombia`)}`} target="_blank" rel="noopener noreferrer"><Navigation size={14} /> Buscar dirección en OpenStreetMap</a>}
                 </div>
                 {open && <div className="mt-3 space-y-2 rounded-2xl bg-[hsl(var(--muted)/.5)] p-3 text-xs sm:text-sm">
-                  {point.slots.length > 0 && <div>
+                  {!referenceOnly && point.slots.length > 0 && <div>
                     <p className="text-[10px] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))] sm:text-xs">Horarios con cupo</p>
                     <ul className="mt-2 space-y-1">{point.slots.map(slot => <li key={slot.id}>{new Date(slot.startsAt).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })} → {new Date(slot.endsAt).toLocaleTimeString("es-CO", { timeStyle: "short" })} · {slot.remainingCapacity} cupos</li>)}</ul>
                   </div>}
-                  <p className="border-t border-[hsl(var(--border))] pt-2 text-[11px] text-[hsl(var(--muted-foreground))]">Centro publicado desde el catálogo administrativo de EcoPulse. Confirma la dirección y el horario con el operador antes de desplazarte.</p>
+                  <p className="border-t border-[hsl(var(--border))] pt-2 text-[11px] text-[hsl(var(--muted-foreground))]">{referenceOnly ? "Marcador aproximado; no acredita un establecimiento ni recepción de materiales." : "Centro publicado desde el catálogo administrativo de EcoPulse. Confirma la dirección y el horario con el operador antes de desplazarte."}</p>
                 </div>}
               </div>
             </div>
@@ -365,15 +366,16 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
             <div className="max-w-[240px] space-y-2 text-sm">
               <p className="font-semibold">{point.name}</p>
               <p className="text-xs">{point.address}, {point.municipality}</p>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">{point.slots.length} horarios con cupo publicados</p>
-              <p className="text-[11px]">{point.slots.length ? <a href={`/deliveries?point=${encodeURIComponent(point.id)}`}>Solicitar entrega</a> : <span>Consulta disponibilidad antes de acudir</span>}</p>
+              {/^eval-0[1-8]$/i.test(point.code)
+                ? <p className="text-xs">Ubicación aproximada de referencia; recepción física no confirmada.</p>
+                : <><p className="text-xs text-[hsl(var(--muted-foreground))]">{point.slots.length} horarios con cupo publicados</p><p className="text-[11px]">{point.slots.length ? <a href={`/deliveries?point=${encodeURIComponent(point.id)}`}>Solicitar entrega</a> : <span>Consulta disponibilidad antes de acudir</span>}</p></>}
             </div>
           </Popup>
         </Marker>)}
         <MapController selectedId={selectedId} points={located} bounds={bounds} />
       </MapContainer>
       <div className="pointer-events-none absolute left-2 right-2 top-2 rounded-2xl bg-[hsl(var(--card)/.96)] p-3 text-xs shadow-lg sm:left-4 sm:right-auto sm:top-4 sm:max-w-xs">
-        <strong>Centros de acopio · Montería</strong><p className="mt-1">Explora los centros publicados y consulta sus horarios disponibles.</p>
+        <strong>Mapa · Montería</strong><p className="mt-1">Las ubicaciones de referencia no acreditan recepción física.</p>
       </div>
     </section>
   </div>;
