@@ -446,7 +446,7 @@ router.get("/evaluation-points", async (_req, res) => {
 });
 router.get("/delivery-options", async (_req, res) => {
   const pool = await databasePool();
-  const options = await loadDeliveryOptions(pool, deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED));
+  const options = await loadDeliveryOptions(pool, deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED), true);
   return res.json(options);
 });
 
@@ -475,7 +475,7 @@ router.post("/deliveries", async (req, res) => {
 
   if (!detailedPayload) {
     if (featureRequested && schemaReady) {
-      const options = await loadDeliveryOptions(pool, true);
+      const options = await loadDeliveryOptions(pool, true, true);
       if (!options.enabled) return res.status(503).json({ error: "delivery_details_configuration_unavailable" });
       return res.status(400).json({ error: "detailed_delivery_required" });
     }
@@ -490,7 +490,7 @@ router.post("/deliveries", async (req, res) => {
   if (!schemaReady) {
     return res.status(503).json({ error: "delivery_details_migration_required" });
   }
-  const options = await loadDeliveryOptions(pool, true);
+  const options = await loadDeliveryOptions(pool, true, true);
   if (!options.enabled) {
     return res.status(503).json({ error: "delivery_details_configuration_unavailable" });
   }

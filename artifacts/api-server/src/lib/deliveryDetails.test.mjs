@@ -5,6 +5,7 @@ import {
   deliveryDetailsEnabled,
   hashDetailedDeliveryInput,
   hashDeliveryIdempotencyKey,
+  hasOperationalEvidence,
   loadDeliveryOptions,
   loadPublishedDeliveryPoints,
   parseDetailedDeliveryInput,
@@ -13,6 +14,34 @@ import {
 
 const pointId = "00000000-0000-5000-8000-000000000010";
 const slotId = "00000000-0000-5000-8000-000000000011";
+
+test("operational evidence excludes reference-only and unvalidated records", () => {
+  const row = { validation_reference: "https://example.org/center", validated_by: "user_Admin", validated_at: new Date() };
+  assert.equal(hasOperationalEvidence(row), true);
+  assert.equal(hasOperationalEvidence({ ...row, validation_reference: "academic:ecopulse/centro-01" }), false);
+  assert.equal(hasOperationalEvidence({ ...row, validated_at: null }), false);
+  assert.equal(hasOperationalEvidence({ ...row, validated_by: null }), false);
+});
+
+test("operational delivery options exclude unverified locations while published browsing remains available", async () => {
+  const previousMode = process.env.EVALUATION_MODE_ENABLED;
+  delete process.env.EVALUATION_MODE_ENABLED;
+  const database = { async query(text) {
+    if (text.includes("to_regclass") || text.includes("information_schema.columns")) return { rows: [{ ready: true }] };
+    if (text.includes("FROM material_categories")) return { rows: [{ code: "paper" }] };
+    if (text.includes("FROM delivery_points")) return { rows: [{ id: pointId, code: "eval-01", name: "Centro académico", address: "Sector", municipality: "Montería", time_zone: "America/Bogota", appointment_required: false, validation_reference: "academic:ecopulse/centro-01", validated_by: "user_Admin", validated_at: new Date() }] };
+    if (text.includes("FROM delivery_slots")) return { rows: [] };
+    throw new Error("unexpected_mock_query");
+  } };
+  try {
+    assert.equal((await loadPublishedDeliveryPoints(database)).length, 1);
+    const options = await loadDeliveryOptions(database, true, true);
+    assert.equal(options.enabled, false);
+    assert.deepEqual(options.points, []);
+  } finally {
+    if (previousMode === undefined) delete process.env.EVALUATION_MODE_ENABLED; else process.env.EVALUATION_MODE_ENABLED = previousMode;
+  }
+});
 
 test("published browsing stays available while detailed creation remains disabled and never writes", async () => {
   const previousMode = process.env.EVALUATION_MODE_ENABLED;

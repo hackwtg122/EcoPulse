@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { deliveryIdForIdempotency, scanCategories, uuidPattern, type DeliveryCursor } from "./pilotPolicy.ts";
 import { presentDeliveryPoint } from "./pointPresentation.ts";
+import { parseValidationReference } from "./deliveryCatalog.ts";
 
 export type DeliveryStatus = "pending" | "scheduled" | "received" | "approved" | "rejected" | "cancelled";
 export type DeliveryMaterialInput = { categoryCode: (typeof scanCategories)[number]; estimatedGrams: number };
@@ -164,12 +165,22 @@ export async function loadPublishedDeliveryPoints(database: Queryable): Promise<
 export async function loadDeliveryOptions(
   database: Queryable,
   featureRequested: boolean,
+  operationalOnly = false,
 ): Promise<DeliveryOptions> {
   if (!featureRequested) {
     return { mode: "legacy", enabled: true, reason: "feature_disabled", categories: [], points: [] };
   }
   if (!await hasDeliveryDetailsSchema(database)) {
     return { mode: "legacy", enabled: true, reason: "migration_pending", categories: [], points: [] };
+  }
+
+  if (operationalOnly && process.env.EVALUATION_MODE_ENABLED !== "true") {
+    const validation = await database.query(`SELECT
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='delivery_points' AND column_name='validated_at')
+      AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='delivery_slots' AND column_name='validated_at') AS ready`);
+    if (rowsOf<{ ready: boolean }>(validation)[0]?.ready !== true) {
+      return { mode: "detailed", enabled: false, reason: "configuration_pending", categories: [], points: [] };
+    }
   }
 
   if (process.env.EVALUATION_MODE_ENABLED === "true") {
@@ -185,14 +196,14 @@ export async function loadDeliveryOptions(
       ORDER BY code
     `),
     database.query(`
-      SELECT id, code, name, address, municipality, time_zone, appointment_required
+      SELECT id, code, name, address, municipality, time_zone, appointment_required${operationalOnly ? ", validation_reference, validated_by, validated_at" : ""}
       FROM delivery_points
       WHERE active = true
       ORDER BY name, id
       LIMIT 100
     `),
     database.query(`
-      SELECT s.id, s.delivery_point_id, s.starts_at, s.ends_at,
+      SELECT s.id, s.delivery_point_id, s.starts_at, s.ends_at${operationalOnly ? ", s.validation_reference, s.validated_by, s.validated_at" : ""},
         (s.capacity - count(d.id))::integer AS remaining_capacity
       FROM delivery_slots s
       LEFT JOIN deliveries d ON d.slot_id = s.id AND d.status NOT IN ('cancelled', 'rejected')
@@ -223,7 +234,11 @@ export async function loadDeliveryOptions(
     starts_at: Date;
     ends_at: Date;
     remaining_capacity: number;
+    validation_reference?: string | null;
+    validated_by?: string | null;
+    validated_at?: Date | null;
   }>(slotResult)) {
+    if (operationalOnly && process.env.EVALUATION_MODE_ENABLED !== "true" && !hasOperationalEvidence(row)) continue;
     const slots = slotsByPoint.get(row.delivery_point_id) ?? [];
     slots.push({ id: row.id, startsAt: row.starts_at, endsAt: row.ends_at, remainingCapacity: row.remaining_capacity });
     slotsByPoint.set(row.delivery_point_id, slots);
@@ -236,7 +251,10 @@ export async function loadDeliveryOptions(
     municipality: string;
     time_zone: string;
     appointment_required: boolean;
-  }>(pointResult).map((row) => {
+    validation_reference?: string | null;
+    validated_by?: string | null;
+    validated_at?: Date | null;
+  }>(pointResult).filter((row) => !operationalOnly || process.env.EVALUATION_MODE_ENABLED === "true" || hasOperationalEvidence(row)).map((row) => {
     const presented = presentDeliveryPoint(row);
     return {
       id: row.id,
@@ -260,6 +278,12 @@ export async function loadDeliveryOptions(
     categories,
     points,
   };
+}
+
+export function hasOperationalEvidence(row: { validation_reference?: string | null; validated_by?: string | null; validated_at?: Date | null }): boolean {
+  if (!row.validated_by || !row.validated_at) return false;
+  try { parseValidationReference({ validationReference: row.validation_reference }); return true; }
+  catch { return false; }
 }
 
 function mapPublicDeliveryRow(row: Record<string, unknown>): PublicDelivery {
@@ -469,11 +493,12 @@ export async function createDetailedDelivery(
     }
 
     const pointResult = await client.query(`
-      SELECT appointment_required FROM delivery_points
+      SELECT appointment_required, validation_reference, validated_by, validated_at FROM delivery_points
       WHERE id = $1 AND active = true
     `, [input.deliveryPointId]);
-    const point = rowsOf<{ appointment_required: boolean }>(pointResult)[0];
+    const point = rowsOf<{ appointment_required: boolean; validation_reference: string | null; validated_by: string | null; validated_at: Date | null }>(pointResult)[0];
     if (!point) throw new DeliveryRequestError(409, "delivery_point_unavailable");
+    if (process.env.EVALUATION_MODE_ENABLED !== "true" && !hasOperationalEvidence(point)) throw new DeliveryRequestError(409, "delivery_point_unavailable");
     if (process.env.EVALUATION_MODE_ENABLED === "true") {
       const accepted = await client.query(`SELECT category_code FROM delivery_point_materials
         WHERE delivery_point_id = $1 AND category_code = ANY($2::text[])`,
@@ -488,11 +513,12 @@ export async function createDetailedDelivery(
 
     if (input.slotId) {
       const slotResult = await client.query(`
-        SELECT id, capacity FROM delivery_slots
+        SELECT id, capacity, validation_reference, validated_by, validated_at FROM delivery_slots
         WHERE id = $1 AND delivery_point_id = $2 AND active = true AND starts_at > now()
       `, [input.slotId, input.deliveryPointId]);
-      const slot = rowsOf<{ id: string; capacity: number }>(slotResult)[0];
+      const slot = rowsOf<{ id: string; capacity: number; validation_reference: string | null; validated_by: string | null; validated_at: Date | null }>(slotResult)[0];
       if (!slot) throw new DeliveryRequestError(409, "delivery_slot_unavailable");
+      if (process.env.EVALUATION_MODE_ENABLED !== "true" && !hasOperationalEvidence(slot)) throw new DeliveryRequestError(409, "delivery_slot_unavailable");
       const reservedResult = await client.query(`
         SELECT count(*)::integer AS count FROM deliveries
         WHERE slot_id = $1 AND status NOT IN ('cancelled', 'rejected')
