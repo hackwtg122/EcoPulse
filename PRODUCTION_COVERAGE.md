@@ -4,6 +4,33 @@
 
 ## Activación final autorizada — ejecución en curso
 
+### Evidencia de despliegue y diagnóstico real
+
+Actions41564969699/4771d0d FAIL antes de modificar variables: consulta anónima de
+referencia GitHub HTTP403. Corregida con Git público y validación exacta del SHA.
+Actions **41565221688 SUCCESS**, SHA **5099564f015bdbaa4666ce6293cc94f3d6185550**,
+Render `dep-dbkk8onb9u1s73fl54e0` Live + runtime verificado. Cambios confirmados:
+`PILOT_CATALOG_ADMIN_ENABLED=true`, `PILOT_REWARD_ADMIN_ENABLED=true`.
+El runner reportó las otras puertas ordinarias de entregas/verificación/valor
+ausentes; `PILOT_AI_ENABLED` ya estaba habilitado. No se imprimieron secretos.
+
+EcoGuía: **FAIL real** desde sesión existente, consentimiento UI marcado,
+pregunta sobre vidrio, POST `/guide/ask` HTTP502, respuesta cerrada
+`ai_provider_unavailable`. No se leyeron cabeceras de autenticación ni cookies.
+La respuesta de error JSON sola se inspeccionó, sin HAR ni exportación de sesión.
+
+Catálogo público de OpenRouter consultado directamente: chat antiguo super120b:free
+ausente; nanoOmni:free sin parámetro response_format anunciado; respaldo ya
+allowlisted `nvidia/nemotron-3.5-super-vl:free` presente con precio cero, texto,
+imagen y structured_outputs. Es evidencia de compatibilidad, no prueba de
+inferencia ni identificación inequívoca de toda causa del502.
+Se preparó actualización de defaults y flags de modelos antiguos conocidos,
+validando el catálogo actual dentro de Actions antes de tocar cada variable.
+Proveedores/modelos personalizados y kill-switches se conservan. No se activa
+NVIDIA trial ni se cambia ninguna clave. Pruebas puras de proveedor/configuración/
+activación/despliegue31/31 PASS; TypeScript API PASS, nodecheckdeployPASS.
+La corrección de IA necesita despliegue y nueva inferencia real para PASS.
+
 Etiqueta de cuentas publicada en main: `587f6fd`. El despliegue de activación usa
 la credencial Render exclusivamente dentro de Actions, sin recuperarla. Cambia
 solo `PILOT_CATALOG_ADMIN_ENABLED` y `PILOT_REWARD_ADMIN_ENABLED` para habilitar

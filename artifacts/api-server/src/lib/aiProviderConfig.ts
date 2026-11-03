@@ -32,9 +32,11 @@ export function resolveAiSettings(kind: AiKind, env: Env): {
   if (env.AI_BASE_URL && env.AI_BASE_URL.replace(/\/$/, "") !== "https://openrouter.ai/api/v1") missing.push("AI_BASE_URL");
   const apiKey = env.AI_API_KEY || env.OPENAI_API_KEY || "";
   if (!apiKey) missing.push("AI_API_KEY");
-  const model = kind === "ecoscan"
-    ? env.AI_VISION_MODEL || "openrouter/free"
-    : env.AI_CHAT_MODEL || "nvidia/nemotron-3-super-120b-a12b:free";
+  // The current public catalog confirms zero pricing and strict structured
+  // outputs for this already-allowlisted text/image model. Do not route to the
+  // retired chat default or a random provider selected by openrouter/free.
+  const model = (kind === "ecoscan" ? env.AI_VISION_MODEL : env.AI_CHAT_MODEL)
+    || "nvidia/nemotron-3.5-super-vl:free";
   if (!(VERIFIED_FREE_OPEN_MODELS as readonly string[]).includes(model)) missing.push(kind === "ecoscan" ? "AI_VISION_MODEL" : "AI_CHAT_MODEL");
   return { provider: provider === "openrouter" ? "openrouter" : null, model, apiKey, missing };
 }

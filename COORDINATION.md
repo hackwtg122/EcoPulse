@@ -4,6 +4,8 @@ Fecha de inicio: 18 de octubre de 2026, hora de Colombia. El árbol de Git conti
 
 ## Bloque activo
 
+- IA real: reserva aiProviderConfig.ts/tests, .env.example, scripts/qa/production-ai-activation.mjs/tests y deploy-render. Sesión propietario consintió y prueba UI guía devuelve502 ai_provider_unavailable (respuestaJSONcopiada sola, no headers/cookies/tokens). Catálogo público actualOpenRouter: antiguo chat super120b:free ausente; nanoOmni:free no anunciaresponse_format; respaldo yaallowlisted superVL:free presente,0prompt/completion ystructured_outputs/text/image. Cambiar defaults y config soloOpenRouter/variables antiguas conocidas, validar catálogo enrunner antesPUT, no clave nueva ni planpago, preservar overrides futuros conmarcadores. No afirmar inferenciaPASS hasta respuesta real.
+
 - Activación final autorizada por usuario: commit/push/deploy main y flags ordinarios permitidos. Etiqueta publicada en587f6fd. Reserva scripts/qa/deploy-render.mjs, production-activation-policy.mjs/tests y documentación; usar RENDER_API_KEY dentro del runner existente, nunca extraerlo. Inspeccionar únicamente estados de flags allowlist y presencia de requisitos; activación única de edición de borradores catálogo/recompensas, sin publicar ni habilitar valor real. Mantener override administrativo futuro mediante marcador de revisión. Migraciones, roles reales, puntos/canjes y ensayos con escrituras sensibles pendientes de requisitos específicos. No /demo ni BD/servidores locales.
 
 - Revisión visible autorizada en PC con sesión Firefox existente, solo producción. No leer cookies/tokens/passwords ni modificar cuentas/datos/configuración. Reserva exclusiva catalog-admin-panel.tsx: corregir etiqueta confirmada en producción (Participantes cuenta también al admin); no push/deploy. App.tsx y otros módulos sin cambios.
@@ -62,6 +64,8 @@ Desde el 18 oct 2026, por instrucción del usuario, OpenCode es el único agente
 - Para reanudar OpenCode: definir una tarea acotada y reservar archivos exclusivos aquí primero. La terminal integrada de VS Code aún no está accesible mediante la herramienta UI; no afirmar que la sesión CLI independiente estuvo allí.
 
 ## Entregas
+
+- Activación confirmada: run41565221688 SUCCESS/5099564f015bdbaa4666ce6293cc94f3d6185550, Renderdep-dbkk8onb9u1s73fl54e0 Live/runtimeSHA. Dosflagsdrafttrue; resto catálogo-publicación/detalles/recepción/verificación/puntos/rewards/fulfillment/publicación ausentes, AItrue. Sin SQL/roles/valorreal. Prueba realUI guía conconsentimiento ypreguntavidrio FAIL502ai_provider_unavailable; solo respuestaJSONcerrada, sinrequestheaders/token/HAR. Modeloactualcatálogopúblico consultado; defaultchatretirado yvisiónprincipal sinstructuredoutputs anunciados. Nuevo móduloactivaciónIA limita cambios a2modelosallowlisted respaldostructured/free verificadoencatálogoactual; marcadorespreservanfuturoskill-switch/customproviders/models, noapikey ni otrasflags. Defaultsactualizadosalrespaldo. Pruebas31/31PASS(proveedor12+config2+draft7+IA5+deploy5),tscAPI0,nodecheck0. Pendiente push/despliegue y nueva prueba real de ambas IA; ninguna inferenciaPASS aún.
 
 - Run41564969699 de4771d0d falló ANTES de env-vars: main_head_verification_failed, HTTP403 en API GitHub anónima (causa de rechazo no inferida). Sin flags modificados. Sustituida consultaREST de ref por git ls-remote HTTPS público fijado al repo/main, validación SHA conserva failclosed sin ampliar permisos ni usarRenderkey enGitHub. Comprobación remota gitlsremotePASS devuelve4771d0d; nodecheck/testspuros a repetir antes delpushcorrectivo.
 

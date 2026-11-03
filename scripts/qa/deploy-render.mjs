@@ -3,6 +3,7 @@ import { setTimeout } from "node:timers/promises";
 import { reusableDeploy, waitForLive, verifyRuntime } from "./render-deploy-policy.mjs";
 import { activateDraftEditing, activationLiveMarker, activationRevision } from "./production-activation-policy.mjs";
 import { execFileSync } from "node:child_process";
+import { activateStructuredAI, aiLiveMarker, aiRevision } from "./production-ai-activation.mjs";
 
 assert.equal(process.env.GITHUB_ACTIONS, "true", "remote_runner_required");
 assert.equal(process.env.GITHUB_REPOSITORY, "hackwtg122/EcoPulse", "official_repository_required");
@@ -79,7 +80,7 @@ assert.equal(details.serviceDetails?.envSpecificDetails?.startCommand?.trim(), s
 console.log(JSON.stringify({ check: "render_start_configuration", root: details.rootDir || "", buildCommand, startCommand }));
 // The owner explicitly authorized ordinary flag configuration. Test the narrow
 // policy in this same remote runner before using its existing Render credential.
-execFileSync(process.execPath, ["--test", "scripts/qa/production-activation-policy.test.mjs"],
+execFileSync(process.execPath, ["--test", "scripts/qa/production-activation-policy.test.mjs", "scripts/qa/production-ai-activation.test.mjs"],
   { stdio: "inherit", env: { ...process.env, RENDER_API_KEY: "" } });
 const envPath = `/services/${encodeURIComponent(service.id)}/env-vars`;
 async function readEnvironment() {
@@ -104,12 +105,20 @@ async function readEnvironment() {
 const activation = await activateDraftEditing({ readEnvironment,
   setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT") });
 console.log(JSON.stringify(activation));
+const aiActivation = await activateStructuredAI({ readEnvironment,
+  setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT"),
+  readCatalog: async () => {
+    const response = await fetch("https://openrouter.ai/api/v1/models", { redirect: "error", signal: AbortSignal.timeout(30000) });
+    assert.equal(response.status, 200, "public_model_catalog_unavailable");
+    return response.json();
+  } });
+console.log(JSON.stringify(aiActivation));
 // Deploy code and the two approved draft flags. No migrations, role grants,
 // points/reward policy activation, billing or auto-deploy setting changes.
 const deployPath = `/services/${encodeURIComponent(service.id)}/deploys`;
 // An auto-deploy started before the environment update must not be mistaken for
 // proof that the new flags are live, even when it has the same code SHA.
-const existing = activation.deployRequired ? null : reusableDeploy(await request(`${deployPath}?limit=100`), sha);
+const existing = activation.deployRequired || aiActivation.deployRequired ? null : reusableDeploy(await request(`${deployPath}?limit=100`), sha);
 const deploy = existing || await request(deployPath, { commitId: sha, clearCache: "do_not_clear" });
 assert.ok(deploy.id, "missing_render_deploy_id");
 console.log(JSON.stringify({ check: existing ? "render_deploy_reused" : "render_deploy_requested", deploy: deploy.id, expectedCommit: sha }));
@@ -122,5 +131,9 @@ await verifyRuntime({ sha, sleep: setTimeout });
 if (activation.deployRequired) {
   await request(`${envPath}/${encodeURIComponent(activationLiveMarker)}`, { value: activationRevision }, "PUT");
   assert.equal((await readEnvironment()).get(activationLiveMarker), activationRevision, "activation_live_marker_not_confirmed");
+}
+if (aiActivation.deployRequired) {
+  await request(`${envPath}/${encodeURIComponent(aiLiveMarker)}`, { value: aiRevision }, "PUT");
+  assert.equal((await readEnvironment()).get(aiLiveMarker), aiRevision, "ai_activation_live_marker_not_confirmed");
 }
 console.log(JSON.stringify({ check: "render_live_and_runtime_verified", status: "PASS", commit: sha, deploy: deploy.id }));

@@ -7,6 +7,10 @@ test("OpenRouter stays the default and NVIDIA cannot activate without an explici
   assert.equal(open.provider, "openrouter");
   assert.equal(open.missing.length, 0);
   assert.match(open.model, /:free$/);
+  assert.equal(open.model, "nvidia/nemotron-3.5-super-vl:free");
+  const vision = resolveAiSettings("ecoscan", { PILOT_AI_ENABLED: "true", AI_API_KEY: "unit-key" });
+  assert.equal(vision.model, open.model);
+  assert.deepEqual(vision.missing, []);
   const unready = resolveAiSettings("ecoscan", { PILOT_AI_ENABLED: "true", AI_PROVIDER: "nvidia", NVIDIA_API_KEY: "unit-key", NVIDIA_VISION_MODEL });
   assert.deepEqual(unready.missing, ["NVIDIA_NIM_VERIFIED"]);
   const noKey = resolveAiSettings("ecoguide", { PILOT_AI_ENABLED: "true", AI_PROVIDER: "nvidia", NVIDIA_NIM_VERIFIED: "true", NVIDIA_CHAT_MODEL });
