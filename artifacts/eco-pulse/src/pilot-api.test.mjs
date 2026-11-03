@@ -295,10 +295,11 @@ test("public centers come only from the authenticated server response", async ()
   const points = await loadPilotPublicPoints("http://127.0.0.1:5000", "session-token", new AbortController().signal, async (url, options) => {
     assert.match(String(url), /\/api\/pilot\/delivery-points$/);
     authorization = options.headers.Authorization;
-    return response({ points: [{ id: "point-a", code: "center-a", name: "Verified center", address: "Verified address", municipality: "Montería", timeZone: "America/Bogota", appointmentRequired: true, slots: [], internalNote: "private" }] });
+    return response({ points: [{ id: "point-a", code: "center-a", name: "Verified center", address: "Verified address", municipality: "Montería", timeZone: "America/Bogota", appointmentRequired: true, materials: ["paper", "plastic"], slots: [], internalNote: "private" }] });
   });
   assert.equal(authorization, "Bearer session-token");
   assert.equal(points.length, 1);
+  assert.deepEqual(points[0].materials, ["paper", "plastic"]);
   assert.equal("internalNote" in points[0], false);
   await assert.rejects(loadPilotPublicPoints("http://127.0.0.1:5000", "expired", new AbortController().signal, async () => response({ error: "authentication_required" }, 401)), error => error instanceof PilotApiError && error.status === 401);
   await assert.rejects(loadPilotPublicPoints("http://127.0.0.1:5000", "token", new AbortController().signal, async () => response({ points: [{ id: "bad", code: "bad", name: "Bad", address: "Bad", municipality: "Bad", timeZone: "America/Bogota", appointmentRequired: true, slots: [{ id: "slot", startsAt: "2099-01-01T00:00:00Z", endsAt: "2099-01-01T01:00:00Z", remainingCapacity: 0 }] }] })), error => error instanceof PilotApiError && error.status === 502);

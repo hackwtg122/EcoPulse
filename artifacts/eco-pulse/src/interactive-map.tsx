@@ -332,6 +332,7 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
               <div className="min-w-0 flex-1">
                 <h2 className="font-semibold">{point.name}</h2>
                 <p className="mt-1 text-sm">{point.address}, {point.municipality}</p>
+                {!referenceOnly && point.materials && point.materials.length > 0 && <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Materiales: {point.materials.map(code => categoryLabels[code] ?? code).join(", ")}</p>}
                 <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{referenceOnly ? "Ubicación de referencia: recepción física no confirmada." : point.appointmentRequired ? `${point.slots.length} horarios con cupo publicados` : "Consulta disponibilidad antes de acudir"}</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-sm">
                   <button type="button" onClick={() => setSelectedId(open ? null : point.id)} aria-pressed={open} className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))]">{open ? "Cerrar ficha" : "Ver ficha"}<ArrowRight size={14} className={`transition ${open ? "rotate-90" : ""}`} /></button>

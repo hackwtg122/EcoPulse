@@ -389,6 +389,10 @@ export async function loadPilotPublicPoints(
       ...parsed,
       timeZone: requireString(point.timeZone, "delivery_point_timezone"),
       appointmentRequired: point.appointmentRequired,
+      ...(point.materials === undefined ? {} : { materials: parseStringArray(point.materials, "delivery_point_materials").map(material => {
+        if (!isManualScanCategory(material)) throw new PilotApiError(502, "invalid_delivery_point_material");
+        return material;
+      }) }),
       slots: requireArray(point.slots, "delivery_slots").map((slot) => {
         const parsedSlot = parseDeliverySlot(slot);
         if (!parsedSlot || !Number.isSafeInteger(slot.remainingCapacity) || (slot.remainingCapacity as number) < 1) {
