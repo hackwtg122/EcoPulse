@@ -10,6 +10,15 @@ export class RewardError extends Error {
 
 export type RewardDraft = { title: string; description: string; cost: number };
 export type RewardPublication = { expected: RewardDraft; inventoryRemaining: number; fulfillmentReference: string };
+export function hasRewardFulfillmentEvidence(reference: unknown, validatedAt: unknown, validatedBy: unknown): boolean {
+  if (typeof reference !== "string" || reference.length < 10 || reference.length > 500 || reference !== reference.trim() ||
+      !validatedAt || typeof validatedBy !== "string" || !validatedBy) return false;
+  try {
+    const url = new URL(reference);
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash && url.hostname.includes(".") &&
+      !url.hostname.endsWith(".local") && !/^\d+(?:\.\d+){3}$/.test(url.hostname) && !url.hostname.startsWith("[") && url.href === reference;
+  } catch { return false; }
+}
 export function parseRewardPublication(value: unknown): RewardPublication {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new RewardError(400, "invalid_reward_publication");
   const row = value as Record<string, unknown>;
@@ -140,9 +149,10 @@ export async function redeemReward(pool: Pool, userId: string, rewardId: string,
       if (prior.rows[0].reward_id !== rewardId) throw new RewardError(409, "idempotency_key_reused");
       return { redemption: prior.rows[0], replayed: true };
     }
-    const reward = await client.query<{ cost: number; inventory_remaining: number; active: boolean }>(`SELECT cost,inventory_remaining,active FROM rewards WHERE id=$1 FOR UPDATE`, [rewardId]);
+    const reward = await client.query<{ cost: number; inventory_remaining: number; active: boolean; fulfillment_reference: string | null; validated_at: Date | null; validated_by: string | null }>(`SELECT cost,inventory_remaining,active,fulfillment_reference,validated_at,validated_by FROM rewards WHERE id=$1 FOR UPDATE`, [rewardId]);
     const item = reward.rows[0];
-    if (!item || !item.active || !Number.isSafeInteger(item.inventory_remaining) || item.inventory_remaining < 1) throw new RewardError(404, "reward_unavailable");
+    if (!item || !item.active || !Number.isSafeInteger(item.inventory_remaining) || item.inventory_remaining < 1 ||
+      !hasRewardFulfillmentEvidence(item.fulfillment_reference, item.validated_at, item.validated_by)) throw new RewardError(404, "reward_unavailable");
     const balanceResult = await client.query<{ balance: string }>("SELECT coalesce(sum(delta),0)::text AS balance FROM point_movements WHERE user_id=$1", [userId]);
     const balance = Number(balanceResult.rows[0]?.balance ?? "0");
     if (!Number.isSafeInteger(balance)) throw new RewardError(500, "balance_out_of_range");

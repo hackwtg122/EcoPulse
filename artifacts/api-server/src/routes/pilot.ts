@@ -7,7 +7,7 @@ import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } fro
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, loadPublishedDeliveryPoints, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
 import { canManageCatalog, CatalogError, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointEdit, parseSlotEdit, parseValidationReference, updateActiveSlotCapacity, updateDraftPoint, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
-import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
+import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { guideAccountDetails } from "../lib/aiGuideCore";
@@ -630,10 +630,11 @@ router.get("/rewards/capabilities", async (_req, res) => {
 router.get("/rewards", async (_req, res) => {
   const pool = await databasePool();
   if (!await hasRewardFulfillmentSchema(pool)) return res.json([]);
-  const rows = await pool.query(`SELECT id,title,description,cost,active,inventory_remaining AS "inventoryRemaining" FROM rewards
+  const rows = await pool.query(`SELECT id,title,description,cost,active,inventory_remaining AS "inventoryRemaining", fulfillment_reference, validated_at, validated_by FROM rewards
     WHERE active=true AND inventory_remaining>0 AND fulfillment_reference IS NOT NULL
     ORDER BY created_at DESC,id DESC LIMIT 50`);
-  return res.json((rows.rows as Array<{ title: string; description: string }>).map(presentReward));
+  return res.json(rows.rows.filter(row => hasRewardFulfillmentEvidence(row.fulfillment_reference, row.validated_at, row.validated_by))
+    .map(({ fulfillment_reference: _reference, validated_at: _validatedAt, validated_by: _validatedBy, ...row }) => presentReward(row as { title: string; description: string })));
 });
 router.get("/admin/rewards", async (_req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });

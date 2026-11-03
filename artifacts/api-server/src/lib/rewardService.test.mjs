@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RewardError, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, rewardIdForKey, redemptionActionsEnabled } from "./rewardService.ts";
+import { RewardError, hasRewardFulfillmentEvidence, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, rewardIdForKey, redemptionActionsEnabled } from "./rewardService.ts";
 
 const draft = { title: "Test reward", description: "Mock fixture only", cost: 20 };
 const publication = { expected: draft, inventoryRemaining: 5, fulfillmentReference: "https://example.org/test-fulfillment" };
 const rewardId = "00000000-0000-4000-8000-000000000001";
+test("only documented and validated rewards can be offered for redemption", () => {
+  assert.equal(hasRewardFulfillmentEvidence("https://example.org/evidence", new Date(), "user_Admin"), true);
+  for (const ref of ["academic:ecopulse/recompensa-01", null, "https://localhost/a", "https://user:pass@example.org/a"]) {
+    assert.equal(hasRewardFulfillmentEvidence(ref, new Date(), "user_Admin"), false);
+  }
+  assert.equal(hasRewardFulfillmentEvidence("https://example.org/evidence", null, "user_Admin"), false);
+  assert.equal(hasRewardFulfillmentEvidence("https://example.org/evidence", new Date(), null), false);
+});
 function publicationPool(row, actorRole = "admin") {
   const queries = [];
   return { queries, async connect() { return { release() {}, async query(text, params) {
