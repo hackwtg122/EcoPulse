@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
 import { reusableDeploy, waitForLive, verifyRuntime } from "./render-deploy-policy.mjs";
+import { activateDraftEditing, activationLiveMarker, activationRevision } from "./production-activation-policy.mjs";
+import { execFileSync } from "node:child_process";
 
 assert.equal(process.env.GITHUB_ACTIONS, "true", "remote_runner_required");
 assert.equal(process.env.GITHUB_REPOSITORY, "hackwtg122/EcoPulse", "official_repository_required");
@@ -71,10 +73,39 @@ assert.equal(details.rootDir || "", "", "render_root_update_not_confirmed");
 assert.equal(details.serviceDetails?.envSpecificDetails?.buildCommand?.trim(), buildCommand, "render_build_update_not_confirmed");
 assert.equal(details.serviceDetails?.envSpecificDetails?.startCommand?.trim(), startCommand, "render_start_update_not_confirmed");
 console.log(JSON.stringify({ check: "render_start_configuration", root: details.rootDir || "", buildCommand, startCommand }));
-// Trigger only a code deploy for the approved SHA. No migrations, environment
-// changes, role grants, billing actions or auto-deploy setting changes.
+// The owner explicitly authorized ordinary flag configuration. Test the narrow
+// policy in this same remote runner before using its existing Render credential.
+execFileSync(process.execPath, ["--test", "scripts/qa/production-activation-policy.test.mjs"],
+  { stdio: "inherit", env: { ...process.env, RENDER_API_KEY: "" } });
+const envPath = `/services/${encodeURIComponent(service.id)}/env-vars`;
+async function readEnvironment() {
+  const environment = new Map();
+  let cursor;
+  for (let page = 0; page < 10; page++) {
+    const rows = await request(`${envPath}?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+    assert.ok(Array.isArray(rows), "render_environment_listing_invalid");
+    for (const row of rows) {
+      assert.equal(typeof row.envVar?.key, "string", "render_environment_key_invalid");
+      assert.equal(typeof row.envVar?.value, "string", "render_environment_value_invalid");
+      assert.ok(!environment.has(row.envVar.key), "render_environment_duplicate_key");
+      environment.set(row.envVar.key, row.envVar.value);
+    }
+    if (rows.length < 100) return environment;
+    const next = rows.at(-1)?.cursor;
+    assert.ok(next && next !== cursor, "render_environment_pagination_failed");
+    cursor = next;
+  }
+  throw new Error("render_environment_listing_limit_exceeded");
+}
+const activation = await activateDraftEditing({ readEnvironment,
+  setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT") });
+console.log(JSON.stringify(activation));
+// Deploy code and the two approved draft flags. No migrations, role grants,
+// points/reward policy activation, billing or auto-deploy setting changes.
 const deployPath = `/services/${encodeURIComponent(service.id)}/deploys`;
-const existing = reusableDeploy(await request(`${deployPath}?limit=100`), sha);
+// An auto-deploy started before the environment update must not be mistaken for
+// proof that the new flags are live, even when it has the same code SHA.
+const existing = activation.deployRequired ? null : reusableDeploy(await request(`${deployPath}?limit=100`), sha);
 const deploy = existing || await request(deployPath, { commitId: sha, clearCache: "do_not_clear" });
 assert.ok(deploy.id, "missing_render_deploy_id");
 console.log(JSON.stringify({ check: existing ? "render_deploy_reused" : "render_deploy_requested", deploy: deploy.id, expectedCommit: sha }));
@@ -84,4 +115,8 @@ await waitForLive({
   onStatus: status => console.log(JSON.stringify({ check: "render_deploy_state", status })),
 });
 await verifyRuntime({ sha, sleep: setTimeout });
+if (activation.deployRequired) {
+  await request(`${envPath}/${encodeURIComponent(activationLiveMarker)}`, { value: activationRevision }, "PUT");
+  assert.equal((await readEnvironment()).get(activationLiveMarker), activationRevision, "activation_live_marker_not_confirmed");
+}
 console.log(JSON.stringify({ check: "render_live_and_runtime_verified", status: "PASS", commit: sha, deploy: deploy.id }));

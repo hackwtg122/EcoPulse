@@ -2,6 +2,52 @@
 
 ## Veredicto: NO TERMINADO
 
+## Activación final autorizada — ejecución en curso
+
+Etiqueta de cuentas publicada en main: `587f6fd`. El despliegue de activación usa
+la credencial Render exclusivamente dentro de Actions, sin recuperarla. Cambia
+solo `PILOT_CATALOG_ADMIN_ENABLED` y `PILOT_REWARD_ADMIN_ENABLED` para habilitar
+borradores. No publica ejemplos ni convierte inventario académico en valor real.
+Una revisión de activación única preserva futuras desactivaciones del operador;
+el marcador de runtime solo se escribe después de Live + health + SHA.
+Diagnóstico limitado a estados de flags conocidos, nunca valores secretos.
+Pruebas puras de activación/despliegue: 12/12 PASS; node --check del deploy PASS.
+No son pruebas funcionales de escrituras en producción. Resultado de Actions y
+comprobación visible de las capacidades se anotarán tras el despliegue.
+
+Política de puntos del repositorio sigue SIN APROBAR y sin tasas/categorías/vigencia
+autorizadas: `REWARD_POINTS_POLICY_PROPOSAL.md`. Su existencia no autoriza usar los
+ejemplos 20/kg y 100/entrega como política real. Auditoría0004 exige respaldo y
+autorización específicos. El modo académico existente exige otra base aislada;
+no activar EVALUATION_MODE_ENABLED en neondb ni reinicializar producción.
+
+## Comprobación visible con sesión existente, autorizada por el propietario
+
+Se utilizó Firefox mediante la interfaz de Windows contra Netlify producción,
+sin leer cookies, contraseñas ni tokens. No se crearon cuentas, no se guardaron
+formularios ni se cambiaron roles/configuración. No se ejecutó la suite QA ni
+se repitió una auditoría pública. Alcance: una sesión administrativa existente,
+no pruebas de aislamiento o de permisos con otras identidades.
+
+| Área | Evidencia visible y límite real |
+| --- | --- |
+| Dashboard/progreso/puntos | Métricas cargadas y consistentes en cero; nivel Semilla y misiones pendientes. No prueba acumulación de puntos ni avance de misiones. |
+| Administración/usuarios | Bandeja vacía y lista con un único administrador; selector propio deshabilitado. No se intentó cambiar roles ni verificar entregas. |
+| Materiales | Búsqueda `pilas` devuelve una coincidencia; ficha de pilas muestra precauciones, preparación y referencia. No se revisó exhaustivamente todo el catálogo. |
+| Centros/mapa | Resumen administrativo carga; edición desactivada. Mapa informa ausencia de horarios y no muestra centros en esta vista. No prueba publicación ni disponibilidad real. |
+| EcoScan | Vista manual e historial vacío. Cambiar de papel a plástico actualiza la orientación. No se confirmó registro, no se envió fotografía ni se probó IA. |
+| EcoGuía | Anuncia IA disponible; pulsar una pregunta sin consentimiento muestra la solicitud de autorización, sin respuesta remota. No se autorizó transferencia a OpenRouter ni se comprobó inferencia. |
+| Entregas | Historial vacío; formulario básico compatible y botón inicialmente deshabilitado, aviso de volver a consultar disponibilidad. Sin crear solicitudes. |
+| Recompensas | Catálogo académico de tres recompensas y saldo cero; aviso explícito de canjes desactivados. Administración indica creación/edición/publicación desactivadas. No se canjeó ni publicó. |
+| Perfil/seguridad | Perfil y rol visibles; seguridad informa email verificado y TOTP sin configurar. No se editó identidad ni se configuró MFA ni se probaron recuperación/logout. |
+
+Defecto confirmado: resumen de centros rotula como “Participantes” un conteo
+de todas las cuentas (API usa COUNT de users sin filtro, y la única cuenta visible
+es admin). Corrección local mínima en `catalog-admin-panel.tsx`: “Cuentas
+registradas”. TypeScript frontend PASS; sin build, commit, push ni despliegue.
+No es una corrección acreditada todavía en producción. La sesión visual no
+desbloquea automáticamente el secreto JSON inválido de la suite privada.
+
 ## Estado E2E privado vigente — sustitución de bloqueos anteriores
 
 Workflow privado activo405072408 y secretoPRODUCTION_QA_ACCOUNTS **confirmados
