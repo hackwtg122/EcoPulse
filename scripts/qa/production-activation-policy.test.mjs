@@ -5,6 +5,7 @@ import { configureApprovedPointsPolicy, pointsPolicyMarker, pointsPolicyLiveMark
 import { activateVerifierActions, verifierActivationMarker, verifierActivationLiveMarker, verifierActivationRevision, verifierFlags } from "./production-activation-policy.mjs";
 import { activateApprovedPoints, pointsActivationMarker, pointsActivationLiveMarker, pointsActivationRevision } from "./production-activation-policy.mjs";
 import { activateDetailedDeliveries, deliveryActivationMarker, deliveryActivationLiveMarker, deliveryActivationRevision } from "./production-activation-policy.mjs";
+import { activatePublication, publicationFlags, publicationActivationMarker, publicationActivationLiveMarker, publicationActivationRevision } from "./production-activation-policy.mjs";
 
 function adapter(initial = []) {
   const environment = new Map(initial), writes = [];
@@ -158,4 +159,22 @@ test("detailed delivery activation requires protected runtime and preserves kill
   const done = adapter([[deliveryActivationMarker, deliveryActivationRevision], [deliveryActivationLiveMarker, deliveryActivationRevision], ["PILOT_DELIVERY_DETAILS_ENABLED", "false"]]);
   assert.equal((await activateDetailedDeliveries({ ...done, confirmProtectedRuntime: async () => { throw Error("unexpected"); } })).deployRequired, false);
   assert.deepEqual(done.writes, []);
+});
+
+test("publication activation requires existing admin and fulfillment configuration", async () => {
+  const required = ["PILOT_CATALOG_ADMIN_ENABLED", "PILOT_REWARD_ADMIN_ENABLED", "PILOT_REWARDS_ENABLED", "PILOT_REWARD_FULFILLMENT_ENABLED"].map(flag => [flag, "true"]);
+  required.push(["REWARD_POLICY_REFERENCE", "ecopulse://policy/reward-fulfillment-v1"]);
+  for (const [missing] of required) {
+    const api = adapter(required.filter(([key]) => key !== missing));
+    await assert.rejects(activatePublication(api));
+    assert.deepEqual(api.writes, []);
+  }
+  const api = adapter(required);
+  assert.equal((await activatePublication(api)).deployRequired, true);
+  assert.deepEqual(api.writes, [...publicationFlags.map(flag => [flag, "true"]), [publicationActivationMarker, publicationActivationRevision]]);
+});
+test("publication activation preserves a later operator shutdown", async () => {
+  const api = adapter([[publicationActivationMarker, publicationActivationRevision], [publicationActivationLiveMarker, publicationActivationRevision], ...publicationFlags.map(flag => [flag, "false"])]);
+  assert.equal((await activatePublication(api)).deployRequired, false);
+  assert.deepEqual(api.writes, []);
 });

@@ -17,6 +17,41 @@ export const rewardPolicyReference = "ecopulse://policy/reward-fulfillment-v1";
 export const rewardFlags = Object.freeze(["PILOT_REWARDS_ENABLED", "PILOT_REWARD_FULFILLMENT_ENABLED"]);
 const rewardPolicyPattern = /^[A-Za-z0-9_:/.-]{10,120}$/;
 
+// Publication only enables the existing admin workflows; records remain drafts
+// until an authorized administrator supplies the required evidence.
+export const publicationActivationRevision = "ecopulse:catalog/publication-v1";
+export const publicationActivationMarker = "ECOPULSE_PUBLICATION_ACTIVATION_REVISION";
+export const publicationActivationLiveMarker = "ECOPULSE_PUBLICATION_ACTIVATION_LIVE_REVISION";
+export const publicationFlags = Object.freeze(["PILOT_CATALOG_PUBLICATION_ENABLED", "PILOT_REWARD_PUBLICATION_ENABLED"]);
+
+export async function activatePublication({ readEnvironment, setVariable }) {
+  const environment = await readEnvironment();
+  assert.ok(environment instanceof Map, "render_environment_invalid");
+  const alreadyApplied = environment.get(publicationActivationMarker) === publicationActivationRevision;
+  const changed = [];
+  if (!alreadyApplied) {
+    assert.notEqual(environment.get("EVALUATION_MODE_ENABLED"), "true", "unexpected_evaluation_service");
+    for (const flag of ["PILOT_CATALOG_ADMIN_ENABLED", "PILOT_REWARD_ADMIN_ENABLED", "PILOT_REWARDS_ENABLED", "PILOT_REWARD_FULFILLMENT_ENABLED"]) {
+      assert.equal(environment.get(flag), "true", "publication_prerequisite_missing");
+    }
+    assert.match(environment.get("REWARD_POLICY_REFERENCE") ?? "", rewardPolicyPattern, "reward_policy_reference_missing");
+    for (const flag of publicationFlags) {
+      if (environment.get(flag) !== "true") {
+        await setVariable(flag, "true");
+        changed.push(flag);
+      }
+    }
+    const updated = await readEnvironment();
+    assert.ok(publicationFlags.every(flag => updated.get(flag) === "true"), "publication_activation_not_confirmed");
+    await setVariable(publicationActivationMarker, publicationActivationRevision);
+  }
+  const confirmed = await readEnvironment();
+  assert.equal(confirmed.get(publicationActivationMarker), publicationActivationRevision, "publication_activation_marker_not_confirmed");
+  return { check: "production_publication_activation", status: "PASS", alreadyApplied, changed,
+    deployRequired: confirmed.get(publicationActivationLiveMarker) !== publicationActivationRevision,
+    flags: safeActivationSnapshot(confirmed) };
+}
+
 // Approved by the owner: 20 EcoPoints/kg, at most 100 per verified delivery.
 // Configuration alone must not enable points, receipts, verification or redemptions.
 export const pointsPolicyRevision = "ecopulse:points/20-per-kg-cap-100-v1";

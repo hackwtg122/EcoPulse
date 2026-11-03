@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
 import { reusableDeploy, waitForLive, verifyRuntime } from "./render-deploy-policy.mjs";
-import { activateDraftEditing, activateRewardFulfillment, activateVerifierActions, activateApprovedPoints, activateDetailedDeliveries, configureApprovedPointsPolicy, activationLiveMarker, activationRevision, rewardActivationLiveMarker, rewardActivationRevision, pointsPolicyLiveMarker, pointsPolicyRevision, pointsActivationLiveMarker, pointsActivationRevision, verifierActivationLiveMarker, verifierActivationRevision, deliveryActivationLiveMarker, deliveryActivationRevision } from "./production-activation-policy.mjs";
+import { activateDraftEditing, activateRewardFulfillment, activateVerifierActions, activateApprovedPoints, activateDetailedDeliveries, activatePublication, configureApprovedPointsPolicy, activationLiveMarker, activationRevision, rewardActivationLiveMarker, rewardActivationRevision, pointsPolicyLiveMarker, pointsPolicyRevision, pointsActivationLiveMarker, pointsActivationRevision, verifierActivationLiveMarker, verifierActivationRevision, deliveryActivationLiveMarker, deliveryActivationRevision, publicationActivationLiveMarker, publicationActivationRevision } from "./production-activation-policy.mjs";
 import { execFileSync } from "node:child_process";
 import { activateStructuredAI, aiLiveMarker, aiRevision } from "./production-ai-activation.mjs";
 
@@ -124,6 +124,9 @@ const deliveryActivation = await activateDetailedDeliveries({ readEnvironment,
     return response.ok && (await response.json()).commit === "bd1458020f2fca609b8ef9a2d1d57416b0c45b43";
   } });
 console.log(JSON.stringify(deliveryActivation));
+const publicationActivation = await activatePublication({ readEnvironment,
+  setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT") });
+console.log(JSON.stringify(publicationActivation));
 const aiActivation = await activateStructuredAI({ readEnvironment,
   setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT"),
   readCatalog: async () => {
@@ -132,12 +135,12 @@ const aiActivation = await activateStructuredAI({ readEnvironment,
     return response.json();
   } });
 console.log(JSON.stringify(aiActivation));
-// Deploy the approved draft, fulfillment, receipt, decision and points flags.
-// Publication remains independently gated.
+// Deploy the approved flags. Publishing individual entries still requires
+// administrator authorization, validation and evidence.
 const deployPath = `/services/${encodeURIComponent(service.id)}/deploys`;
 // An auto-deploy started before the environment update must not be mistaken for
 // proof that the new flags are live, even when it has the same code SHA.
-const existing = activation.deployRequired || aiActivation.deployRequired || rewardActivation.deployRequired || pointsPolicy.deployRequired || verifierActivation.deployRequired || pointsActivation.deployRequired || deliveryActivation.deployRequired ? null : reusableDeploy(await request(`${deployPath}?limit=100`), sha);
+const existing = activation.deployRequired || aiActivation.deployRequired || rewardActivation.deployRequired || pointsPolicy.deployRequired || verifierActivation.deployRequired || pointsActivation.deployRequired || deliveryActivation.deployRequired || publicationActivation.deployRequired ? null : reusableDeploy(await request(`${deployPath}?limit=100`), sha);
 const deploy = existing || await request(deployPath, { commitId: sha, clearCache: "do_not_clear" });
 assert.ok(deploy.id, "missing_render_deploy_id");
 console.log(JSON.stringify({ check: existing ? "render_deploy_reused" : "render_deploy_requested", deploy: deploy.id, expectedCommit: sha }));
@@ -170,6 +173,10 @@ if (pointsActivation.deployRequired) {
 if (deliveryActivation.deployRequired) {
   await request(`${envPath}/${encodeURIComponent(deliveryActivationLiveMarker)}`, { value: deliveryActivationRevision }, "PUT");
   assert.equal((await readEnvironment()).get(deliveryActivationLiveMarker), deliveryActivationRevision, "delivery_activation_live_marker_not_confirmed");
+}
+if (publicationActivation.deployRequired) {
+  await request(`${envPath}/${encodeURIComponent(publicationActivationLiveMarker)}`, { value: publicationActivationRevision }, "PUT");
+  assert.equal((await readEnvironment()).get(publicationActivationLiveMarker), publicationActivationRevision, "publication_activation_live_marker_not_confirmed");
 }
 if (aiActivation.deployRequired) {
   await request(`${envPath}/${encodeURIComponent(aiLiveMarker)}`, { value: aiRevision }, "PUT");
