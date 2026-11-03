@@ -2,6 +2,27 @@
 
 ## Veredicto: NO TERMINADO
 
+### Resultado posterior al despliegue796a55e (sustituye FAIL de visión anterior)
+
+Actions **41573979385 SUCCESS**, Render `dep-dbklhenb9u1s73fomc50` Live/runtime
+SHA `796a55ec6cd1184c1bddd8fbde8f6754fecd3018` confirmado. Límitesruntimev2
+aplicados sin elevar cuotas diarias. **PASS real de EcoScan**: misma botellaPNG,
+consentimiento, sugerencia Plástico, explicación visible y confianza alta;
+botones de revisión disponibles. No se confirmó guardado ni se otorgaron puntos.
+UI administrativa confirmó etiqueta Cuentas registradas y formularios de
+borradores centros/horarios/recompensas habilitados. Publicación permanece cerrada.
+
+NeonConsole se comprobó mediante UI autorizada: requiere login, no existe sesión
+de gestión disponible. No se solicitó/leyó contraseña ni se intentó extraer token.
+La próxima intervención indispensable es iniciar sesión personalmente en Neon
+para inspeccionar respaldo/restauración/aislamiento; no se pide crear secretos
+ni publicar workflows existentes. Matriz compacta: CONGRESS_ACTIVATION_STATUS.md.
+
+Regla de EcoGuía reforzada para no recomendar desplazamientos físicos ni valor
+real a entidades académicas aunque aparezcan activas; ocho tests puros de guía
+incluidos en buildAPI (31/31dominio+bundlePASS,TypeScriptAPI0). Pendiente publicar
+esa regla y comprobar conversación contextual en la versión resultante.
+
 ## Resultados funcionales posteriores a la activación
 
 - **PASS EcoGuía, inferencia real**: tras desplegar7bb34ec, el reintento desde
