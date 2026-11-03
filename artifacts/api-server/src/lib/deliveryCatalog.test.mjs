@@ -1,10 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canManageCatalog, CatalogError, parseDraftPoint, parseDraftSlot, parsePointEdit, parseSlotEdit, parseValidationReference, validateCatalogPoint } from "./deliveryCatalog.ts";
+import { canManageCatalog, CatalogError, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, validateCatalogPoint } from "./deliveryCatalog.ts";
 
 const pointId = "00000000-0000-5000-8000-000000000010";
 const point = { code: "centro-prueba", name: "Centro comprobado", address: "Dirección comprobada", municipality: "Montería", timeZone: "America/Bogota", appointmentRequired: true };
 const now = new Date("2026-10-16T00:00:00Z");
+
+test("coordinates and accepted materials reject invalid or extra data", () => {
+  assert.deepEqual(parsePointCoordinates({ latitude: 8.75, longitude: -75.88 }), { latitude: 8.75, longitude: -75.88 });
+  assert.deepEqual(parsePointCoordinates({ latitude: null, longitude: null }), { latitude: null, longitude: null });
+  for (const value of [{ latitude: 91, longitude: 1 }, { latitude: 1, longitude: null }, { latitude: 1, longitude: 2, active: true }]) {
+    assert.throws(() => parsePointCoordinates(value), error => error instanceof CatalogError && error.status === 400);
+  }
+  assert.deepEqual(parsePointMaterials({ materials: ["paper", "plastic"] }), ["paper", "plastic"]);
+  for (const materials of [["paper", "paper"], ["unknown"], [1]]) assert.throws(() => parsePointMaterials({ materials }), error => error instanceof CatalogError);
+});
+
+test("material changes lock drafts and roll back when categories are unavailable", async () => {
+  const queries = [];
+  const client = { release() {}, async query(sql) {
+    queries.push(sql);
+    if (sql === "BEGIN" || sql === "ROLLBACK") return { rows: [] };
+    if (sql.startsWith("SELECT id FROM delivery_points")) return { rowCount: 1, rows: [{ id: pointId }] };
+    if (sql.startsWith("SELECT code FROM material_categories")) return { rowCount: 0, rows: [] };
+    throw Error("unexpected_query");
+  } };
+  await assert.rejects(replaceDraftPointMaterials({ connect: async () => client }, pointId, ["paper"]), error => error.code === "material_category_unavailable");
+  assert.ok(queries.some(sql => sql.includes("active=false FOR UPDATE")));
+  assert.ok(!queries.some(sql => sql.startsWith("DELETE")));
+  assert.equal(queries.at(-1), "ROLLBACK");
+});
 
 test("publishing a walk-in center does not incorrectly require appointment_required=true", async () => {
   const result = await validateCatalogPoint({ async query(text, params) {

@@ -183,9 +183,14 @@ export async function loadDeliveryOptions(
     }
   }
 
+  const materialsSchema = await database.query("SELECT to_regclass('public.delivery_point_materials') IS NOT NULL AS present, CASE WHEN to_regclass('public.delivery_point_materials') IS NULL THEN false ELSE has_table_privilege(current_user,'public.delivery_point_materials','SELECT') END AS ready");
+  const materialState = rowsOf<{ present?: boolean; ready: boolean }>(materialsSchema)[0];
+  const materialsReady = materialState?.ready === true;
+  if (materialState?.present === true && !materialsReady) {
+    return { mode: "detailed", enabled: false, reason: "configuration_pending", categories: [], points: [] };
+  }
   if (process.env.EVALUATION_MODE_ENABLED === "true") {
-    const schema = await database.query("SELECT to_regclass('public.delivery_point_materials') IS NOT NULL AS ready");
-    if (rowsOf<{ ready: boolean }>(schema)[0]?.ready !== true) {
+    if (!materialsReady) {
       return { mode: "detailed", enabled: false, reason: "configuration_pending", categories: [], points: [] };
     }
   }
@@ -196,7 +201,7 @@ export async function loadDeliveryOptions(
       ORDER BY code
     `),
     database.query(`
-      SELECT id, code, name, address, municipality, time_zone, appointment_required${operationalOnly ? ", validation_reference, validated_by, validated_at" : ""}
+      SELECT id, code, name, address, municipality, time_zone, appointment_required, (to_jsonb(delivery_points)->>'latitude')::float8 AS latitude, (to_jsonb(delivery_points)->>'longitude')::float8 AS longitude${operationalOnly ? ", validation_reference, validated_by, validated_at" : ""}
       FROM delivery_points
       WHERE active = true
       ORDER BY name, id
@@ -213,7 +218,7 @@ export async function loadDeliveryOptions(
       ORDER BY s.starts_at, s.id
       LIMIT 500
     `),
-    process.env.EVALUATION_MODE_ENABLED === "true"
+    materialsReady
       ? database.query("SELECT delivery_point_id, category_code FROM delivery_point_materials ORDER BY category_code")
       : Promise.resolve(null),
   ]);
@@ -251,6 +256,8 @@ export async function loadDeliveryOptions(
     municipality: string;
     time_zone: string;
     appointment_required: boolean;
+    latitude?: number | null;
+    longitude?: number | null;
     validation_reference?: string | null;
     validated_by?: string | null;
     validated_at?: Date | null;
@@ -264,9 +271,9 @@ export async function loadDeliveryOptions(
       municipality: row.municipality,
       timeZone: row.time_zone,
       appointmentRequired: row.appointment_required,
-      latitude: presented.latitude,
-      longitude: presented.longitude,
-      ...(materialResult ? { materials: materialsByPoint.get(row.id) ?? [] } : {}),
+      latitude: typeof row.latitude === "number" && typeof row.longitude === "number" ? row.latitude : presented.latitude,
+      longitude: typeof row.latitude === "number" && typeof row.longitude === "number" ? row.longitude : presented.longitude,
+      ...(materialsByPoint.has(row.id) ? { materials: materialsByPoint.get(row.id)! } : process.env.EVALUATION_MODE_ENABLED === "true" && materialResult ? { materials: [] } : {}),
       slots: slotsByPoint.get(row.id) ?? [],
     };
   });
@@ -499,11 +506,13 @@ export async function createDetailedDelivery(
     const point = rowsOf<{ appointment_required: boolean; validation_reference: string | null; validated_by: string | null; validated_at: Date | null }>(pointResult)[0];
     if (!point) throw new DeliveryRequestError(409, "delivery_point_unavailable");
     if (process.env.EVALUATION_MODE_ENABLED !== "true" && !hasOperationalEvidence(point)) throw new DeliveryRequestError(409, "delivery_point_unavailable");
-    if (process.env.EVALUATION_MODE_ENABLED === "true") {
-      const accepted = await client.query(`SELECT category_code FROM delivery_point_materials
-        WHERE delivery_point_id = $1 AND category_code = ANY($2::text[])`,
-        [input.deliveryPointId, input.materials.map(material => material.categoryCode)]);
-      if (accepted.rowCount !== input.materials.length) {
+    const materialSchema = await client.query("SELECT to_regclass('public.delivery_point_materials') IS NOT NULL AS present, CASE WHEN to_regclass('public.delivery_point_materials') IS NULL THEN false ELSE has_table_privilege(current_user,'public.delivery_point_materials','SELECT') END AS ready");
+    const materialState = rowsOf<{ present?: boolean; ready: boolean }>(materialSchema)[0];
+    if (materialState?.present === true && materialState.ready !== true) throw new DeliveryRequestError(503, "delivery_details_configuration_unavailable");
+    if (materialState?.ready === true) {
+      const accepted = await client.query<{ category_code: string }>("SELECT category_code FROM delivery_point_materials WHERE delivery_point_id = $1", [input.deliveryPointId]);
+      const acceptedCodes = new Set(accepted.rows.map(row => row.category_code));
+      if ((acceptedCodes.size > 0 || process.env.EVALUATION_MODE_ENABLED === "true") && input.materials.some(material => !acceptedCodes.has(material.categoryCode))) {
         throw new DeliveryRequestError(409, "material_category_unavailable");
       }
     }

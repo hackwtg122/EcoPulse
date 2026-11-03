@@ -6,7 +6,7 @@ import { canAccessVerifierQueue, encodeDeliveryCursor, hasOnlyFields, parseDeliv
 import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } from "../lib/pilotRoles";
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, loadPublishedDeliveryPoints, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
-import { canManageCatalog, CatalogError, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointEdit, parseSlotEdit, parseValidationReference, updateActiveSlotCapacity, updateDraftPoint, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
+import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
 import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
@@ -326,7 +326,9 @@ router.get("/admin/catalog", async (_req, res) => {
   const pool = await databasePool();
   if (!await hasDeliveryDetailsSchema(pool)) return res.status(503).json({ error: "delivery_details_migration_required" });
   const validationReady = await hasCatalogValidationSchema(pool);
-  return res.json({ ...await listCatalog(pool, validationReady), editingEnabled: process.env.PILOT_CATALOG_ADMIN_ENABLED === "true", validationReady, publishingEnabled: validationReady && process.env.PILOT_CATALOG_PUBLICATION_ENABLED === "true" });
+  const capabilities = await catalogDetailsCapabilities(pool);
+  const materials = capabilities.canReadMaterials ? (await pool.query('SELECT delivery_point_id AS "pointId",category_code AS code FROM delivery_point_materials ORDER BY category_code')).rows : [];
+  return res.json({ ...await listCatalog(pool, validationReady), materials, ...capabilities, editingEnabled: process.env.PILOT_CATALOG_ADMIN_ENABLED === "true", validationReady, publishingEnabled: validationReady && process.env.PILOT_CATALOG_PUBLICATION_ENABLED === "true" });
 });
 
 // Aggregated operational counts for administrators. Read-only: no personal
@@ -659,6 +661,24 @@ router.patch("/admin/rewards/:id", async (req, res) => {
   const pool = await databasePool();
   const result = await editRewardDraft(pool, String(req.params.id), parseRewardDraft(req.body.expected), parseRewardDraft(req.body.next));
   return res.json(result);
+});
+router.patch("/admin/catalog/points/:id/coordinates", async (req, res) => {
+  if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
+  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
+  if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_point_id" });
+  const coordinates = parsePointCoordinates(req.body);
+  const pool = await databasePool();
+  if (!(await catalogDetailsCapabilities(pool)).canEditCoordinates) return res.status(503).json({ error: "catalog_coordinates_unavailable" });
+  return res.json(await updateDraftPointCoordinates(pool, String(req.params.id), coordinates));
+});
+router.patch("/admin/catalog/points/:id/materials", async (req, res) => {
+  if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
+  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
+  if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_point_id" });
+  const materials = parsePointMaterials(req.body);
+  const pool = await databasePool();
+  if (!(await catalogDetailsCapabilities(pool)).canEditMaterials) return res.status(503).json({ error: "catalog_materials_unavailable" });
+  return res.json(await replaceDraftPointMaterials(pool, String(req.params.id), materials));
 });
 router.post("/admin/rewards/:id/publish", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });

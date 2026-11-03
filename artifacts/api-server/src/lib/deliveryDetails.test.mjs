@@ -29,6 +29,7 @@ test("operational delivery options exclude unverified locations while published 
   const database = { async query(text) {
     if (text.includes("to_regclass") || text.includes("information_schema.columns")) return { rows: [{ ready: true }] };
     if (text.includes("FROM material_categories")) return { rows: [{ code: "paper" }] };
+    if (text.includes("FROM delivery_point_materials")) return { rows: [] };
     if (text.includes("FROM delivery_points")) return { rows: [{ id: pointId, code: "eval-01", name: "Centro académico", address: "Sector", municipality: "Montería", time_zone: "America/Bogota", appointment_required: false, validation_reference: "academic:ecopulse/centro-01", validated_by: "user_Admin", validated_at: new Date() }] };
     if (text.includes("FROM delivery_slots")) return { rows: [] };
     throw new Error("unexpected_mock_query");
@@ -43,6 +44,29 @@ test("operational delivery options exclude unverified locations while published 
   }
 });
 
+test("published accepted materials are returned for a center and missing read permission fails closed", async () => {
+  const previousMode = process.env.EVALUATION_MODE_ENABLED;
+  delete process.env.EVALUATION_MODE_ENABLED;
+  const database = canRead => ({ async query(text) {
+    if (text.includes("has_table_privilege")) return { rows: [{ present: true, ready: canRead }] };
+    if (text.includes("to_regclass")) return { rows: [{ ready: true }] };
+    if (text.includes("FROM material_categories")) return { rows: [{ code: "paper" }, { code: "plastic" }] };
+    if (text.includes("FROM delivery_point_materials")) return { rows: [{ delivery_point_id: pointId, category_code: "paper" }] };
+    if (text.includes("FROM delivery_points")) return { rows: [{ id: pointId, code: "center-1", name: "Centro", address: "Dirección", municipality: "Montería", time_zone: "America/Bogota", appointment_required: false }] };
+    if (text.includes("FROM delivery_slots")) return { rows: [] };
+    throw Error("unexpected_mock_query");
+  } });
+  try {
+    const options = await loadDeliveryOptions(database(true), true);
+    assert.deepEqual(options.points[0].materials, ["paper"]);
+    const blocked = await loadDeliveryOptions(database(false), true);
+    assert.equal(blocked.enabled, false);
+    assert.deepEqual(blocked.points, []);
+  } finally {
+    if (previousMode === undefined) delete process.env.EVALUATION_MODE_ENABLED; else process.env.EVALUATION_MODE_ENABLED = previousMode;
+  }
+});
+
 test("published browsing stays available while detailed creation remains disabled and never writes", async () => {
   const previousMode = process.env.EVALUATION_MODE_ENABLED;
   delete process.env.EVALUATION_MODE_ENABLED;
@@ -50,6 +74,7 @@ test("published browsing stays available while detailed creation remains disable
     assert.match(text.trim(), /^SELECT\b/i);
     if (text.includes("to_regclass")) return { rows: [{ ready: true }] };
     if (text.includes("FROM material_categories")) return { rows: [{ code: "paper" }] };
+    if (text.includes("FROM delivery_point_materials")) return { rows: [] };
     if (text.includes("FROM delivery_points")) return { rows: [{ id: pointId, code: "existing", name: "Published", address: "Address", municipality: "Montería", time_zone: "America/Bogota", appointment_required: true }] };
     if (text.includes("FROM delivery_slots")) return { rows: [] };
     throw new Error("unexpected_mock_query");
@@ -79,6 +104,7 @@ test("a validated walk-in center enables detailed requests without a slot", asyn
     const options = await loadDeliveryOptions({ async query(text) {
       if (text.includes("to_regclass")) return { rows: [{ ready: true }] };
       if (text.includes("SELECT code FROM material_categories")) return { rows: [{ code: "paper" }] };
+      if (text.includes("FROM delivery_point_materials")) return { rows: [] };
       if (text.includes("FROM delivery_points")) return { rows: [{ id: pointId, code: "test-walk-in", name: "Test", address: "Test", municipality: "Test", time_zone: "America/Bogota", appointment_required: false }] };
       if (text.includes("FROM delivery_slots")) return { rows: [] };
       throw new Error("unexpected_mock_query");

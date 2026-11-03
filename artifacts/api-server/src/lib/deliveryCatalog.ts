@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { scanCategories } from "./pilotPolicy.ts";
 import type { Pool, PoolClient } from "pg";
 
 export function canManageCatalog(role: unknown): boolean { return role === "admin"; }
@@ -79,10 +80,67 @@ export async function listCatalog(pool: Pool, validationReady: boolean) {
     ? 's.validation_reference AS "validationReference", s.validated_at AS "validatedAt"'
     : 'NULL::text AS "validationReference", NULL::timestamptz AS "validatedAt"';
   const [points, slots] = await Promise.all([
-    pool.query(`SELECT id, code, name, address, municipality, time_zone AS "timeZone", appointment_required AS "appointmentRequired", active, ${pointEvidence}, created_at AS "createdAt" FROM delivery_points ORDER BY created_at DESC, id DESC LIMIT 100`),
+    pool.query(`SELECT id, code, name, address, municipality, time_zone AS "timeZone", appointment_required AS "appointmentRequired", active, (to_jsonb(delivery_points)->>'latitude')::float8 AS latitude, (to_jsonb(delivery_points)->>'longitude')::float8 AS longitude, ${pointEvidence}, created_at AS "createdAt" FROM delivery_points ORDER BY created_at DESC, id DESC LIMIT 100`),
     pool.query(`SELECT s.id, s.delivery_point_id AS "pointId", s.starts_at AS "startsAt", s.ends_at AS "endsAt", s.capacity, s.active, ${slotEvidence}, (s.capacity - count(d.id))::integer AS "remainingCapacity" FROM delivery_slots s LEFT JOIN deliveries d ON d.slot_id = s.id AND d.status NOT IN ('cancelled', 'rejected') GROUP BY s.id ORDER BY s.starts_at DESC LIMIT 500`),
   ]);
   return { points: points.rows, slots: slots.rows };
+}
+
+export async function catalogDetailsCapabilities(pool: Pool) {
+  const result = await pool.query(`SELECT
+    (SELECT count(*) = 2 FROM information_schema.columns WHERE table_schema='public' AND table_name='delivery_points' AND column_name IN ('latitude','longitude')) AS coordinate_schema,
+    to_regclass('public.delivery_point_materials') IS NOT NULL AS material_schema`);
+  const row = result.rows[0];
+  const coordinatesReady = row?.coordinate_schema === true;
+  const materialsReady = row?.material_schema === true;
+  const permissions = await pool.query(`SELECT
+    ${coordinatesReady ? "(has_column_privilege(current_user,'public.delivery_points','latitude','UPDATE') AND has_column_privilege(current_user,'public.delivery_points','longitude','UPDATE'))" : "false"} AS coordinates_write,
+    ${materialsReady ? "has_table_privilege(current_user,'public.delivery_point_materials','SELECT')" : "false"} AS materials_read,
+    ${materialsReady ? "(has_table_privilege(current_user,'public.delivery_point_materials','SELECT') AND has_table_privilege(current_user,'public.delivery_point_materials','INSERT') AND has_table_privilege(current_user,'public.delivery_point_materials','DELETE'))" : "false"} AS materials_write`);
+  return { coordinatesReady, materialsReady, canEditCoordinates: coordinatesReady && permissions.rows[0]?.coordinates_write === true,
+    canReadMaterials: materialsReady && permissions.rows[0]?.materials_read === true, canEditMaterials: materialsReady && permissions.rows[0]?.materials_write === true };
+}
+
+export function parsePointCoordinates(value: unknown): { latitude: number | null; longitude: number | null } {
+  const input = record(value, ["latitude", "longitude"]);
+  const { latitude, longitude } = input;
+  if (latitude === null && longitude === null) return { latitude: null, longitude: null };
+  if (typeof latitude !== "number" || !Number.isFinite(latitude) || Math.abs(latitude) > 90 ||
+      typeof longitude !== "number" || !Number.isFinite(longitude) || Math.abs(longitude) > 180) throw new CatalogError(400, "invalid_coordinates");
+  return { latitude, longitude };
+}
+
+export function parsePointMaterials(value: unknown): string[] {
+  const input = record(value, ["materials"]);
+  if (!Array.isArray(input.materials) || input.materials.length > scanCategories.length ||
+      input.materials.some(code => typeof code !== "string" || !(scanCategories as readonly string[]).includes(code)) ||
+      new Set(input.materials).size !== input.materials.length) throw new CatalogError(400, "invalid_point_materials");
+  return input.materials as string[];
+}
+
+export async function updateDraftPointCoordinates(pool: Pool, id: string, coordinates: { latitude: number | null; longitude: number | null }) {
+  const result = await pool.query(`UPDATE delivery_points SET latitude=$2, longitude=$3 WHERE id=$1 AND active=false RETURNING id, latitude, longitude`, [id, coordinates.latitude, coordinates.longitude]);
+  if (!result.rowCount) throw new CatalogError(409, "point_not_editable");
+  return result.rows[0];
+}
+
+export async function replaceDraftPointMaterials(pool: Pool, id: string, materials: string[]) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const point = await client.query("SELECT id FROM delivery_points WHERE id=$1 AND active=false FOR UPDATE", [id]);
+    if (!point.rowCount) throw new CatalogError(409, "point_not_editable");
+    const categories = await client.query("SELECT code FROM material_categories WHERE active=true AND code=ANY($1::text[])", [materials]);
+    if (categories.rowCount !== materials.length) throw new CatalogError(409, "material_category_unavailable");
+    await client.query("DELETE FROM delivery_point_materials WHERE delivery_point_id=$1", [id]);
+    for (const code of materials) await client.query("INSERT INTO delivery_point_materials (delivery_point_id,category_code) VALUES ($1,$2)", [id, code]);
+    await client.query("COMMIT");
+    return { id, materials };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    if ((error as { code?: string }).code === "42501") throw new CatalogError(503, "catalog_permissions_unavailable");
+    throw error;
+  } finally { client.release(); }
 }
 
 export async function createDraftPoint(pool: Pool, input: DraftPoint) {
