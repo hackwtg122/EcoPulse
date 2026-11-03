@@ -1,5 +1,5 @@
 export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean };
-export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled"; digitalAsset?: "nature-v1" | null };
+export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled"; digitalAsset?: "nature-v1" | "badge-v1" | null };
 export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean };
 export type RewardDraftInput = { title: string; description: string; cost: number };
 export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number; fulfillmentReference: string };
@@ -55,7 +55,7 @@ export async function loadRedemptions(apiUrl: string, token: string, signal: Abo
       (row.fulfillmentStatus !== "reserved" && row.fulfillmentStatus !== "fulfilled")) throw new RewardApiError(502, "invalid_redemption_response");
     return { id: row.id, rewardId: row.rewardId, rewardTitle: row.rewardTitle, cost: row.cost as number,
       createdAt: row.createdAt, fulfillmentStatus: row.fulfillmentStatus,
-      digitalAsset: row.fulfillmentStatus === "fulfilled" && row.digitalAsset === "nature-v1" ? "nature-v1" : null };
+      digitalAsset: row.fulfillmentStatus === "fulfilled" && (row.digitalAsset === "nature-v1" || row.digitalAsset === "badge-v1") ? row.digitalAsset : null };
   });
 }
 export async function loadAdminRedemptions(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<RedemptionItem[]> {
@@ -76,6 +76,12 @@ export async function loadRewardBalance(apiUrl: string, token: string, signal: A
   const row = object(await call(apiUrl, token, "balance", signal, undefined, fetchImpl));
   if (!Number.isSafeInteger(row.balance)) throw new RewardApiError(502, "invalid_balance_response");
   return row.balance as number;
+}
+export async function downloadRedemption(apiUrl: string, token: string, id: string, signal: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<Blob> {
+  const response = await fetchImpl(`${apiUrl}/api/pilot/redemptions/${encodeURIComponent(id)}/download`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal });
+  if (!response.ok) throw await parseError(response);
+  if (!response.headers.get("content-type")?.startsWith("image/svg+xml")) throw new RewardApiError(502, "invalid_download_response");
+  return response.blob();
 }
 export async function loadPointMovements(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<PointMovement[]> {
   return items(await call(apiUrl, token, "point-movements", signal, undefined, fetchImpl)).map(row => {

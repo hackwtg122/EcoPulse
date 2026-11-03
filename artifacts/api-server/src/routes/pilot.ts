@@ -10,6 +10,7 @@ import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraft
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
+import { ownedDigitalAsset } from "../lib/digitalAssets";
 import { guideAccountDetails } from "../lib/aiGuideCore";
 import { presentReward } from "../lib/pointPresentation";
 import { AiProviderError, ProviderConfig, classifyImageWithVision } from "../lib/aiProvider";
@@ -766,6 +767,15 @@ router.get("/admin/users", async (req, res) => {
   const page = rows.rows.slice(0, 200);
   return res.json({ users: page, adminCount: admins.rows[0]?.total ?? 0,
     nextCursor: rows.rows.length > 200 ? page.at(-1)?.clerkUserId ?? null : null });
+});
+router.get("/redemptions/:id/download", async (req, res) => {
+  const pool = await databasePool();
+  if (!await hasRewardFulfillmentSchema(pool)) return res.status(503).json({ error: "reward_migration_required" });
+  const asset = await ownedDigitalAsset(pool, res.locals.userId, String(req.params.id));
+  if (!asset) return res.status(404).json({ error: "digital_asset_unavailable" });
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("Content-Disposition", `attachment; filename="${asset.filename}"`);
+  return res.type(asset.contentType).send(asset.content);
 });
 
 router.patch("/admin/users/:clerkUserId/role", async (req, res) => {
