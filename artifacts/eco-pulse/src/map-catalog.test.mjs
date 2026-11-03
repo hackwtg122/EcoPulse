@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mapAcademicCenters } from "./map-catalog.ts";
+import { readFileSync } from "node:fs";
 
 const illustrations = [{ id: "eval-01", name: "Académico", zone: "Centro", lat: 8.75, lng: -75.88,
   materials: ["paper"], hours: "09–11", capacity: 20, responsible: "Operador", isTest: true }];
@@ -18,4 +19,19 @@ test("only a matching database point supplies a reservable slot and UUID", () =>
   assert.equal(mapped[0].id, "e1f00101-0001-4000-8000-000000000001");
   assert.equal(mapped[0].slots?.[0].remainingCapacity, 7);
   assert.equal(mapped[0].capacity, 7);
+});
+
+test("map browsing uses the published read endpoint, not the delivery-write activation gate", () => {
+  const app = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+  const map = app.slice(app.indexOf("function MapPage("), app.indexOf("function RewardsPage("));
+  assert.match(map, /loadPilotPublicPoints\(/);
+  assert.doesNotMatch(map, /loadPilotDeliveryOptions\(/);
+});
+
+test("normal published centers retain real favorites and an empty catalog still renders the base map", () => {
+  const source = readFileSync(new URL("./interactive-map.tsx", import.meta.url), "utf8");
+  assert.match(source, /aria-pressed=\{favoriteIds\.has\(point\.id\)\}/);
+  assert.match(source, /favoriteBusy=\{favoriteBusy\}/);
+  assert.match(source, /withoutCoordinates\.length > 0 \|\| mapped\.length === 0/);
+  assert.match(source, /no acredita operación ni recepción física/);
 });

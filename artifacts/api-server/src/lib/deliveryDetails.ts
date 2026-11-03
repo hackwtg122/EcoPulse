@@ -152,6 +152,12 @@ export async function hasDeliveryDetailsSchema(database: Queryable): Promise<boo
   return rowsOf<{ ready: boolean }>(result)[0]?.ready === true;
 }
 
+// Browsing a published catalog is not a request to create a delivery. The
+// creation flag must not hide existing centers, their details or favorites.
+export async function loadPublishedDeliveryPoints(database: Queryable): Promise<DeliveryOptions["points"]> {
+  return (await loadDeliveryOptions(database, true)).points;
+}
+
 export async function loadDeliveryOptions(
   database: Queryable,
   featureRequested: boolean,

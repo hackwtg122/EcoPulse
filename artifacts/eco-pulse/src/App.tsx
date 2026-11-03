@@ -8,7 +8,7 @@ import {
   AlertTriangle, ArrowRight, Bell, BookOpen, Bot, Camera, Check, CircleHelp, Clock3, Compass, Gift, Leaf, LockKeyhole, LogOut, MapPin, Menu, MessageCircle, Navigation, PackageCheck, Pencil, Recycle, Search, ShieldCheck, Sparkles, Target, Trophy, UserRound, X, Zap,
 } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
-import { createPilotScan, isCurrentPilotResponse, loadEvaluationPoints, loadPilotDashboardData, loadPilotProgress, loadPilotDeliveryOptions, loadPilotPublicPoints, PilotApiError, retryWaitSuffix, type EvaluationPoint, type PilotDashboardData, type PilotDeliveryOptions, type PilotProgress } from "@/pilot-api";
+import { createPilotScan, isCurrentPilotResponse, loadEvaluationPoints, loadPilotDashboardData, loadPilotProgress, loadPilotPublicPoints, PilotApiError, retryWaitSuffix, type EvaluationPoint, type PilotDashboardData, type PilotDeliveryOptions, type PilotProgress } from "@/pilot-api";
 import { colombianSeparationReference, manualScanCategories, manualScanGuidance, materialCategoryByScan, type ManualScanCategory } from "@/scan-catalog";
 const DeliveryPanel = lazy(() => import("@/delivery-panel").then(module => ({ default: module.DeliveryPanel })));
 const VerifierQueue = lazy(() => import("@/delivery-panel").then(module => ({ default: module.VerifierQueue })));
@@ -405,12 +405,12 @@ function MapPage({ initialMaterial = "" }: { initialMaterial?: string }) {
       try {
         const token = await getToken();
         if (!token || !userId) throw new Error("missing_session_token");
-        // The same PostgreSQL catalog drives the map and the delivery form.
-        const [options, evaluation] = await Promise.all([
-          loadPilotDeliveryOptions(pilotApiUrl, token, controller.signal),
+        // Explore the same published catalog without enabling delivery writes.
+        const [published, evaluation] = await Promise.all([
+          loadPilotPublicPoints(pilotApiUrl, token, controller.signal),
           loadEvaluationPoints(pilotApiUrl, token, controller.signal).catch(() => [] as EvaluationPoint[]),
         ]);
-        if (!controller.signal.aborted) { setPoints(options.points); setEvaluationPoints(evaluation); setStatus("ready"); }
+        if (!controller.signal.aborted) { setPoints(published); setEvaluationPoints(evaluation); setStatus("ready"); }
       } catch {
         if (!controller.signal.aborted) setStatus("error");
       }

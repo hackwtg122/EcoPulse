@@ -4,7 +4,7 @@ import { Router, type ErrorRequestHandler, type IRouter, type Response } from "e
 import { pointMovements, scans, users, deliveries } from "@workspace/db/schema";
 import { canAccessVerifierQueue, encodeDeliveryCursor, hasOnlyFields, parseDeliveryCursor, parseDeliveryPageLimit, quotaRetryAfterSeconds, scanIdForIdempotency, uuidPattern, validIdempotencyKey, validReceiptCode, validRejectionReason, validScanCategory, parsePointsPolicy, verificationActionsEnabled, type QuotaDenialReason } from "../lib/pilotPolicy";
 import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } from "../lib/pilotRoles";
-import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
+import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, loadPublishedDeliveryPoints, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
 import { canManageCatalog, CatalogError, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointEdit, parseSlotEdit, parseValidationReference, updateActiveSlotCapacity, updateDraftPoint, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
 import { RewardError, createRewardDraft, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
@@ -433,8 +433,7 @@ router.post("/admin/catalog/:kind/:id/deactivate", async (req, res) => {
 });
 router.get("/delivery-points", async (_req, res) => {
   const pool = await databasePool();
-  const options = await loadDeliveryOptions(pool, deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED));
-  return res.json({ points: options.points });
+  return res.json({ points: await loadPublishedDeliveryPoints(pool) });
 });
 
 // Evaluation-only test points. Served statically by this API (no database,

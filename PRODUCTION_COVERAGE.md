@@ -6,6 +6,21 @@
 
 ### Evidencia de despliegue y diagnóstico real
 
+IA configuración: Actions **41566820679 SUCCESS**, SHA
+`7bb34ec67f8b0a44b9d2f32f2355803ef1b319dc`, Render
+`dep-dbkkfv6c6qcc73an0v90` Live/runtime confirmado. Actualización de
+AI_CHAT_MODEL/AI_VISION_MODEL confirmada; alcance configuración, no inferencia.
+
+Mapa/favoritos: causa concreta corregida en código: consulta de centros ligada
+al flag de creación detallada y favoritos no conectados a la lista publicada sin
+coordenadas. GETdelivery-points ahora consulta el catálogo existente con SELECT,
+sin activar POSTdeliveries; MapPage usa ese lector y siempre conserva mapa base.
+Lista publicada muestra favoritos y advertencia explícita para centros académicos.
+Sin crear/publicar centros, coordenadas, horarios o entregas ficticios.
+Tests focalizados11/11 PASS, TypeScriptAPI/frontendPASS; buildAPI23/23tests+bundle
+PASS y frontend10/10tests+VitePASS. Algunas pruebas de cableado son estáticas;
+validación visual/favorito persistido pendientes de publicar y desplegar el bloque.
+
 Actions41564969699/4771d0d FAIL antes de modificar variables: consulta anónima de
 referencia GitHub HTTP403. Corregida con Git público y validación exacta del SHA.
 Actions **41565221688 SUCCESS**, SHA **5099564f015bdbaa4666ce6293cc94f3d6185550**,

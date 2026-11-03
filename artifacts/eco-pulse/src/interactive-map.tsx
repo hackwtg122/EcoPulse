@@ -293,7 +293,12 @@ export function InteractiveMap({
   );
 }
 
-export function PublishedCentersMap({ points }: { points: PilotDeliveryOptions["points"] }) {
+export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, favoriteBusy = false }: {
+  points: PilotDeliveryOptions["points"];
+  favoriteIds?: Set<string>;
+  onToggleFavorite?: (id: string) => void;
+  favoriteBusy?: boolean;
+}) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const filtered = useMemo(() => {
@@ -314,10 +319,12 @@ export function PublishedCentersMap({ points }: { points: PilotDeliveryOptions["
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[hsl(var(--secondary)/.32)] text-[hsl(var(--primary))]"><Building2 size={18} /></span>
               <div className="min-w-0 flex-1">
                 <h2 className="font-semibold">{point.name}</h2>
+                {/^Centro académico\b/i.test(point.name) && <p className="mt-1 text-xs font-semibold text-amber-800">Centro de ensayo académico; no acredita operación ni recepción física.</p>}
                 <p className="mt-1 text-sm">{point.address}, {point.municipality}</p>
                 <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{point.appointmentRequired ? `${point.slots.length} horarios con cupo publicados` : "Consulta disponibilidad antes de acudir"}</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-sm">
                   <button type="button" onClick={() => setSelectedId(open ? null : point.id)} aria-pressed={open} className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))]">{open ? "Cerrar ficha" : "Ver ficha"}<ArrowRight size={14} className={`transition ${open ? "rotate-90" : ""}`} /></button>
+                  {favoriteIds && onToggleFavorite && <button type="button" disabled={favoriteBusy} aria-pressed={favoriteIds.has(point.id)} onClick={() => onToggleFavorite(point.id)} className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))] disabled:opacity-50" data-testid={`favorite-${point.id}`}><Heart size={14} fill={favoriteIds.has(point.id) ? "currentColor" : "none"} />{favoriteIds.has(point.id) ? "Quitar favorito" : "Guardar favorito"}</button>}
                   <a className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))] underline" href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(`${point.address}, ${point.municipality}, Colombia`)}`} target="_blank" rel="noopener noreferrer">Buscar dirección en OpenStreetMap</a>
                 </div>
                 {open && <div className="mt-3 space-y-2 rounded-2xl bg-[hsl(var(--muted)/.5)] p-3 text-xs sm:text-sm">
@@ -333,7 +340,7 @@ export function PublishedCentersMap({ points }: { points: PilotDeliveryOptions["
         })}
         {points.length === 0 && <div role="status" className="rounded-2xl border border-dashed border-[hsl(var(--border))] px-4 py-8 text-center text-sm text-[hsl(var(--muted-foreground))]">
           <p className="font-semibold text-[hsl(var(--primary))]">Aún no hay centros publicados.</p>
-          <p className="mt-1">Los borradores del catálogo no aparecen aquí hasta que un administrador registre evidencia verificable y active la publicación. Activa el «Modo evaluación» para explorar el mapa con los puntos de prueba.</p>
+          <p className="mt-1">Los borradores del catálogo no aparecen aquí hasta que un administrador registre evidencia verificable y active la publicación. El mapa base sigue disponible; no indica centros ni cupos inventados.</p>
         </div>}
         {points.length > 0 && filtered.length === 0 && <p className="rounded-2xl border border-dashed p-4 text-sm">Ningún centro coincide con la búsqueda.</p>}
       </div>
@@ -407,7 +414,6 @@ export function MapExperience({ publishedPoints, evaluationPoints, initialMateri
     {initialMaterial && <p role="status" className="rounded-2xl border p-3 text-sm" data-testid="map-material-notice">Material desde tu escaneo: {categoryLabels[initialMaterial] ?? initialMaterial}. Confirma los materiales aceptados al solicitar.</p>}
     {favoriteError && <p role="alert" className="rounded-xl border p-3 text-sm">{favoriteError}</p>}
     {mapped.length > 0 && <InteractiveMap points={mapped} selectedId={selectedId} onSelect={setSelectedId} query={query} materialFilter={materialFilter} onQueryChange={setQuery} onMaterialChange={setMaterialFilter} favoriteIds={favorites ?? undefined} onToggleFavorite={favorites ? id => { void toggleFavorite(id); } : undefined} />}
-    {withoutCoordinates.length > 0 && <PublishedCentersMap points={withoutCoordinates} />}
-    {publishedPoints.length === 0 && <p role="status" className="rounded-2xl border p-4 text-sm">Puedes explorar los centros. Todavía no hay horarios disponibles para solicitar una entrega.</p>}
+    {(withoutCoordinates.length > 0 || mapped.length === 0) && <PublishedCentersMap points={withoutCoordinates} favoriteIds={favorites ?? undefined} favoriteBusy={favoriteBusy} onToggleFavorite={favorites ? id => { void toggleFavorite(id); } : undefined} />}
   </div>;
 }

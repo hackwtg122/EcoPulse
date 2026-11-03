@@ -6,12 +6,35 @@ import {
   hashDetailedDeliveryInput,
   hashDeliveryIdempotencyKey,
   loadDeliveryOptions,
+  loadPublishedDeliveryPoints,
   parseDetailedDeliveryInput,
   validateAppointmentSelection,
 } from "./deliveryDetails.ts";
 
 const pointId = "00000000-0000-5000-8000-000000000010";
 const slotId = "00000000-0000-5000-8000-000000000011";
+
+test("published browsing stays available while detailed creation remains disabled and never writes", async () => {
+  const previousMode = process.env.EVALUATION_MODE_ENABLED;
+  delete process.env.EVALUATION_MODE_ENABLED;
+  const database = { async query(text) {
+    assert.match(text.trim(), /^SELECT\b/i);
+    if (text.includes("to_regclass")) return { rows: [{ ready: true }] };
+    if (text.includes("FROM material_categories")) return { rows: [{ code: "paper" }] };
+    if (text.includes("FROM delivery_points")) return { rows: [{ id: pointId, code: "existing", name: "Published", address: "Address", municipality: "Montería", time_zone: "America/Bogota", appointment_required: true }] };
+    if (text.includes("FROM delivery_slots")) return { rows: [] };
+    throw new Error("unexpected_mock_query");
+  } };
+  try {
+    assert.deepEqual((await loadDeliveryOptions(database, false)).points, []);
+    const points = await loadPublishedDeliveryPoints(database);
+    assert.equal(points.length, 1);
+    assert.deepEqual(points[0].slots, []);
+    assert.equal((await loadDeliveryOptions(database, true)).enabled, false);
+  } finally {
+    if (previousMode === undefined) delete process.env.EVALUATION_MODE_ENABLED; else process.env.EVALUATION_MODE_ENABLED = previousMode;
+  }
+});
 
 test("appointment selection follows the actual destination trigger without promising walk-in capacity", () => {
   assert.doesNotThrow(() => validateAppointmentSelection(false, null));
