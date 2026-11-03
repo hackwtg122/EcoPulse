@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
 import { reusableDeploy, waitForLive, verifyRuntime } from "./render-deploy-policy.mjs";
-import { activateDraftEditing, activateRewardFulfillment, activateVerifierActions, configureApprovedPointsPolicy, activationLiveMarker, activationRevision, rewardActivationLiveMarker, rewardActivationRevision, pointsPolicyLiveMarker, pointsPolicyRevision, verifierActivationLiveMarker, verifierActivationRevision } from "./production-activation-policy.mjs";
+import { activateDraftEditing, activateRewardFulfillment, activateVerifierActions, activateApprovedPoints, configureApprovedPointsPolicy, activationLiveMarker, activationRevision, rewardActivationLiveMarker, rewardActivationRevision, pointsPolicyLiveMarker, pointsPolicyRevision, pointsActivationLiveMarker, pointsActivationRevision, verifierActivationLiveMarker, verifierActivationRevision } from "./production-activation-policy.mjs";
 import { execFileSync } from "node:child_process";
 import { activateStructuredAI, aiLiveMarker, aiRevision } from "./production-ai-activation.mjs";
 
@@ -114,6 +114,9 @@ console.log(JSON.stringify(pointsPolicy));
 const verifierActivation = await activateVerifierActions({ readEnvironment,
   setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT") });
 console.log(JSON.stringify(verifierActivation));
+const pointsActivation = await activateApprovedPoints({ readEnvironment,
+  setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT") });
+console.log(JSON.stringify(pointsActivation));
 const aiActivation = await activateStructuredAI({ readEnvironment,
   setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT"),
   readCatalog: async () => {
@@ -122,12 +125,12 @@ const aiActivation = await activateStructuredAI({ readEnvironment,
     return response.json();
   } });
 console.log(JSON.stringify(aiActivation));
-// Deploy the approved draft, fulfillment, receipt and decision flags. Points
-// accrual, redemption and publication remain independently gated.
+// Deploy the approved draft, fulfillment, receipt, decision and points flags.
+// Publication remains independently gated.
 const deployPath = `/services/${encodeURIComponent(service.id)}/deploys`;
 // An auto-deploy started before the environment update must not be mistaken for
 // proof that the new flags are live, even when it has the same code SHA.
-const existing = activation.deployRequired || aiActivation.deployRequired || rewardActivation.deployRequired || pointsPolicy.deployRequired || verifierActivation.deployRequired ? null : reusableDeploy(await request(`${deployPath}?limit=100`), sha);
+const existing = activation.deployRequired || aiActivation.deployRequired || rewardActivation.deployRequired || pointsPolicy.deployRequired || verifierActivation.deployRequired || pointsActivation.deployRequired ? null : reusableDeploy(await request(`${deployPath}?limit=100`), sha);
 const deploy = existing || await request(deployPath, { commitId: sha, clearCache: "do_not_clear" });
 assert.ok(deploy.id, "missing_render_deploy_id");
 console.log(JSON.stringify({ check: existing ? "render_deploy_reused" : "render_deploy_requested", deploy: deploy.id, expectedCommit: sha }));
@@ -152,6 +155,10 @@ if (pointsPolicy.deployRequired) {
 if (verifierActivation.deployRequired) {
   await request(`${envPath}/${encodeURIComponent(verifierActivationLiveMarker)}`, { value: verifierActivationRevision }, "PUT");
   assert.equal((await readEnvironment()).get(verifierActivationLiveMarker), verifierActivationRevision, "verifier_activation_live_marker_not_confirmed");
+}
+if (pointsActivation.deployRequired) {
+  await request(`${envPath}/${encodeURIComponent(pointsActivationLiveMarker)}`, { value: pointsActivationRevision }, "PUT");
+  assert.equal((await readEnvironment()).get(pointsActivationLiveMarker), pointsActivationRevision, "points_activation_live_marker_not_confirmed");
 }
 if (aiActivation.deployRequired) {
   await request(`${envPath}/${encodeURIComponent(aiLiveMarker)}`, { value: aiRevision }, "PUT");

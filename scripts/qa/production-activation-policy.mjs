@@ -23,6 +23,34 @@ export const pointsPolicyRevision = "ecopulse:points/20-per-kg-cap-100-v1";
 export const pointsPolicyMarker = "ECOPULSE_POINTS_POLICY_REVISION";
 export const pointsPolicyLiveMarker = "ECOPULSE_POINTS_POLICY_LIVE_REVISION";
 export const pointsPolicyValues = Object.freeze({ POINTS_PER_KG: "20", POINTS_MAX_PER_DELIVERY: "100" });
+export const pointsActivationRevision = "ecopulse:points/activation-v1";
+export const pointsActivationMarker = "ECOPULSE_POINTS_ACTIVATION_REVISION";
+export const pointsActivationLiveMarker = "ECOPULSE_POINTS_ACTIVATION_LIVE_REVISION";
+
+export async function activateApprovedPoints({ readEnvironment, setVariable }) {
+  const environment = await readEnvironment();
+  assert.ok(environment instanceof Map, "render_environment_invalid");
+  const alreadyApplied = environment.get(pointsActivationMarker) === pointsActivationRevision;
+  const changed = [];
+  if (!alreadyApplied) {
+    assert.notEqual(environment.get("EVALUATION_MODE_ENABLED"), "true", "unexpected_evaluation_service");
+    assert.ok(Object.entries(pointsPolicyValues).every(([key, value]) => environment.get(key) === value), "approved_points_policy_required");
+    assert.equal(environment.get("PILOT_RECEIPT_ENABLED"), "true", "receipt_flag_required");
+    assert.equal(environment.get("PILOT_VERIFICATION_ENABLED"), "true", "verification_flag_required");
+    if (environment.get("PILOT_POINTS_ENABLED") !== "true") {
+      await setVariable("PILOT_POINTS_ENABLED", "true");
+      changed.push("PILOT_POINTS_ENABLED");
+    }
+    const updated = await readEnvironment();
+    assert.equal(updated.get("PILOT_POINTS_ENABLED"), "true", "points_activation_not_confirmed");
+    await setVariable(pointsActivationMarker, pointsActivationRevision);
+  }
+  const confirmed = await readEnvironment();
+  assert.equal(confirmed.get(pointsActivationMarker), pointsActivationRevision, "points_activation_marker_not_confirmed");
+  return { check: "production_points_activation", status: "PASS", alreadyApplied, changed,
+    deployRequired: confirmed.get(pointsActivationLiveMarker) !== pointsActivationRevision,
+    flags: safeActivationSnapshot(confirmed) };
+}
 
 export const verifierActivationRevision = "ecopulse:verifier/receipt-decision-v1";
 export const verifierActivationMarker = "ECOPULSE_VERIFIER_ACTIVATION_REVISION";

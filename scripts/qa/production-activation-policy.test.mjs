@@ -3,6 +3,7 @@ import test from "node:test";
 import { activateDraftEditing, activateRewardFulfillment, activationMarker, activationLiveMarker, activationRevision, draftFlags, rewardActivationLiveMarker, rewardActivationMarker, rewardActivationRevision, rewardFlags, rewardPolicyReference, safeActivationSnapshot } from "./production-activation-policy.mjs";
 import { configureApprovedPointsPolicy, pointsPolicyMarker, pointsPolicyLiveMarker, pointsPolicyRevision } from "./production-activation-policy.mjs";
 import { activateVerifierActions, verifierActivationMarker, verifierActivationLiveMarker, verifierActivationRevision, verifierFlags } from "./production-activation-policy.mjs";
+import { activateApprovedPoints, pointsActivationMarker, pointsActivationLiveMarker, pointsActivationRevision } from "./production-activation-policy.mjs";
 
 function adapter(initial = []) {
   const environment = new Map(initial), writes = [];
@@ -127,4 +128,21 @@ test("verifier activation preserves kill switches and rejects unexpected environ
     await assert.rejects(activateVerifierActions(api));
     assert.deepEqual(api.writes, []);
   }
+});
+
+test("points activation requires the approved policy and verifier gates", async () => {
+  const required = [["POINTS_PER_KG", "20"], ["POINTS_MAX_PER_DELIVERY", "100"], ["PILOT_RECEIPT_ENABLED", "true"], ["PILOT_VERIFICATION_ENABLED", "true"]];
+  for (const [missing] of required) {
+    const api = adapter(required.filter(([key]) => key !== missing));
+    await assert.rejects(activateApprovedPoints(api));
+    assert.deepEqual(api.writes, []);
+  }
+  const api = adapter(required);
+  assert.equal((await activateApprovedPoints(api)).deployRequired, true);
+  assert.deepEqual(api.writes, [["PILOT_POINTS_ENABLED", "true"], [pointsActivationMarker, pointsActivationRevision]]);
+});
+test("points activation respects later operator kill switches", async () => {
+  const api = adapter([[pointsActivationMarker, pointsActivationRevision], [pointsActivationLiveMarker, pointsActivationRevision], ["PILOT_POINTS_ENABLED", "false"]]);
+  assert.equal((await activateApprovedPoints(api)).deployRequired, false);
+  assert.deepEqual(api.writes, []);
 });
