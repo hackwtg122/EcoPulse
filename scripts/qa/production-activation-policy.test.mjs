@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { activateDraftEditing, activateRewardFulfillment, activationMarker, activationLiveMarker, activationRevision, draftFlags, rewardActivationLiveMarker, rewardActivationMarker, rewardActivationRevision, rewardFlags, rewardPolicyReference, safeActivationSnapshot } from "./production-activation-policy.mjs";
+import { configureApprovedPointsPolicy, pointsPolicyMarker, pointsPolicyLiveMarker, pointsPolicyRevision } from "./production-activation-policy.mjs";
 
 function adapter(initial = []) {
   const environment = new Map(initial), writes = [];
@@ -83,4 +84,27 @@ test("an invalid reward policy reference is replaced before the marker is writte
   await activateRewardFulfillment(api);
   assert.equal(api.environment.get("REWARD_POLICY_REFERENCE"), rewardPolicyReference);
   assert.equal(api.environment.get(rewardActivationMarker), rewardActivationRevision);
+});
+
+test("approved points policy configures the rate and cap without enabling transactions", async () => {
+  const api = adapter([["PILOT_POINTS_ENABLED", "false"], ["PILOT_VERIFICATION_ENABLED", "false"]]);
+  const result = await configureApprovedPointsPolicy(api);
+  assert.deepEqual(api.writes, [["POINTS_PER_KG", "20"], ["POINTS_MAX_PER_DELIVERY", "100"], [pointsPolicyMarker, pointsPolicyRevision]]);
+  assert.equal(api.environment.get("PILOT_POINTS_ENABLED"), "false");
+  assert.equal(api.environment.get("PILOT_VERIFICATION_ENABLED"), "false");
+  assert.equal(result.deployRequired, true);
+});
+test("points policy refuses to change active points and evaluation environments", async () => {
+  for (const flag of ["PILOT_POINTS_ENABLED", "EVALUATION_MODE_ENABLED"]) {
+    const api = adapter([[flag, "true"]]);
+    await assert.rejects(configureApprovedPointsPolicy(api));
+    assert.deepEqual(api.writes, []);
+  }
+});
+test("points policy preserves later operator overrides and interrupted deploy requires retry", async () => {
+  const api = adapter([[pointsPolicyMarker, pointsPolicyRevision], ["POINTS_PER_KG", "30"]]);
+  assert.equal((await configureApprovedPointsPolicy(api)).deployRequired, true);
+  assert.deepEqual(api.writes, []);
+  api.environment.set(pointsPolicyLiveMarker, pointsPolicyRevision);
+  assert.equal((await configureApprovedPointsPolicy(api)).deployRequired, false);
 });

@@ -17,6 +17,37 @@ export const rewardPolicyReference = "ecopulse://policy/reward-fulfillment-v1";
 export const rewardFlags = Object.freeze(["PILOT_REWARDS_ENABLED", "PILOT_REWARD_FULFILLMENT_ENABLED"]);
 const rewardPolicyPattern = /^[A-Za-z0-9_:/.-]{10,120}$/;
 
+// Approved by the owner: 20 EcoPoints/kg, at most 100 per verified delivery.
+// Configuration alone must not enable points, receipts, verification or redemptions.
+export const pointsPolicyRevision = "ecopulse:points/20-per-kg-cap-100-v1";
+export const pointsPolicyMarker = "ECOPULSE_POINTS_POLICY_REVISION";
+export const pointsPolicyLiveMarker = "ECOPULSE_POINTS_POLICY_LIVE_REVISION";
+export const pointsPolicyValues = Object.freeze({ POINTS_PER_KG: "20", POINTS_MAX_PER_DELIVERY: "100" });
+
+export async function configureApprovedPointsPolicy({ readEnvironment, setVariable }) {
+  const environment = await readEnvironment();
+  assert.ok(environment instanceof Map, "render_environment_invalid");
+  const alreadyApplied = environment.get(pointsPolicyMarker) === pointsPolicyRevision;
+  const changed = [];
+  if (!alreadyApplied) {
+    assert.notEqual(environment.get("EVALUATION_MODE_ENABLED"), "true", "unexpected_evaluation_service");
+    assert.notEqual(environment.get("PILOT_POINTS_ENABLED"), "true", "points_must_be_disabled_during_policy_update");
+    for (const [key, value] of Object.entries(pointsPolicyValues)) {
+      if (environment.get(key) !== value) {
+        await setVariable(key, value);
+        changed.push(key);
+      }
+    }
+    const updated = await readEnvironment();
+    assert.ok(Object.entries(pointsPolicyValues).every(([key, value]) => updated.get(key) === value), "points_policy_not_confirmed");
+    await setVariable(pointsPolicyMarker, pointsPolicyRevision);
+  }
+  const confirmed = await readEnvironment();
+  assert.equal(confirmed.get(pointsPolicyMarker), pointsPolicyRevision, "points_policy_marker_not_confirmed");
+  return { check: "approved_points_policy", status: "PASS", revision: pointsPolicyRevision, alreadyApplied, changed,
+    deployRequired: confirmed.get(pointsPolicyLiveMarker) !== pointsPolicyRevision };
+}
+
 const reportedFlags = Object.freeze([
   ...draftFlags, ...rewardFlags, "PILOT_CATALOG_PUBLICATION_ENABLED", "PILOT_DELIVERY_DETAILS_ENABLED",
   "PILOT_RECEIPT_ENABLED", "PILOT_VERIFICATION_ENABLED", "PILOT_POINTS_ENABLED",

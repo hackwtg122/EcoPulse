@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
 import { reusableDeploy, waitForLive, verifyRuntime } from "./render-deploy-policy.mjs";
-import { activateDraftEditing, activateRewardFulfillment, activationLiveMarker, activationRevision, rewardActivationLiveMarker, rewardActivationRevision } from "./production-activation-policy.mjs";
+import { activateDraftEditing, activateRewardFulfillment, configureApprovedPointsPolicy, activationLiveMarker, activationRevision, rewardActivationLiveMarker, rewardActivationRevision, pointsPolicyLiveMarker, pointsPolicyRevision } from "./production-activation-policy.mjs";
 import { execFileSync } from "node:child_process";
 import { activateStructuredAI, aiLiveMarker, aiRevision } from "./production-ai-activation.mjs";
 
@@ -108,6 +108,9 @@ console.log(JSON.stringify(activation));
 const rewardActivation = await activateRewardFulfillment({ readEnvironment,
   setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT") });
 console.log(JSON.stringify(rewardActivation));
+const pointsPolicy = await configureApprovedPointsPolicy({ readEnvironment,
+  setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT") });
+console.log(JSON.stringify(pointsPolicy));
 const aiActivation = await activateStructuredAI({ readEnvironment,
   setVariable: (key, value) => request(`${envPath}/${encodeURIComponent(key)}`, { value }, "PUT"),
   readCatalog: async () => {
@@ -122,7 +125,7 @@ console.log(JSON.stringify(aiActivation));
 const deployPath = `/services/${encodeURIComponent(service.id)}/deploys`;
 // An auto-deploy started before the environment update must not be mistaken for
 // proof that the new flags are live, even when it has the same code SHA.
-const existing = activation.deployRequired || aiActivation.deployRequired || rewardActivation.deployRequired ? null : reusableDeploy(await request(`${deployPath}?limit=100`), sha);
+const existing = activation.deployRequired || aiActivation.deployRequired || rewardActivation.deployRequired || pointsPolicy.deployRequired ? null : reusableDeploy(await request(`${deployPath}?limit=100`), sha);
 const deploy = existing || await request(deployPath, { commitId: sha, clearCache: "do_not_clear" });
 assert.ok(deploy.id, "missing_render_deploy_id");
 console.log(JSON.stringify({ check: existing ? "render_deploy_reused" : "render_deploy_requested", deploy: deploy.id, expectedCommit: sha }));
@@ -139,6 +142,10 @@ if (activation.deployRequired) {
 if (rewardActivation.deployRequired) {
   await request(`${envPath}/${encodeURIComponent(rewardActivationLiveMarker)}`, { value: rewardActivationRevision }, "PUT");
   assert.equal((await readEnvironment()).get(rewardActivationLiveMarker), rewardActivationRevision, "reward_activation_live_marker_not_confirmed");
+}
+if (pointsPolicy.deployRequired) {
+  await request(`${envPath}/${encodeURIComponent(pointsPolicyLiveMarker)}`, { value: pointsPolicyRevision }, "PUT");
+  assert.equal((await readEnvironment()).get(pointsPolicyLiveMarker), pointsPolicyRevision, "points_policy_live_marker_not_confirmed");
 }
 if (aiActivation.deployRequired) {
   await request(`${envPath}/${encodeURIComponent(aiLiveMarker)}`, { value: aiRevision }, "PUT");
