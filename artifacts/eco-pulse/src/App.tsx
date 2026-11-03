@@ -119,7 +119,7 @@ const seedChat: ChatMessage[] = [{ id: "welcome", role: "assistant", content: "H
 const landingFaq = [
   { q: "¿Un escaneo me da EcoPuntos?", a: "No. Clasificar un residuo no concede EcoPuntos. Se obtienen únicamente tras verificar una entrega según las reglas vigentes." },
   { q: "¿Ya puedo solicitar una entrega?", a: "Inicia sesión y revisa los horarios disponibles en Mis entregas. Si no hay cupos, podrás explorar los centros en el mapa." },
-  { q: "¿EcoGuía utiliza inteligencia artificial?", a: "Sí, cuando la IA está disponible y das tu consentimiento. Si no, ofrece orientación local claramente identificada." },
+  { q: "¿EcoGuía utiliza inteligencia artificial?", a: "Sí, cuando la IA está disponible y das tu consentimiento. Sin permiso o si el servicio no está disponible, puedes consultar la biblioteca de materiales." },
   { q: "¿Consultar las guías tiene costo?", a: "No. La biblioteca de materiales y las fichas se leen sin crear cuenta y sin costo. La cuenta solo se necesita para registrar tu actividad." },
 ];
 
