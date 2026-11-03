@@ -12,11 +12,15 @@ const key = process.env.RENDER_API_KEY;
 if (!key) throw new Error("Configure repository Actions secret RENDER_API_KEY; no deployment attempted");
 const sha = process.env.GITHUB_SHA;
 assert.match(sha || "", /^[a-f0-9]{40}$/i);
-const head = await fetch("https://api.github.com/repos/hackwtg122/EcoPulse/git/ref/heads/main", {
-  headers: { Accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(30000), redirect: "error",
-});
-assert.equal(head.status, 200, "main_head_verification_failed");
-assert.equal((await head.json()).object?.sha, sha, "stale_workflow_refusing_to_deploy_old_main_commit");
+// Public Git transport avoids anonymous REST rate limits without broadening
+// workflow permissions or sending the Render credential to GitHub.
+let remoteHead;
+try {
+  remoteHead = execFileSync("git", ["ls-remote", "--exit-code", "https://github.com/hackwtg122/EcoPulse.git", "refs/heads/main"],
+    { encoding: "utf8", timeout: 30000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }).trim();
+} catch { throw new Error("main_head_verification_failed"); }
+assert.match(remoteHead, /^[a-f0-9]{40}\s+refs\/heads\/main$/i, "main_head_response_invalid");
+assert.equal(remoteHead.split(/\s+/)[0], sha, "stale_workflow_refusing_to_deploy_old_main_commit");
 const api = "https://api.render.com/v1";
 async function request(path, body, method = body ? "POST" : "GET", timeoutMs = 30000) {
   const response = await fetch(`${api}${path}`, {
