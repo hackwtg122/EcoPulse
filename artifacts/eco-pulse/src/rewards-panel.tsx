@@ -27,6 +27,7 @@ function digitalDownload(item: RedemptionItem): { filename: string } | null {
     return { filename: "ecopulse-naturaleza.svg" };
   }
   if (item.digitalAsset === "badge-v1") return { filename: "ecopulse-insignia.svg" };
+  if (item.digitalAsset === "guide-v1") return { filename: "ecopulse-guia.pdf" };
   return null;
 }
 

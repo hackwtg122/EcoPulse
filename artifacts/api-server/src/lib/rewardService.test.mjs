@@ -4,6 +4,7 @@ import { digitalAssetForFulfillment } from "./rewardService.ts";
 
 test("digital fulfillment exposes only an explicitly delivered known asset", () => {
   assert.equal(digitalAssetForFulfillment("fulfilled", "digital:ecopulse/nature-v1"), "nature-v1");
+  assert.equal(digitalAssetForFulfillment("fulfilled", "digital:ecopulse/guide-v1"), "guide-v1");
   assert.equal(digitalAssetForFulfillment("reserved", "digital:ecopulse/nature-v1"), null);
   assert.equal(digitalAssetForFulfillment("fulfilled", "https://example.org/audit"), null);
   assert.equal(digitalAssetForFulfillment("fulfilled", "digital:ecopulse/unknown"), null);
