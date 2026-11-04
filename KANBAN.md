@@ -11,7 +11,7 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 
 ## EN PROCESO
 
-- Revisar y corregir el flujo de conversaciones guardadas sin sesión disponible: estados de reintento tras una respuesta fallida o pendiente, recuperación del historial, claridad del consentimiento y ausencia de mensajes simulados. La comprobación funcional autenticada sigue en BLOQUEADO.
+- Revisar y corregir los errores de imagen de EcoScan IA sin sesión: una imagen que el navegador no puede decodificar o procesar debe mostrar un mensaje de imagen no válida, no un falso error de red. La comprobación funcional autenticada sigue en BLOQUEADO.
 
 ## BLOQUEADO
 
@@ -26,6 +26,7 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 - Integración segura y despliegue técnico de `f473bae3df9ee49f82445a73031231b1c16d81aa`: SHA exacto comprobado en Render (`/api/version`) y Netlify (`published_deploy`, estado ready). [QA de producción aprobado](https://github.com/hackwtg122/EcoPulse/actions/runs/41786760138): políticas, despliegue Render, API pública y navegador público.
 - Comprobación directa de lectura en Chrome sobre https://ecopulseef.netlify.app: inicio y materiales HTTP 200 sin errores de JavaScript; `/map` y `/deliveries` redirigen al inicio sin sesión. Esto verifica disponibilidad pública y protección, no solicitudes ni operaciones privadas.
 - Infraestructura de persistencia de EcoGuía, verificada en producción en `1edd093c25799337ce72729f80a72db84a4a8982`: tablas aditivas con RLS forzado, políticas de propietario, rol técnico sin BYPASSRLS limitado a las dos tablas, conexión exclusiva `GUIDE_DATABASE_URL`, fallo cerrado sin ella, consentimiento separado, listado/lectura/continuación/borrado propios e idempotencia. [QA de producción aprobado](https://github.com/hackwtg122/EcoPulse/actions/runs/41885569319), incluido el trabajo `guide-storage-schema`; [verificación de la conexión real de Render](https://github.com/hackwtg122/EcoPulse/actions/runs/41885569319) con `existingNeonDatabase:true`, `rlsActive:true`, `noPrincipalRowsVisible:0` y `conversationWrites:0`. Netlify y Render sirven ese SHA. Alcance: infraestructura y protecciones; el flujo autenticado de extremo a extremo sigue en BLOQUEADO.
+- Recuperación de conversaciones guardadas de EcoGuía, desplegada en `17d4e3a6f0484bd7d3b63bb3e55238d9382b10ab`: un turno pendiente o fallido sin mensaje de error ya muestra un aviso visible y el botón de reintento idempotente, que reutiliza la misma clave de solicitud y no duplica turnos. Los mensajes distinguen espera por respuesta pendiente y turno fallido; el historial se conserva, el consentimiento de almacenamiento sigue siendo obligatorio y no se añaden respuestas simuladas. [QA de producción aprobado](https://github.com/hackwtg122/EcoPulse/actions/runs/41888861286), con `guide-storage-schema` y `public-browser`; Netlify (`ready`) y Render (`/api/version`) sirven ese SHA; los archivos publicados contienen ambos avisos y las cinco rutas privadas siguen devolviendo 401 sin sesión. Alcance: UI desplegada y presencia comprobada; la interacción con sesión real sigue en BLOQUEADO por `PRODUCTION_QA_ACCOUNTS`.
 
 ### Evidencia IA (no equivale a TERMINADO en producción)
 
