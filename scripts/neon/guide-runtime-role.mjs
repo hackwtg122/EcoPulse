@@ -1,4 +1,4 @@
-import { randomBytes, pbkdf2Sync, createHmac, createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 export const guideRuntimeRole = "ecopulse_guide_runtime";
 
@@ -23,18 +23,11 @@ export async function createGuideRuntimeRole(
   )
     throw new Error("guide_generated_secret_requires_review");
   const password = existingGeneratedPassword ?? randomBytes(32).toString("hex");
-  // Send a SCRAM verifier, not the clear-text generated secret, in role DDL.
-  const salt = randomBytes(16),
-    iterations = 4096;
-  const salted = pbkdf2Sync(password, salt, iterations, 32, "sha256");
-  const clientKey = createHmac("sha256", salted).update("Client Key").digest();
-  const storedKey = createHash("sha256").update(clientKey).digest("base64");
-  const serverKey = createHmac("sha256", salted)
-    .update("Server Key")
-    .digest("base64");
-  const verifier = `SCRAM-SHA-256$${iterations}:${salt.toString("base64")}$${storedKey}:${serverKey}`;
+  // Neon's control plane rejects pre-hashed SCRAM verifiers, so the one-time
+  // generated password is sent over the verified TLS connection. It is only
+  // stored in the Render environment; this statement is never logged.
   await client.query(
-    `CREATE ROLE ecopulse_guide_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS CONNECTION LIMIT 5 PASSWORD '${verifier}'`,
+    `CREATE ROLE ecopulse_guide_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS CONNECTION LIMIT 5 PASSWORD '${password}'`,
   );
   await client.query(
     "GRANT CONNECT ON DATABASE neondb TO ecopulse_guide_runtime",
