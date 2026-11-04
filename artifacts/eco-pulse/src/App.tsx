@@ -22,7 +22,7 @@ import { guideAnswer } from "@/eco-guide";
 import { MaterialFicha, MaterialsLibrary } from "@/materials-page";
 import { findMaterialById } from "@/materials-catalog";
 const MapExperience = lazy(() => import("./interactive-map").then(module => ({ default: module.MapExperience })));
-import { askGuide, createGuideRequestGate, guideQuotaMessages, GuideApiError, loadGuideCapabilities, type GuideTurn } from "./guide-api";
+import { GuideConversationPanel } from "./guide-conversation-panel";
 import { ContactPage, FaqPage, PrivacyPage, PublicLayout, TermsPage, publicFooterLinks } from "@/public-pages";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -638,87 +638,9 @@ function SecurityPage() {
 }
 
 function ChatPage() {
-  const { getToken, userId } = useAuth();
-  const [messages, setMessages] = useState<Array<ChatMessage & { source?: "ai" | "rules" }>>(seedChat);
-  const [input, setInput] = useState("");
-  const [consent, setConsent] = useState(false);
-  const [aiEnabled, setAiEnabled] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [guideError, setGuideError] = useState("");
-  const activeRequest = useRef<AbortController | null>(null);
-  const requestGate = useRef(createGuideRequestGate());
-  const [retry, setRetry] = useState<{ question: string; history: GuideTurn[] } | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    setAiEnabled(false);
-    if (!userId) return () => controller.abort();
-    void (async () => {
-      try {
-        const token = await getToken();
-        if (!token) throw new Error("missing_session_token");
-        const enabled = await loadGuideCapabilities(pilotApiUrl, token, controller.signal);
-        if (!controller.signal.aborted) setAiEnabled(enabled);
-      } catch {
-        if (!controller.signal.aborted) setGuideError("No se pudo verificar la disponibilidad de EcoGuía. Revisa tu sesión o intenta recargar la página.");
-      }
-    })();
-    return () => { controller.abort(); activeRequest.current?.abort(); };
-  }, [getToken, userId]);
-  const quick = ["¿Dónde va el vidrio?", "¿Cómo gano puntos?", "Busca un punto cerca", "Mi actividad"];
-  const send = async (content = input, previous?: { question: string; history: GuideTurn[] }) => {
-    const question = previous?.question ?? content.trim().slice(0, 500);
-    if (!question || !requestGate.current.enter()) return;
-    if (!consent || !aiEnabled) {
-      setGuideError(aiEnabled ? "Autoriza el envío al proveedor de IA para conversar con EcoGuía." : "EcoGuía remota no está disponible. Verifica la configuración del servidor o inténtalo más tarde.");
-      requestGate.current.leave();
-      return;
-    }
-    const now = new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
-    const history = previous?.history ?? messages.filter(turn => turn.id !== "welcome" && (turn.role === "user" || turn.source === "ai"))
-      .slice(-6).map(turn => ({ role: turn.role, content: turn.content }));
-    if (!previous) {
-      setMessages(current => [...current, { id: `u-${crypto.randomUUID()}`, role: "user", content: question, timestamp: now }]);
-      setInput("");
-    }
-    setRetry(null);
-    setGuideError("");
-    setPending(true);
-    const request = new AbortController(); activeRequest.current = request;
-    try {
-      const token = await getToken();
-      if (request.signal.aborted) return;
-      if (!token) throw new GuideApiError(401, "missing_session_token");
-      const answer = await askGuide(pilotApiUrl, token, question, history, request.signal);
-      if (!request.signal.aborted) setMessages(current => [...current, { id: `a-${crypto.randomUUID()}`, role: "assistant", content: answer, timestamp: now, source: "ai" }]);
-    } catch (cause) {
-      if (!request.signal.aborted) {
-        setRetry({ question, history });
-        if (cause instanceof GuideApiError && cause.status === 429) {
-          const base = guideQuotaMessages[cause.code] ?? "EcoGuía alcanzó su límite temporal.";
-          setGuideError(`${base}${retryWaitSuffix(cause.retryAfterSeconds)}`);
-        } else if (cause instanceof GuideApiError && cause.status === 401) {
-          setGuideError("Tu sesión expiró. Inicia sesión de nuevo y reintenta.");
-        } else if (cause instanceof GuideApiError && cause.code === "ai_provider_unconfigured") {
-          setGuideError("EcoGuía no tiene un proveedor de IA configurado en el servidor.");
-        } else {
-          setGuideError("EcoGuía no pudo obtener una respuesta de la IA remota. Reintenta más tarde.");
-        }
-      }
-    } finally {
-      if (activeRequest.current === request) activeRequest.current = null;
-      requestGate.current.leave();
-      setPending(false);
-    }
-  };
   return <div className="animate-rise">
     <PageTitle eyebrow="Siempre a mano" title="EcoGuía" copy="Conversa sobre separación de materiales, centros, entregas y tu progreso." />
-    <div className="mx-auto max-w-3xl overflow-hidden rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
-      <div className="flex items-center gap-3 border-b border-[hsl(var(--border))] p-5"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-[hsl(var(--primary))] text-[hsl(var(--secondary))]"><Bot size={22} /></span><div><p className="font-semibold">EcoGuía</p><p className="text-xs text-[hsl(var(--primary))]">{aiEnabled ? "IA remota disponible con tu permiso" : "IA remota no disponible"}</p></div><button onClick={() => { activeRequest.current?.abort(); setMessages(seedChat); setRetry(null); setPending(false); setGuideError(""); }} className="ml-auto text-xs font-semibold text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))]" data-testid="button-clear-chat">Limpiar chat</button></div>
-      <label className="mx-5 mt-4 flex items-start gap-2 text-xs text-[hsl(var(--muted-foreground))]"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={!aiEnabled || pending} data-testid="guide-consent" />Permito enviar mis preguntas, hasta seis mensajes anteriores y un resumen de mi cuenta (EcoPuntos, materiales, centros, horarios y entregas) al proveedor de IA configurado. Sin permiso, no se enviará nada.</label>
-      {guideError && <div role="alert" className="mx-5 mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{guideError}{retry && <button type="button" disabled={pending} onClick={() => void send(retry.question, retry)} className="ml-3 font-semibold underline disabled:opacity-50" data-testid="button-retry-guide">Reintentar</button>}</div>}
-      <div className="flex min-h-[390px] flex-col gap-4 p-5 sm:p-7" aria-live="polite">{messages.map(m => <div key={m.id} className={`flex max-w-[88%] gap-2 ${m.role === "user" ? "ml-auto flex-row-reverse" : ""}`} data-testid={`message-${m.id}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl ${m.role === "user" ? "bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]" : "bg-[hsl(var(--muted))] text-[hsl(var(--primary))]"}`}>{m.role === "user" ? <UserRound size={15} /> : <Bot size={15} />}</span><div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${m.role === "user" ? "rounded-tr-sm bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "rounded-tl-sm bg-[hsl(var(--muted))]"}`}><p className="whitespace-pre-line">{m.content}</p><small className="mt-1 block text-[10px] opacity-60">{m.timestamp}{m.role === "assistant" && m.id !== "welcome" ? ` · ${m.source === "ai" ? "Respuesta IA" : "Guía local"}` : ""}</small></div></div>)}{pending && <p role="status" className="text-sm text-[hsl(var(--muted-foreground))]" data-testid="guide-typing">EcoGuía está escribiendo…</p>}</div>
-      <div className="border-t border-[hsl(var(--border))] p-4"><div className="mb-3 flex gap-2 overflow-auto">{quick.map(q => <button key={q} disabled={pending} onClick={() => void send(q)} className="whitespace-nowrap rounded-full border border-[hsl(var(--border))] px-3 py-2 text-xs font-semibold text-[hsl(var(--primary))] hover:bg-[hsl(var(--muted))] disabled:opacity-50" data-testid={`button-quick-${q.slice(0,5)}`}>{q}</button>)}</div><form onSubmit={e => { e.preventDefault(); void send(); }} className="flex items-center gap-2"><input value={input} onChange={e => setInput(e.target.value)} maxLength={500} aria-label="Escribe tu duda para EcoGuía" placeholder="Escribe tu duda..." className="min-w-0 flex-1 rounded-full bg-[hsl(var(--muted))] px-5 py-3 text-sm outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/.35)]" data-testid="input-chat-message" /><Button type="submit" disabled={pending || !input.trim()} aria-label="Enviar pregunta" className="h-11 w-11 shrink-0 rounded-full p-0" data-testid="button-send-chat"><ArrowRight size={18} /></Button></form></div>
-    </div>
+    <GuideConversationPanel apiUrl={pilotApiUrl} />
   </div>;
 }
 function AuthPages() {

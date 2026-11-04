@@ -1,5 +1,5 @@
 export const qaRoles = ["participant", "verifier", "admin"];
-export const commonReads = ["me", "balance", "point-movements", "favorites", "progress", "scans", "scans/ai-capabilities", "guide/capabilities", "delivery-points", "evaluation-points", "delivery-options", "deliveries", "rewards/capabilities", "rewards", "redemptions"];
+export const commonReads = ["me", "balance", "point-movements", "favorites", "progress", "scans", "scans/ai-capabilities", "guide/capabilities", "guide/conversations", "delivery-points", "evaluation-points", "delivery-options", "deliveries", "rewards/capabilities", "rewards", "redemptions"];
 export const adminReads = ["admin/catalog", "admin/stats", "admin/rewards", "admin/redemptions", "admin/users"];
 export const verifierReads = ["verifier/capabilities", "verifier/deliveries"];
 export const privatePages = ["/dashboard", "/profile", "/security", "/map", "/scan", "/chat", "/deliveries", "/progress", "/rewards"];

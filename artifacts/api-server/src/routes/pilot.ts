@@ -12,6 +12,7 @@ import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/ai
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { ownedDigitalAsset } from "../lib/digitalAssets";
 import { guideAccountDetails } from "../lib/aiGuideCore";
+import { GuideStorageError, hasGuideStorage, listGuideConversations, createGuideConversation, readGuideConversation, deleteGuideConversation, parseStoredQuestion, answerStoredGuideQuestion } from "../lib/guideStorage";
 import { presentReward } from "../lib/pointPresentation";
 import { AiProviderError, ProviderConfig, classifyImageWithVision } from "../lib/aiProvider";
 import { resolveAiSettings, resolveAiRuntimeLimits } from "../lib/aiProviderConfig";
@@ -246,19 +247,12 @@ router.get("/guide/capabilities", (_req, res) => {
   const settings = resolveAiSettings("ecoguide", process.env);
   return res.json({ enabled: settings.missing.length === 0, provider: settings.missing.length === 0 ? settings.provider : null, missing: settings.missing });
 });
-router.post("/guide/ask", async (req, res) => {
-  if (req.get("X-AI-Consent") !== "true") return res.status(403).json({ error: "ai_consent_required" });
+async function answerGuideRequest(uid: string, request: ReturnType<typeof parseGuideRequest>) {
   const settings = resolveAiSettings("ecoguide", process.env);
-  if (settings.missing.length) {
-    return res.status(503).json({ error: "ai_provider_unconfigured" });
-  }
-  if (!hasOnlyFields(req.body, ["question", "history", "materialContext"])) return res.status(400).json({ error: "unexpected_fields" });
-  const request = parseGuideRequest(req.body);
-  const uid = res.locals.userId;
+  if (settings.missing.length) throw new AiProviderError(503,"ai_provider_unconfigured");
   const cfg = buildProviderConfig(settings);
   cfg.beforeAttempt = reserveAiAttempt(uid, "ecoguide");
   cfg.afterAttempt = (id, status, durationMs, errorCode) => finishQuotaAttempt(quotaCfg, id, status, durationMs, errorCode);
-  try {
     const db = await database();
     const pool = await databasePool();
     // Same authorized account/centre readers as GET /deliveries and
@@ -279,10 +273,47 @@ router.post("/guide/ask", async (req, res) => {
       academic: process.env.EVALUATION_MODE_ENABLED === "true",
       ...guideAccountDetails(options, recentDeliveries),
     };
-    const result = await askGuideWithProvider(request, userContext, cfg);
-    return res.json(result);
+    return askGuideWithProvider(request, userContext, cfg);
+}
+router.post("/guide/ask", async (req, res) => {
+  if (req.get("X-AI-Consent") !== "true") return res.status(403).json({ error: "ai_consent_required" });
+  const request = parseGuideRequest(req.body);
+  try {
+    return res.json(await answerGuideRequest(res.locals.userId,request));
   } catch (e) {
     return sendAiError(res, e);
+  }
+});
+router.get("/guide/conversations", async (_req,res) => {
+  const pool = await databasePool();
+  if (!await hasGuideStorage(pool)) return res.status(503).json({error:"guide_storage_migration_required"});
+  return res.json({conversations:await listGuideConversations(pool,res.locals.userId)});
+});
+router.post("/guide/conversations", async (req,res) => {
+  if (req.get("X-AI-Storage-Consent") !== "true") return res.status(403).json({error:"guide_storage_consent_required"});
+  if (!hasOnlyFields(req.body,[])) return res.status(400).json({error:"unexpected_fields"});
+  const result = await createGuideConversation(await databasePool(),res.locals.userId,req.get("Idempotency-Key"));
+  if (result.replayed) res.set("Idempotency-Replayed","true");
+  return res.status(result.replayed ? 200 : 201).json(result);
+});
+router.get("/guide/conversations/:id", async (req,res) => {
+  return res.json(await readGuideConversation(await databasePool(),res.locals.userId,String(req.params.id)));
+});
+router.delete("/guide/conversations/:id", async (req,res) => {
+  return res.json(await deleteGuideConversation(await databasePool(),res.locals.userId,String(req.params.id)));
+});
+router.post("/guide/conversations/:id/messages", async (req,res) => {
+  if (req.get("X-AI-Consent") !== "true") return res.status(403).json({error:"ai_consent_required"});
+  if (req.get("X-AI-Storage-Consent") !== "true") return res.status(403).json({error:"guide_storage_consent_required"});
+  const question = parseStoredQuestion(req.body);
+  try {
+    const result = await answerStoredGuideQuestion(await databasePool(),res.locals.userId,String(req.params.id),req.get("Idempotency-Key"),question,
+      request => answerGuideRequest(res.locals.userId,request));
+    if (result.replayed) res.set("Idempotency-Replayed","true");
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof GuideStorageError) throw error;
+    return sendAiError(res,error);
   }
 });
 router.get("/scans", async (_req, res) => {
@@ -834,7 +865,7 @@ const pilotErrorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   const dbError = error?.cause ?? error;
   if (dbError?.code === "42P01") return res.status(503).json({ error: "schema_migration_required" });
   if (dbError?.code === "42501") return res.status(503).json({ error: "permissions_unavailable" });
-  if (error instanceof DeliveryRequestError || error instanceof DeliveryLifecycleError || error instanceof CatalogError || error instanceof RewardError || error instanceof AiClassificationError || error instanceof AiGuideError) {
+  if (error instanceof DeliveryRequestError || error instanceof DeliveryLifecycleError || error instanceof CatalogError || error instanceof RewardError || error instanceof AiClassificationError || error instanceof AiGuideError || error instanceof GuideStorageError) {
     return res.status(error.status).json({ error: error.code });
   }
   if (typeof error === "object" && error && "code" in error && error.code === "42501") {

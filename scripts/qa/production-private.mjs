@@ -224,6 +224,9 @@ async function verifyRealAi(page, role) {
     try {
       await page.goto(`${frontend}${kind === "ecoguide" ? "/chat" : "/scan"}`, { waitUntil: "domcontentloaded", timeout: 45000 });
       if (kind === "ecoguide") {
+        // Keep this inference-only suite separate from stored conversations.
+        // Never append its question to a previously saved conversation.
+        await page.getByTestId("button-new-guide-conversation").click();
         const consent = page.getByTestId("guide-consent");
         await consent.waitFor({ state: "visible", timeout: 30000 });
         await page.waitForFunction(() => !document.querySelector('[data-testid="guide-consent"]')?.disabled, null, { timeout: 30000 });
