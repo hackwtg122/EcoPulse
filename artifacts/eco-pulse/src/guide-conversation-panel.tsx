@@ -113,6 +113,9 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState<Intent | null>(null);
+  const [retryReason, setRetryReason] = useState<"pending" | "failed" | null>(
+    null,
+  );
   const [reload, setReload] = useState(0);
   const request = useRef<AbortController | null>(null);
   const gate = useRef(false);
@@ -147,8 +150,10 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
         history: [],
         saved: { conversationId: id, key: last.requestKey },
       });
+      setRetryReason(last.status === "pending" ? "pending" : "failed");
     } else {
       setRetry(null);
+      setRetryReason(null);
     }
   };
   useEffect(() => {
@@ -163,6 +168,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
     setConsent(false);
     setStorageConsent(false);
     setRetry(null);
+    setRetryReason(null);
     setError("");
     setAiEnabled(false);
     setStorageReady(false);
@@ -261,6 +267,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
     selectId(null);
     setMessages(welcome);
     setRetry(null);
+    setRetryReason(null);
     setInput("");
     setError("");
     creationKey.current = crypto.randomUUID();
@@ -289,6 +296,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
           selectId(null);
           setMessages(welcome);
           setRetry(null);
+          setRetryReason(null);
           creationKey.current = crypto.randomUUID();
         }
       }
@@ -320,6 +328,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
     setPending(true);
     setError("");
     setRetry(null);
+    setRetryReason(null);
     const controller = new AbortController();
     request.current = controller;
     const history = messages
@@ -405,6 +414,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
       if (!controller.signal.aborted) {
         setError(showError(cause));
         setRetry(intent);
+        setRetryReason("failed");
       }
     } finally {
       if (request.current === controller) {
@@ -543,7 +553,9 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
             className="mx-5 mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900"
           >
             {error ||
-              "La última pregunta no tiene una respuesta confirmada. Puedes reintentarla sin duplicarla."}
+              (retryReason === "pending"
+                ? "Hay una respuesta pendiente en el servidor. Si la conexión se interrumpió, podrás reintentarla tras cinco minutos sin duplicarla."
+                : "La última pregunta quedó sin respuesta guardada. Puedes reintentarla sin duplicarla.")}
             {retry && (
               <button
                 type="button"
