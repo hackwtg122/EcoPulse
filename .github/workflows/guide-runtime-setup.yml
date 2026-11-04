@@ -1,0 +1,32 @@
+name: EcoGuia least-privilege connection setup
+on:
+  workflow_dispatch:
+    inputs:
+      authorize_setup:
+        description: Autorizar un rol tecnico nuevo limitado a las tablas EcoGuia y GUIDE_DATABASE_URL en Render, sin alterar roles ni registros existentes
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: ecopulse-guide-runtime-setup
+  cancel-in-progress: false
+jobs:
+  setup:
+    if: github.repository == 'hackwtg122/EcoPulse' && github.ref == 'refs/heads/main' && inputs.authorize_setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - run: npm install --prefix "$RUNNER_TEMP/ecopulse-guide-qa" --no-audit --no-fund --ignore-scripts pg@8.22.0
+      - run: node --experimental-strip-types scripts/qa/setup-guide-runtime.mjs
+        env:
+          GUIDE_RUNTIME_SETUP_AUTHORIZED: "true"
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          PROD_QA_PG_MODULE: ${{ runner.temp }}/ecopulse-guide-qa/node_modules/pg/lib/index.js

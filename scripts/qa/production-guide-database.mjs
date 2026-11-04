@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
-import { resolveDatabaseUrl } from "../../lib/db/src/connectionConfig.ts";
+import { resolveGuideDatabaseUrl } from "../../lib/db/src/connectionConfig.ts";
+import { renderGuideEnvironment } from "./render-guide-environment.mjs";
 
 // Check the database actually selected by the existing Render API, not an
 // assumed local URL. No Clerk impersonation, conversation writes or row export.
@@ -29,58 +30,10 @@ try {
     fail("official_runner_required");
   if (!process.env.RENDER_API_KEY || !process.env.PROD_QA_PG_MODULE)
     fail("render_access_missing");
-  async function read(path) {
-    const response = await fetch(`https://api.render.com/v1${path}`, {
-      headers: { Authorization: `Bearer ${process.env.RENDER_API_KEY}` },
-      redirect: "error",
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!response.ok) fail("render_read_failed");
-    return response.json();
-  }
-  async function pages(path) {
-    const result = [];
-    let cursor;
-    for (let page = 0; page < 10; page++) {
-      const rows = await read(
-        `${path}?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-      );
-      if (!Array.isArray(rows)) fail("render_read_failed");
-      result.push(...rows);
-      if (rows.length < 100) return result;
-      const next = rows.at(-1)?.cursor;
-      if (!next || next === cursor) fail("render_read_failed");
-      cursor = next;
-    }
-    fail("render_read_failed");
-  }
-  const services = (await pages("/services"))
-    .map((row) => row.service)
-    .filter(
-      (service) =>
-        service?.serviceDetails?.url?.replace(/\/$/, "") ===
-          "https://ecopulse-3xb4.onrender.com" &&
-        service.repo?.replace(/\.git$/, "") ===
-          "https://github.com/hackwtg122/EcoPulse" &&
-        service.branch === "main",
-    );
-  if (services.length !== 1) fail("official_service_not_unique");
-  const env = {};
-  for (const row of await pages(
-    `/services/${encodeURIComponent(services[0].id)}/env-vars`,
-  )) {
-    if (
-      [
-        "DATABASE_URL",
-        "EVALUATION_DATABASE_URL",
-        "EVALUATION_MODE_ENABLED",
-      ].includes(row.envVar?.key)
-    )
-      env[row.envVar.key] = row.envVar.value;
-  }
+  const { env } = await renderGuideEnvironment();
   let url;
   try {
-    url = new URL(resolveDatabaseUrl(env));
+    url = new URL(resolveGuideDatabaseUrl(env));
   } catch {
     fail("runtime_configuration_invalid");
   }
@@ -103,10 +56,16 @@ try {
   await client.query("SET LOCAL statement_timeout='15s'");
   const role = (
     await client.query(
-      "SELECT rolsuper,rolbypassrls,current_setting('app.guide_user_id',true) AS principal FROM pg_roles WHERE rolname=current_user",
+      "SELECT rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,current_setting('app.guide_user_id',true) AS principal FROM pg_roles WHERE rolname=current_user",
     )
   ).rows[0];
-  if (role.rolsuper || role.rolbypassrls) fail("runtime_role_bypasses_rls");
+  if (
+    role.rolsuper ||
+    role.rolbypassrls ||
+    role.rolcreatedb ||
+    role.rolcreaterole
+  )
+    fail("runtime_role_bypasses_rls");
   if (role.principal) fail("anonymous_database_principal_not_empty");
   for (const table of ["guide_conversations", "guide_turns"]) {
     if (

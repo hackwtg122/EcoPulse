@@ -275,6 +275,12 @@ async function answerGuideRequest(uid: string, request: ReturnType<typeof parseG
     };
     return askGuideWithProvider(request, userContext, cfg);
 }
+
+async function guideDatabasePool() {
+  const { getGuidePool } = await import("@workspace/db");
+  try { return getGuidePool(); }
+  catch { throw new GuideStorageError(503,"guide_storage_configuration_required"); }
+}
 router.post("/guide/ask", async (req, res) => {
   if (req.get("X-AI-Consent") !== "true") return res.status(403).json({ error: "ai_consent_required" });
   const request = parseGuideRequest(req.body);
@@ -285,29 +291,29 @@ router.post("/guide/ask", async (req, res) => {
   }
 });
 router.get("/guide/conversations", async (_req,res) => {
-  const pool = await databasePool();
+  const pool = await guideDatabasePool();
   if (!await hasGuideStorage(pool)) return res.status(503).json({error:"guide_storage_migration_required"});
   return res.json({conversations:await listGuideConversations(pool,res.locals.userId)});
 });
 router.post("/guide/conversations", async (req,res) => {
   if (req.get("X-AI-Storage-Consent") !== "true") return res.status(403).json({error:"guide_storage_consent_required"});
   if (!hasOnlyFields(req.body,[])) return res.status(400).json({error:"unexpected_fields"});
-  const result = await createGuideConversation(await databasePool(),res.locals.userId,req.get("Idempotency-Key"));
+  const result = await createGuideConversation(await guideDatabasePool(),res.locals.userId,req.get("Idempotency-Key"));
   if (result.replayed) res.set("Idempotency-Replayed","true");
   return res.status(result.replayed ? 200 : 201).json(result);
 });
 router.get("/guide/conversations/:id", async (req,res) => {
-  return res.json(await readGuideConversation(await databasePool(),res.locals.userId,String(req.params.id)));
+  return res.json(await readGuideConversation(await guideDatabasePool(),res.locals.userId,String(req.params.id)));
 });
 router.delete("/guide/conversations/:id", async (req,res) => {
-  return res.json(await deleteGuideConversation(await databasePool(),res.locals.userId,String(req.params.id)));
+  return res.json(await deleteGuideConversation(await guideDatabasePool(),res.locals.userId,String(req.params.id)));
 });
 router.post("/guide/conversations/:id/messages", async (req,res) => {
   if (req.get("X-AI-Consent") !== "true") return res.status(403).json({error:"ai_consent_required"});
   if (req.get("X-AI-Storage-Consent") !== "true") return res.status(403).json({error:"guide_storage_consent_required"});
   const question = parseStoredQuestion(req.body);
   try {
-    const result = await answerStoredGuideQuestion(await databasePool(),res.locals.userId,String(req.params.id),req.get("Idempotency-Key"),question,
+    const result = await answerStoredGuideQuestion(await guideDatabasePool(),res.locals.userId,String(req.params.id),req.get("Idempotency-Key"),question,
       request => answerGuideRequest(res.locals.userId,request));
     if (result.replayed) res.set("Idempotency-Replayed","true");
     return res.json(result);

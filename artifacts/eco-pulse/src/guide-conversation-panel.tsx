@@ -51,6 +51,8 @@ const errors: Record<string, string> = {
     "El historial no está habilitado todavía en el servidor. Puedes conversar sin guardar.",
   guide_storage_unavailable:
     "No pudimos acceder al historial. No se ha confirmado el guardado; reintenta sin duplicar la pregunta.",
+  guide_storage_configuration_required:
+    "El historial requiere la conexión de base de datos con permisos limitados. Puedes conversar sin guardar mientras se configura.",
   conversation_not_found:
     "Esta conversación ya no existe o no pertenece a tu cuenta.",
   conversation_limit_reached:
