@@ -209,7 +209,7 @@ router.delete("/favorites/:id", async (req, res) => {
 router.get("/progress", async (_req, res) => {
   const db = await database();
   const scanRows = await db.select({ category: scans.category, createdAt: scans.createdAt })
-    .from(scans).where(eq(scans.userId, res.locals.userId));
+    .from(scans).where(and(eq(scans.userId, res.locals.userId), eq(scans.source, "manual")));
   const deliveryRows = await db.select({ status: deliveries.status, createdAt: deliveries.createdAt })
     .from(deliveries).where(eq(deliveries.userId, res.locals.userId));
   return res.json(computeProgress(scanRows, deliveryRows));
@@ -259,7 +259,7 @@ async function answerGuideRequest(uid: string, request: ReturnType<typeof parseG
     // /delivery-points. No client-supplied balance, slots or delivery data.
     const [[balanceRow], scanCount, deliveryCount, options, recentDeliveries] = await Promise.all([
       db.select({ total: sql<string>`coalesce(sum(${pointMovements.delta}), 0)::text` }).from(pointMovements).where(eq(pointMovements.userId, uid)),
-      db.select({ c: sql<number>`count(*)::int` }).from(scans).where(eq(scans.userId, uid)),
+      db.select({ c: sql<number>`count(*)::int` }).from(scans).where(and(eq(scans.userId, uid), eq(scans.source, "manual"))),
       db.select({ c: sql<number>`count(*)::int` }).from(deliveries).where(eq(deliveries.userId, uid)),
        loadDeliveryOptions(pool, true, true),
       listUserDeliveries(pool, uid),
@@ -324,7 +324,8 @@ router.post("/guide/conversations/:id/messages", async (req,res) => {
 });
 router.get("/scans", async (_req, res) => {
   const db = await database();
-  const rows = await db.select().from(scans).where(eq(scans.userId, res.locals.userId))
+  const rows = await db.select().from(scans)
+    .where(and(eq(scans.userId, res.locals.userId), eq(scans.source, "manual")))
     .orderBy(desc(scans.createdAt)).limit(50);
   res.json(rows);
 });
@@ -379,7 +380,7 @@ router.get("/admin/stats", async (_req, res) => {
   const rewardSchemaReady = await hasRewardFulfillmentSchema(pool);
   const [usersRow, scansRow, deliveriesRow, redemptionsRow] = await Promise.all([
     pool.query<{ total: number }>("SELECT count(*)::integer AS total FROM users"),
-    pool.query<{ total: number }>("SELECT count(*)::integer AS total FROM scans"),
+    pool.query<{ total: number }>("SELECT count(*)::integer AS total FROM scans WHERE source = 'manual'"),
     pool.query<{ status: string; total: number }>("SELECT status, count(*)::integer AS total FROM deliveries GROUP BY status ORDER BY status"),
     rewardSchemaReady
       ? pool.query<{ fulfillment_status: string | null; total: number }>(

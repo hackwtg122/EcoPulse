@@ -84,6 +84,22 @@ test("loads and minimizes the authenticated dashboard snapshot", async () => {
   assert.ok(seenAuthorization.every((value) => value === "Bearer session-token"));
 });
 
+test("dashboard omits legacy demo scans instead of presenting them as real", async () => {
+  const bodies = {
+    me: { id: "user-a", role: "participant" },
+    balance: { balance: 0 },
+    scans: [
+      { id: "scan-real", userId: "user-a", category: "paper", source: "manual", createdAt: "2026-10-10T00:00:00Z" },
+      { id: "scan-demo", userId: "user-a", category: "glass", source: "demo", createdAt: "2026-10-11T00:00:00Z" },
+    ],
+    deliveries: [],
+    redemptions: [],
+  };
+  const fakeFetch = async (url) => response(bodies[String(url).split("/").at(-1)]);
+  const snapshot = await loadPilotDashboardData("http://127.0.0.1:5000", "session-token", new AbortController().signal, fakeFetch);
+  assert.deepEqual(snapshot.scans.map((scan) => scan.id), ["scan-real"]);
+});
+
 test("surfaces authentication and server failures without retaining data", async () => {
   const fakeFetch = async () => response({ error: "authentication_required" }, 401);
   await assert.rejects(
@@ -134,12 +150,17 @@ test("creates a manual scan with a server-safe payload and idempotency key", asy
 test("does not accept invented scan categories or sources from the API", async () => {
   const invalidCategory = async () => response({ id: "scan", category: "battery", source: "manual", createdAt: "now" }, 201);
   const invalidSource = async () => response({ id: "scan", category: "paper", source: "ai", createdAt: "now" }, 201);
+  const invalidDemo = async () => response({ id: "scan", category: "paper", source: "demo", createdAt: "now" }, 201);
   await assert.rejects(
     createPilotScan("http://127.0.0.1:5000", "token", "paper", "scan_operation_123", new AbortController().signal, invalidCategory),
     (error) => error instanceof PilotApiError && error.status === 502,
   );
   await assert.rejects(
     createPilotScan("http://127.0.0.1:5000", "token", "paper", "scan_operation_123", new AbortController().signal, invalidSource),
+    (error) => error instanceof PilotApiError && error.status === 502,
+  );
+  await assert.rejects(
+    createPilotScan("http://127.0.0.1:5000", "token", "paper", "scan_operation_123", new AbortController().signal, invalidDemo),
     (error) => error instanceof PilotApiError && error.status === 502,
   );
 });

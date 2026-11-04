@@ -184,7 +184,8 @@ function parseScan(row: Record<string, unknown>): PilotScan {
   const category = requireString(row.category, "scan_category");
   if (!isManualScanCategory(category)) throw new PilotApiError(502, "invalid_scan_category");
   const source = requireString(row.source, "scan_source");
-  if (source !== "manual" && source !== "demo") throw new PilotApiError(502, "invalid_scan_source");
+  // Only classifications created and confirmed by the user are real activity.
+  if (source !== "manual") throw new PilotApiError(502, "invalid_scan_source");
   return {
     id: requireString(row.id, "scan_id"),
     category,
@@ -585,7 +586,11 @@ export async function loadPilotDashboardData(
   ]);
   const balance = (balanceResponse as { balance?: unknown })?.balance;
   if (!Number.isSafeInteger(balance)) throw new PilotApiError(502, "invalid_balance_response");
-  const scans = requireArray(scansResponse, "scans").map(parseScan);
+  // Ignore legacy demo rows instead of failing the whole dashboard or showing
+  // simulated activity as real. The server also filters these rows.
+  const scans = requireArray(scansResponse, "scans")
+    .filter((row) => row.source !== "demo")
+    .map(parseScan);
   const deliveries = requireArray(deliveriesResponse, "deliveries").map(parseDelivery);
   const redemptions = requireArray(redemptionsResponse, "redemptions").map((row) => {
     if (!Number.isSafeInteger(row.cost) || (row.cost as number) < 1) throw new PilotApiError(502, "invalid_redemption_cost");
