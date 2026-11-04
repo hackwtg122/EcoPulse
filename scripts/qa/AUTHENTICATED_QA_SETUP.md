@@ -1,6 +1,6 @@
 # Corregir el acceso autorizado de QA
 
-Diagnóstico confirmado: [ejecución 41788171785](https://github.com/hackwtg122/EcoPulse/actions/runs/41788171785), `qa_fixture_json_invalid`, campo `root`. El secreto `PRODUCTION_QA_ACCOUNTS` no se puede analizar como JSON. El fallo ocurre antes de iniciar sesión: no demuestra una contraseña incorrecta ni un fallo de Clerk. El agente no puede recuperar el valor de un secreto de Actions mediante la API.
+Diagnóstico confirmado de nuevo en el commit de persistencia `1b13a1b`: [ejecución 41794416699](https://github.com/hackwtg122/EcoPulse/actions/runs/41794416699), `qa_fixture_json_invalid`, campo `root`. El secreto `PRODUCTION_QA_ACCOUNTS` no se puede analizar como JSON. El fallo ocurre antes de iniciar sesión: no demuestra una contraseña incorrecta ni un fallo de Clerk. El agente no puede recuperar el valor de un secreto de Actions mediante la API. Sus metadatos siguen indicando última actualización en 2026-11-02T22:43:08Z.
 
 El propietario debe editar **Settings → Secrets and variables → Actions → Repository secrets → PRODUCTION_QA_ACCOUNTS** en `hackwtg122/EcoPulse`:
 
