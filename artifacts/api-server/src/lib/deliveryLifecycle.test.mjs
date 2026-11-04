@@ -6,7 +6,7 @@ const deliveryId = "00000000-0000-4000-8000-000000000001";
 const pointId = "00000000-0000-4000-8000-000000000002";
 const slotId = "00000000-0000-4000-8000-000000000003";
 
-function poolFor({ version = 2, reference = "https://example.org/center", status = "received", hasSlot = false } = {}) {
+function poolFor({ version = 2, reference = "https://example.org/center", status = "received", hasSlot = false, appointmentRequired = false, slotAvailable = true } = {}) {
   const queries = [];
   const client = { release() {}, async query(sql, params) {
     const text = sql.trim();
@@ -14,9 +14,9 @@ function poolFor({ version = 2, reference = "https://example.org/center", status
     if (["BEGIN", "COMMIT", "ROLLBACK"].includes(text)) return { rows: [] };
     if (text.startsWith("SELECT id, user_id, status FROM deliveries")) return { rows: [{ id: deliveryId, user_id: "user_owner", status }] };
     if (text.startsWith("SELECT request_version, delivery_point_id")) return { rows: [{ request_version: version, delivery_point_id: version === 2 ? pointId : null, slot_id: hasSlot ? slotId : null }] };
-    if (text.startsWith("SELECT active, appointment_required")) return { rows: [{ active: true, appointment_required: false, validation_reference: reference, validated_by: "user_admin", validated_at: new Date() }] };
+    if (text.startsWith("SELECT active, appointment_required")) return { rows: [{ active: true, appointment_required: appointmentRequired, validation_reference: reference, validated_by: "user_admin", validated_at: new Date() }] };
     if (text.startsWith("SELECT validation_reference, validated_by")) return { rows: [{ validation_reference: "https://example.org/slot", validated_by: "user_admin", validated_at: new Date() }] };
-    if (text.startsWith("SELECT s.id FROM deliveries")) return { rowCount: hasSlot ? 1 : 0, rows: hasSlot ? [{ id: slotId }] : [] };
+    if (text.startsWith("SELECT s.id FROM deliveries")) return { rowCount: hasSlot && slotAvailable ? 1 : 0, rows: hasSlot && slotAvailable ? [{ id: slotId }] : [] };
     if (text.startsWith("SELECT id, verifier_id, decision")) return { rows: [{ id: pointId, verifier_id: "user_verifier", decision: "approved", verified_grams: 6000, receipt_code: "receipt_123" }] };
     if (text.startsWith("SELECT coalesce(sum(delta)")) return { rows: [{ points: "100" }] };
     if (text.startsWith("INSERT INTO verifications") || text.startsWith("INSERT INTO delivery_status_events") || text.startsWith("UPDATE deliveries") || text.startsWith("INSERT INTO point_movements")) return { rows: [], rowCount: 1 };
@@ -67,6 +67,14 @@ test("owners can schedule a validated slot and cancel pending requests without p
   const cancelled = poolFor({ status: "pending", version: 1 });
   assert.equal((await updateOwnDeliveryStatus(cancelled, "user_owner", deliveryId, "cancel")).status, "cancelled");
   assert.equal(cancelled.queries.at(-1).text, "COMMIT");
+});
+
+test("scheduling respects the destination appointment policy", async () => {
+  const walkIn = poolFor({ status: "pending" });
+  assert.equal((await updateOwnDeliveryStatus(walkIn, "user_owner", deliveryId, "schedule")).status, "scheduled");
+  assert.ok(!walkIn.queries.some(query => query.text.startsWith("SELECT s.id FROM deliveries")));
+  await assert.rejects(updateOwnDeliveryStatus(poolFor({ status: "pending", appointmentRequired: true }), "user_owner", deliveryId, "schedule"), error => error.code === "delivery_destination_unverified");
+  await assert.rejects(updateOwnDeliveryStatus(poolFor({ status: "pending", hasSlot: true, slotAvailable: false }), "user_owner", deliveryId, "schedule"), error => error.code === "delivery_slot_unavailable");
 });
 
 test("owner transitions are idempotent and reject other users or received deliveries", async () => {
