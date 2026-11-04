@@ -26,7 +26,7 @@ async function lockedDelivery(client: PoolClient, deliveryId: string): Promise<D
   return delivery;
 }
 
-async function requireVerifiedDestination(client: PoolClient, deliveryId: string): Promise<void> {
+async function requireVerifiedDestination(client: PoolClient, deliveryId: string): Promise<{ slotId: string | null }> {
   const request = await client.query<{ request_version: number; delivery_point_id: string | null; slot_id: string | null }>(
     "SELECT request_version, delivery_point_id, slot_id FROM deliveries WHERE id = $1", [deliveryId],
   );
@@ -47,6 +47,7 @@ async function requireVerifiedDestination(client: PoolClient, deliveryId: string
     );
     if (!slot.rows[0] || !hasOperationalEvidence(slot.rows[0])) throw new DeliveryLifecycleError(409, "delivery_destination_unverified");
   }
+  return { slotId: details.slot_id };
 }
 
 function requireVerifier(role: unknown, actorId: string, deliveryId: string) {
@@ -86,10 +87,12 @@ export async function updateOwnDeliveryStatus(
     if (delivery.status === target) return { deliveryId, status: target, replayed: true };
     if (action === "schedule") {
       if (delivery.status !== "pending") throw new DeliveryLifecycleError(409, "delivery_not_schedulable");
-      await requireVerifiedDestination(client, deliveryId);
-      const slot = await client.query(`SELECT s.id FROM deliveries d JOIN delivery_slots s ON s.id=d.slot_id AND s.delivery_point_id=d.delivery_point_id
-        WHERE d.id=$1 AND s.active=true AND s.starts_at>now() FOR SHARE OF s`, [deliveryId]);
-      if (!slot.rowCount) throw new DeliveryLifecycleError(409, "delivery_slot_unavailable");
+      const destination = await requireVerifiedDestination(client, deliveryId);
+      if (destination.slotId) {
+        const slot = await client.query(`SELECT s.id FROM deliveries d JOIN delivery_slots s ON s.id=d.slot_id AND s.delivery_point_id=d.delivery_point_id
+          WHERE d.id=$1 AND s.active=true AND s.starts_at>now() FOR SHARE OF s`, [deliveryId]);
+        if (!slot.rowCount) throw new DeliveryLifecycleError(409, "delivery_slot_unavailable");
+      }
     } else if (delivery.status !== "pending" && delivery.status !== "scheduled") {
       throw new DeliveryLifecycleError(409, "delivery_not_cancellable");
     }
