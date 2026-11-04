@@ -141,15 +141,15 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
     selectId(id);
     setMessages(turns.length ? historyMessages(turns) : welcome);
     const last = turns.at(-1);
-    setRetry(
-      last && last.status !== "completed"
-        ? {
-            question: last.question,
-            history: [],
-            saved: { conversationId: id, key: last.requestKey },
-          }
-        : null,
-    );
+    if (last && last.status !== "completed") {
+      setRetry({
+        question: last.question,
+        history: [],
+        saved: { conversationId: id, key: last.requestKey },
+      });
+    } else {
+      setRetry(null);
+    }
   };
   useEffect(() => {
     const controller = new AbortController();
@@ -537,12 +537,13 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
               ? "Las próximas preguntas se guardarán con tu consentimiento."
               : "Conversación sin guardar: se perderá al salir de esta vista."}
         </p>
-        {error && (
+        {(error || retry) && (
           <div
-            role="alert"
+            role={error ? "alert" : "status"}
             className="mx-5 mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900"
           >
-            {error}
+            {error ||
+              "La última pregunta no tiene una respuesta confirmada. Puedes reintentarla sin duplicarla."}
             {retry && (
               <button
                 type="button"
