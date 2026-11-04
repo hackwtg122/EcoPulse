@@ -40,6 +40,8 @@ test("operational delivery options exclude unverified locations while published 
     const options = await loadDeliveryOptions(database, true, true);
     assert.equal(options.enabled, false);
     assert.deepEqual(options.points, []);
+    process.env.EVALUATION_MODE_ENABLED = "true";
+    assert.deepEqual((await loadDeliveryOptions(database, true, true)).points, [], "evaluation mode must not bypass operational evidence");
   } finally {
     if (previousMode === undefined) delete process.env.EVALUATION_MODE_ENABLED; else process.env.EVALUATION_MODE_ENABLED = previousMode;
   }

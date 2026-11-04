@@ -38,6 +38,8 @@ export type ProviderConfig = {
   chatModel: string;
   visionAllowlist?: string[];
   chatAllowlist?: string[];
+  /** Explicit, verified free structured-output model for a retired endpoint (404). */
+  fallbackModel?: string;
   requireOpenLicense?: boolean;
   timeoutMs: number;
   maxRetries: number;
@@ -196,7 +198,7 @@ async function chatCompletions(
           // Optional app attribution header documented by OpenRouter; contains no secrets.
           "X-Title": "EcoPulse",
         },
-        body: JSON.stringify(bodyWithStore),
+        body: JSON.stringify({ ...bodyWithStore, model }),
         signal: signal ?? controller.signal,
       });
       lastStatus = res.status;
@@ -231,7 +233,11 @@ async function chatCompletions(
         return parsed;
       }
       clearTimeout(timer);
-      if (!isTransientError(res.status, null) || (cfg.provider === "nvidia" && res.status === 429) || attempt === cfg.maxRetries) {
+      if (res.status === 404 && cfg.provider === "openrouter" && cfg.fallbackModel && model !== cfg.fallbackModel && attempt < cfg.maxRetries) {
+        // This consumes the existing retry budget and must reserve its own quota
+        // on the next iteration. Never fallback on auth, quota or invalid output.
+        model = selectModel(cfg.fallbackModel, undefined, true, cfg.provider);
+      } else if (!isTransientError(res.status, null) || res.status === 429 || attempt === cfg.maxRetries) {
         if (res.status === 401 || res.status === 403) throw new AiProviderError(503, "ai_provider_auth_failed");
         if (res.status === 404) throw new AiProviderError(503, "ai_provider_model_unavailable");
         if (res.status === 400) throw new AiProviderError(502, "ai_provider_rejected_request");
@@ -346,7 +352,7 @@ export async function chatWithStructured(
   if (cfg.provider === "nvidia" && model !== "nvidia/nemotron-3-super-120b-a12b") throw new AiProviderError(503, "ai_provider_model_not_allowed");
   const schema = {
     type: "object",
-    properties: { answer: { type: "string" } },
+    properties: { answer: { type: "string", minLength: 1, maxLength: 800 } },
     required: ["answer"],
     additionalProperties: false,
   };
@@ -354,15 +360,21 @@ export async function chatWithStructured(
     ? `CONTEXTO EDUCATIVO (referencia): ${materialContext.trim().replace(/\s+/g, " ").slice(0, 1500)}`
     : "CONTEXTO EDUCATIVO: no disponible.";
   const messages = [
-    { role: "system", content: system.slice(0, 6000) },
+    { role: "system", content: `La respuesta answer debe tener entre 1 y 800 caracteres. No añadas otros campos.\n${system}`.slice(0, 6000) },
     { role: "system", content: grounding },
     ...history.slice(-6).map((t) => ({ role: t.role, content: t.content.slice(0, 300) })),
     { role: "user", content: question.slice(0, 500) },
   ];
-  const parsed = (await chatCompletions(cfg, model, messages as any, schema, cfg.chatMaxTokens, undefined, fetchImpl)) as { answer: string };
-  const ans = typeof parsed.answer === "string" ? parsed.answer.trim().replace(/\s+/g, " ") : "";
-  if (!ans || ans.length > 800) throw new AiProviderError(502, "invalid_ai_response");
-  return { answer: ans };
+  return parseChatPayload(await chatCompletions(cfg, model, messages as any, schema, cfg.chatMaxTokens, undefined, fetchImpl));
+}
+
+export function parseChatPayload(value: unknown): { answer: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiProviderError(502, "invalid_ai_response");
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).length !== 1 || typeof row.answer !== "string") throw new AiProviderError(502, "invalid_ai_response");
+  const answer = row.answer.trim().replace(/\s+/g, " ");
+  if (!answer || answer.length > 800) throw new AiProviderError(502, "invalid_ai_response");
+  return { answer };
 }
 
 export async function providerSelfTest(cfg: ProviderConfig, fetchImpl: typeof fetch = fetch): Promise<boolean> {

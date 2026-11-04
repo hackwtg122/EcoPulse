@@ -48,11 +48,11 @@ test("concurrent processes cannot exceed a shared daily limit", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ecopulse-quota-concurrent-"));
   try {
     const path = join(dir, "quota.json");
-    const script = `import { reserveQuota } from './src/lib/aiQuota.ts';\n` +
+    const script = `import { reserveQuota } from ${JSON.stringify(new URL("./aiQuota.ts", import.meta.url).href)};\n` +
       `const cfg = { store: 'file', filePath: process.argv[1], dailyGlobalFreeReq: 1, dailyPerUserFreeReq: 8, minutePerUserEcoScan: 2, minutePerUserEcoGuide: 4 };\n` +
       `try { process.stdout.write(reserveQuota(cfg, process.argv[2], 'ecoscan').ok ? 'ok' : 'blocked'); } catch { process.stdout.write('unavailable'); }`;
     const jobs = Array.from({ length: 4 }, (_, i) => new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, path, `user-${i}`],
+      const child = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", script, path, `user-${i}`],
         { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
       let output = "";
       child.stdout.on("data", (chunk) => { output += chunk.toString(); });

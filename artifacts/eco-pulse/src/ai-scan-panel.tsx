@@ -21,6 +21,10 @@ const classifyErrorMessages: Record<string, string> = {
   ai_provider_unavailable: "El proveedor de IA no respondió. Puedes clasificar el residuo manualmente.",
   ai_quota_store_unavailable: "El control de cuota de IA no está disponible. Para proteger tu cuenta, analiza manualmente por ahora.",
   ai_provider_unconfigured: "El análisis con IA todavía no está configurado. La clasificación manual sigue disponible.",
+  ai_provider_auth_failed: "El proveedor rechazó la autenticación del servidor. La clasificación manual sigue disponible.",
+  ai_provider_model_unavailable: "El modelo de análisis no está disponible. Reintenta más tarde o clasifica manualmente.",
+  ai_provider_rejected_request: "El proveedor no pudo aceptar esta imagen. Prueba con otra foto o clasifica manualmente.",
+  authentication_required: "Tu sesión expiró. Inicia sesión de nuevo para analizar imágenes.",
   invalid_ai_category: "El proveedor devolvió una categoría no válida. Intenta con otra foto o clasifica manualmente.",
   invalid_ai_response: "El proveedor devolvió una respuesta no válida. Intenta con otra foto o clasifica manualmente.",
   invalid_image: "No se pudo procesar la imagen. Elige un JPG o PNG válido de hasta 5 MB.",
@@ -65,6 +69,7 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
   const { getToken, userId } = useAuth();
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [capabilitiesLoaded, setCapabilitiesLoaded] = useState(false);
+  const [capabilityRetry, setCapabilityRetry] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
@@ -81,6 +86,7 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
   // State updates are async, so a double click could otherwise fire two analyses
   // and consume two quota units for a single intent.
   const inFlight = useRef(false);
+  const savingInFlight = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -101,7 +107,7 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
     })();
     return () => { controller.abort(); request.current?.abort(); saveRequest.current?.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiUrl, getToken, userId]);
+  }, [apiUrl, getToken, userId, capabilityRetry]);
 
   function resetResult() {
     setSuggestion(null); setEditedCategory(null); setEditing(false);
@@ -109,6 +115,8 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
   }
 
   const select = useCallback((candidate: File | null) => {
+    if (savingInFlight.current) return;
+    request.current?.abort();
     setError(""); resetResult(); setConsent(false);
     setPreviewUrl(previous => { if (previous) URL.revokeObjectURL(previous); return null; });
     if (!candidate) { setFile(null); return; }
@@ -120,6 +128,8 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
   }, []);
 
   const removeImage = () => {
+    if (savingInFlight.current) return;
+    request.current?.abort();
     setPreviewUrl(previous => { if (previous) URL.revokeObjectURL(previous); return null; });
     setFile(null); setConsent(false); resetResult(); setError("");
   };
@@ -141,6 +151,7 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
       canvas.width = 0; canvas.height = 0;
       if (!png || png.size < 1 || png.size > maximumImageBytes) throw new Error("image_too_large");
       const token = await getToken();
+      if (controller.signal.aborted) return;
       if (!token) throw new Error("missing_session_token");
       const response = await fetch(`${apiUrl}/api/pilot/scans/classify`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "image/png", "X-AI-Consent": "true" }, body: png, signal: controller.signal, cache: "no-store" });
       if (!response.ok) {
@@ -170,11 +181,13 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
 
   const categoryToSave = editedCategory;
   const confirmSave = async () => {
-    if (!categoryToSave || saveStatus === "saving" || saveStatus === "saved") return;
+    if (!categoryToSave || savingInFlight.current || saveStatus === "saving" || saveStatus === "saved") return;
+    savingInFlight.current = true;
     const controller = new AbortController(); saveRequest.current = controller;
     setSaveStatus("saving"); setError("");
     try {
       const token = await getToken();
+      if (controller.signal.aborted) return;
       if (!token) throw new PilotApiError(401, "missing_session_token");
       idempotencyKey.current ??= `scan_${crypto.randomUUID()}`;
       await createPilotScan(apiUrl, token, categoryToSave, idempotencyKey.current, controller.signal);
@@ -188,7 +201,7 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
       else if (status_code === 429) setError("Límite de solicitudes alcanzado. Espera un minuto y reintenta.");
       else setError("No se pudo guardar la clasificación. Se conservan tus datos; puedes reintentar.");
       setSaveStatus("idle");
-    } finally { if (saveRequest.current === controller) saveRequest.current = null; }
+    } finally { savingInFlight.current = false; if (saveRequest.current === controller) saveRequest.current = null; }
   };
 
   const discardResult = () => { resetResult(); setConsent(false); };
@@ -200,6 +213,7 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
       <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">La IA analiza la fotografía y sugiere una categoría con una explicación. Debes revisarla, confirmarla o corregirla antes de registrarla. No valida entregas ni concede puntos.</p>
 
       {!capabilitiesLoaded && <p role="status" className="mt-4 text-sm">Comprobando disponibilidad del análisis con IA…</p>}
+      {capabilitiesLoaded && capabilities === null && <div role="alert" className="mt-4 rounded-2xl bg-[hsl(var(--muted))] p-4 text-sm">No pudimos comprobar la conexión con EcoScan IA. Revisa tu sesión o tu conexión. <button type="button" className="font-semibold underline" onClick={() => setCapabilityRetry(value => value + 1)} data-testid="button-retry-ai-capabilities">Reintentar</button></div>}
       {capabilitiesLoaded && capabilities !== null && !capabilities.enabled && (
         <div role="status" className="mt-4 rounded-2xl bg-[hsl(var(--muted))] p-4 text-sm" data-testid="ai-scan-unavailable">
           <p className="font-semibold">El análisis con IA no está configurado todavía.</p>

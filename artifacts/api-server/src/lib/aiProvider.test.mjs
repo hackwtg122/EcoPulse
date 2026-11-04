@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AiProviderError, VERIFIED_FREE_OPEN_MODELS, parseVisionPayload, classifyImageWithVision, chatWithStructured, providerSelfTest } from "./aiProvider.ts";
+import { AiProviderError, VERIFIED_FREE_OPEN_MODELS, parseVisionPayload, parseChatPayload, classifyImageWithVision, chatWithStructured, providerSelfTest } from "./aiProvider.ts";
 
 const secretKey = "test-secret-key-do-not-leak";
 const baseCfg = {
@@ -130,11 +130,11 @@ test("parseVisionPayload normalizes whitespace and enforces exact shape", () => 
 });
 
 test("transient provider failures retry, then map to safe errors without leaking the key", async () => {
-  // One 429 followed by success is retried transparently.
+  // A transient server failure may retry; rate limits must reach the client.
   let calls = 0;
   const flaky = async () => {
     calls += 1;
-    if (calls === 1) return { ok: false, status: 429, async json() { return {}; } };
+    if (calls === 1) return { ok: false, status: 503, async json() { return {}; } };
     return { ok: true, status: 200, async json() { return { choices: [{ message: { content: JSON.stringify(goodPayload) } }] }; } };
   };
   const result = await classifyImageWithVision({ ...baseCfg, maxRetries: 1 }, "aW1n", flaky);
@@ -180,17 +180,22 @@ test("chatWithStructured truncates inputs and validates answers", async () => {
   assert.equal(capture.body.messages[0].content.length, 6000);
   assert.equal(capture.body.messages.length, 2 /* systems */ + 6 /* history */ + 1);
   assert.equal(capture.body.messages.at(-1).content.length, 500);
+  assert.equal(capture.body.response_format.json_schema.schema.properties.answer.maxLength, 800);
   await rejectsWith(chatWithStructured(baseCfg, "sys", [], "hola", undefined, okFetch(JSON.stringify({ answer: "a".repeat(900) }))), 502, "invalid_ai_response");
   await rejectsWith(chatWithStructured(baseCfg, "sys", [], "hola", undefined, okFetch(JSON.stringify({}))), 502, "invalid_ai_response");
 });
 
 test("rate limits keep the advertised wait and audit failures never mask a valid analysis", async () => {
-  const always429 = async () => ({
+  let calls = 0;
+  const always429 = async () => {
+    calls++;
+    return {
     ok: false, status: 429,
     headers: { get: (name) => name === "retry-after" ? "42" : null },
     async json() { return {}; },
-  });
-  await classifyImageWithVision(baseCfg, "aW1n", always429).then(
+    };
+  };
+  await classifyImageWithVision({ ...baseCfg, maxRetries: 2 }, "aW1n", always429).then(
     () => assert.fail("expected rejection ai_rate_limited"),
     (error) => {
       assert.ok(error instanceof AiProviderError);
@@ -199,6 +204,7 @@ test("rate limits keep the advertised wait and audit failures never mask a valid
       assert.equal(error.retryAfterSeconds, 42);
     },
   );
+  assert.equal(calls, 1, "429 must not consume automatic retries");
   // A store hiccup while closing the audit row must not discard a real answer.
   const result = await classifyImageWithVision({
     ...baseCfg,
@@ -206,6 +212,12 @@ test("rate limits keep the advertised wait and audit failures never mask a valid
     afterAttempt: () => { throw new Error("quota store down"); },
   }, "aW1n", okFetch(JSON.stringify(goodPayload)));
   assert.equal(result.category, "plastic");
+});
+
+test("chat output rejects null, arrays, extra fields and non-string answers safely", () => {
+  for (const value of [null, [], {}, { answer: null }, { answer: "", points: 1 }]) {
+    assert.throws(() => parseChatPayload(value), error => error instanceof AiProviderError && error.code === "invalid_ai_response");
+  }
 });
 
 test("providerSelfTest is a boolean probe that never throws", async () => {

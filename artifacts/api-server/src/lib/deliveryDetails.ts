@@ -174,7 +174,7 @@ export async function loadDeliveryOptions(
     return { mode: "legacy", enabled: true, reason: "migration_pending", categories: [], points: [] };
   }
 
-  if (operationalOnly && process.env.EVALUATION_MODE_ENABLED !== "true") {
+  if (operationalOnly) {
     const validation = await database.query(`SELECT
       EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='delivery_points' AND column_name='validated_at')
       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='delivery_slots' AND column_name='validated_at') AS ready`);
@@ -243,7 +243,7 @@ export async function loadDeliveryOptions(
     validated_by?: string | null;
     validated_at?: Date | null;
   }>(slotResult)) {
-    if (operationalOnly && process.env.EVALUATION_MODE_ENABLED !== "true" && !hasOperationalEvidence(row)) continue;
+    if (operationalOnly && !hasOperationalEvidence(row)) continue;
     const slots = slotsByPoint.get(row.delivery_point_id) ?? [];
     slots.push({ id: row.id, startsAt: row.starts_at, endsAt: row.ends_at, remainingCapacity: row.remaining_capacity });
     slotsByPoint.set(row.delivery_point_id, slots);
@@ -261,7 +261,7 @@ export async function loadDeliveryOptions(
     validation_reference?: string | null;
     validated_by?: string | null;
     validated_at?: Date | null;
-  }>(pointResult).filter((row) => !operationalOnly || process.env.EVALUATION_MODE_ENABLED === "true" || hasOperationalEvidence(row)).map((row) => {
+  }>(pointResult).filter((row) => !operationalOnly || hasOperationalEvidence(row)).map((row) => {
     const presented = presentDeliveryPoint(row);
     return {
       id: row.id,

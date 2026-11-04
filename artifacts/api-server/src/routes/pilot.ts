@@ -87,6 +87,7 @@ function buildProviderConfig(settings: ReturnType<typeof resolveAiSettings>): Pr
     baseUrl: settings.baseUrl ?? process.env.AI_BASE_URL ?? undefined,
     visionModel: settings.model,
     chatModel: settings.model,
+    ...(settings.provider === "openrouter" ? { fallbackModel: "nvidia/nemotron-3.5-super-vl:free" } : {}),
     visionAllowlist: (process.env.AI_VISION_MODEL_ALLOW || "").split(",").map((s) => s.trim()).filter(Boolean),
     chatAllowlist: (process.env.AI_CHAT_MODEL_ALLOW || "").split(",").map((s) => s.trim()).filter(Boolean),
     requireOpenLicense: true,
@@ -266,7 +267,7 @@ router.post("/guide/ask", async (req, res) => {
       db.select({ total: sql<string>`coalesce(sum(${pointMovements.delta}), 0)::text` }).from(pointMovements).where(eq(pointMovements.userId, uid)),
       db.select({ c: sql<number>`count(*)::int` }).from(scans).where(eq(scans.userId, uid)),
       db.select({ c: sql<number>`count(*)::int` }).from(deliveries).where(eq(deliveries.userId, uid)),
-      loadDeliveryOptions(pool, true),
+       loadDeliveryOptions(pool, true, true),
       listUserDeliveries(pool, uid),
     ]);
     const userContext = {
