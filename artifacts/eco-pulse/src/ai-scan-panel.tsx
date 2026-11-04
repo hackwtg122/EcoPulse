@@ -28,6 +28,7 @@ const classifyErrorMessages: Record<string, string> = {
   invalid_ai_category: "El proveedor devolvió una categoría no válida. Intenta con otra foto o clasifica manualmente.",
   invalid_ai_response: "El proveedor devolvió una respuesta no válida. Intenta con otra foto o clasifica manualmente.",
   invalid_image: "No se pudo procesar la imagen. Elige un JPG o PNG válido de hasta 5 MB.",
+  image_too_large: "La imagen procesada supera el límite de 5 MB. Usa una foto más pequeña o clasifica manualmente.",
   png_required: "El servidor solo acepta imágenes PNG procesadas. Vuelve a intentarlo desde el panel.",
   missing_session_token: "Tu sesión expiró. Inicia sesión de nuevo para analizar imágenes.",
   network: "No hay conexión con el servidor. Revisa tu red e inténtalo de nuevo.",
@@ -140,16 +141,23 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
     const controller = new AbortController(); request.current = controller;
     setStatus("sending"); setError(""); resetResult();
     try {
-      const bitmap = await createImageBitmap(file);
-      const factor = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(bitmap.width * factor)); canvas.height = Math.max(1, Math.round(bitmap.height * factor));
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("canvas_unavailable");
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
-      const png = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
-      canvas.width = 0; canvas.height = 0;
-      if (!png || png.size < 1 || png.size > maximumImageBytes) throw new Error("image_too_large");
+      // Decode and canvas failures are image problems, not network problems.
+      let bitmap: ImageBitmap | null = null;
+      let png: Blob | null = null;
+      try {
+        bitmap = await createImageBitmap(file);
+        const factor = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(bitmap.width * factor)); canvas.height = Math.max(1, Math.round(bitmap.height * factor));
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("canvas_unavailable");
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        png = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
+        canvas.width = 0; canvas.height = 0;
+      } catch { throw new Error("invalid_image"); }
+      finally { bitmap?.close(); }
+      if (!png || png.size < 1) throw new Error("invalid_image");
+      if (png.size > maximumImageBytes) throw new Error("image_too_large");
       const token = await getToken();
       if (controller.signal.aborted) return;
       if (!token) throw new Error("missing_session_token");
