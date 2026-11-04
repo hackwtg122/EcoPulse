@@ -116,6 +116,7 @@ try {
     JSON.stringify({
       check: "actual_render_guide_database",
       status: "BLOCKED",
+      code: /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : undefined,
       reason: safeReasons.has(error.message)
         ? error.message
         : "runtime_database_check_failed",

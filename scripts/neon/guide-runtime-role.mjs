@@ -3,7 +3,10 @@ import { randomBytes, pbkdf2Sync, createHmac, createHash } from "node:crypto";
 export const guideRuntimeRole = "ecopulse_guide_runtime";
 
 // Caller owns the transaction. No existing role/password is ever changed.
-export async function createGuideRuntimeRole(client) {
+export async function createGuideRuntimeRole(
+  client,
+  existingGeneratedPassword,
+) {
   const present = await client.query(
     "SELECT 1 FROM pg_roles WHERE rolname=$1",
     [guideRuntimeRole],
@@ -14,7 +17,12 @@ export async function createGuideRuntimeRole(client) {
     WHERE n.nspname='public' AND c.relname IN ('guide_conversations','guide_turns') AND c.relrowsecurity AND c.relforcerowsecurity
     AND obj_description(c.oid,'pg_class')='ecopulse:ecoguide-persistence:v1'`);
   if (schema.rows[0].count !== 2) throw new Error("guide_schema_missing");
-  const password = randomBytes(32).toString("hex");
+  if (
+    existingGeneratedPassword !== undefined &&
+    !/^[a-f0-9]{64}$/.test(existingGeneratedPassword)
+  )
+    throw new Error("guide_generated_secret_requires_review");
+  const password = existingGeneratedPassword ?? randomBytes(32).toString("hex");
   // Send a SCRAM verifier, not the clear-text generated secret, in role DDL.
   const salt = randomBytes(16),
     iterations = 4096;

@@ -19,7 +19,9 @@ export async function renderGuideEnvironment() {
       signal: AbortSignal.timeout(30000),
     });
     if (!response.ok) throw new Error("render_read_failed");
-    return response.json();
+    if (response.status === 204) return null;
+    const text = await response.text();
+    return text.trim() ? JSON.parse(text) : null;
   }
   async function pages(path) {
     const result = [];

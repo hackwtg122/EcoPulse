@@ -8,6 +8,7 @@ import { createGuideRuntimeRole } from "../neon/guide-runtime-role.mjs";
 import { renderGuideEnvironment } from "./render-guide-environment.mjs";
 
 let owner, probe;
+let stage = "authorization";
 const safeReasons = new Set([
   "explicit_setup_authorization_required",
   "existing_guide_role_requires_review",
@@ -19,6 +20,8 @@ const safeReasons = new Set([
   "official_service_not_unique",
   "official_runner_required",
   "render_access_missing",
+  "guide_generated_secret_requires_review",
+  "guide_storage_configuration_required",
 ]);
 try {
   if (
@@ -26,6 +29,7 @@ try {
     process.env.GITHUB_EVENT_NAME !== "workflow_dispatch"
   )
     throw new Error("explicit_setup_authorization_required");
+  stage = "render_configuration";
   const access = await renderGuideEnvironment();
   const { default: pg } = await import(
     pathToFileURL(process.env.PROD_QA_PG_MODULE).href
@@ -33,7 +37,10 @@ try {
   let guideUrl = access.env.GUIDE_DATABASE_URL;
   let created = false;
   let schemaApplied = false;
-  if (!guideUrl) {
+  {
+    const previousGuide = guideUrl
+      ? new URL(resolveGuideDatabaseUrl(access.env))
+      : null;
     const url = new URL(resolveDatabaseUrl(access.env));
     if (!url.hostname.endsWith(".neon.tech") || url.pathname !== "/neondb")
       throw new Error("runtime_database_requires_review");
@@ -42,6 +49,7 @@ try {
       connectionString: url.href,
       connectionTimeoutMillis: 15000,
     });
+    stage = "owner_connection";
     await owner.connect();
     await owner.query("BEGIN");
     await owner.query("SET LOCAL lock_timeout='3s'");
@@ -64,15 +72,32 @@ try {
       );
       schemaApplied = true;
     }
-    const credentials = await createGuideRuntimeRole(owner);
-    url.username = credentials.role;
-    url.password = credentials.password;
-    guideUrl = url.href;
+    stage = "role_provisioning";
+    const present = await owner.query(
+      "SELECT 1 FROM pg_roles WHERE rolname='ecopulse_guide_runtime'",
+    );
+    if (present.rowCount && !guideUrl)
+      throw new Error("existing_guide_role_requires_review");
+    if (!present.rowCount) {
+      // Recover an interrupted initial setup only when the role is absent.
+      // Reuse the generated secret already held by Render; never reset a role.
+      const credentials = await createGuideRuntimeRole(
+        owner,
+        previousGuide ? decodeURIComponent(previousGuide.password) : undefined,
+      );
+      url.username = credentials.role;
+      url.password = credentials.password;
+      guideUrl = url.href;
+      created = true;
+    }
     // Store only the new guide connection; do not overwrite DATABASE_URL or
     // existing roles. A failed Render write rolls the new role back.
-    await access.setGuideUrl(guideUrl);
+    if (!access.env.GUIDE_DATABASE_URL) {
+      stage = "render_secret_storage";
+      await access.setGuideUrl(guideUrl);
+    }
+    stage = "role_commit";
     await owner.query("COMMIT");
-    created = true;
   }
   const connection = resolveGuideDatabaseUrl({
     ...access.env,
@@ -82,7 +107,9 @@ try {
     connectionString: connection,
     connectionTimeoutMillis: 15000,
   });
+  stage = "restricted_connection";
   await probe.connect();
+  stage = "restricted_policy_verification";
   await probe.query("BEGIN READ ONLY");
   await probe.query("SET LOCAL statement_timeout='15s'");
   const role = (
@@ -132,6 +159,8 @@ try {
     JSON.stringify({
       check: "guide_least_privilege_setup",
       status: "BLOCKED",
+      stage,
+      code: /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : undefined,
       reason: safeReasons.has(error.message)
         ? error.message
         : "guide_runtime_setup_failed",
