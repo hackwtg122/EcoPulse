@@ -12,10 +12,11 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 
 ## EN PROCESO
 
-- Corregir la agenda para destinos validados que no requieren cita; validar técnicamente, publicar y comprobar en producción.
+- Impedir que el mapa de la aplicación cargue ubicaciones de evaluación como sustituto de centros publicados. Mantener el mapa vacío cuando no exista catálogo real.
 
 ## BLOQUEADO
 
+- Agenda sin cita: integrada en main en `5f0b3aa`; build y tipos aprobados. Comprobación funcional pendiente de una sesión autorizada y una solicitud real en un destino validado que no requiera cita. No se crearán entregas ficticias para comprobarla.
 - Comprobar el flujo operativo completo de centros y disponibilidad: requiere centros reales activos, materiales y disponibilidad respaldados por evidencia operativa verificable, y acceso autorizado para la comprobación de extremo a extremo.
 
 ## TERMINADO

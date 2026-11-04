@@ -26,12 +26,15 @@ test("map browsing uses the published read endpoint, not the delivery-write acti
   const map = app.slice(app.indexOf("function MapPage("), app.indexOf("function RewardsPage("));
   assert.match(map, /loadPilotPublicPoints\(/);
   assert.doesNotMatch(map, /loadPilotDeliveryOptions\(/);
+  assert.doesNotMatch(map, /loadEvaluationPoints|evaluationPoints/);
 });
 
 test("normal published centers retain real favorites and an empty catalog still renders the base map", () => {
   const source = readFileSync(new URL("./interactive-map.tsx", import.meta.url), "utf8");
   assert.match(source, /aria-pressed=\{favoriteIds\.has\(point\.id\)\}/);
   assert.match(source, /\{\.\.\.favoriteProps\}/);
-  assert.match(source, /publishedPoints\.length > 0 \|\| fallback\.length === 0/);
+  const experience = source.slice(source.indexOf("export function MapExperience("));
+  assert.match(experience, /<PublishedCentersMap points=\{publishedPoints\} \{\.\.\.favoriteProps\} \/>/);
+  assert.doesNotMatch(experience, /evaluationPoints|mapAcademicCenters|<InteractiveMap/);
   assert.match(source, /<Marker key=\{point\.id\} position=\{\[point\.lat, point\.lng\]\}/);
 });

@@ -8,7 +8,7 @@ import {
   AlertTriangle, ArrowRight, Bell, BookOpen, Bot, Camera, Check, CircleHelp, Clock3, Compass, Gift, Leaf, LockKeyhole, LogOut, MapPin, Menu, MessageCircle, Navigation, PackageCheck, Pencil, Recycle, Search, ShieldCheck, Sparkles, Target, Trophy, UserRound, X, Zap,
 } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
-import { createPilotScan, isCurrentPilotResponse, loadEvaluationPoints, loadPilotDashboardData, loadPilotProgress, loadPilotPublicPoints, PilotApiError, retryWaitSuffix, type EvaluationPoint, type PilotDashboardData, type PilotDeliveryOptions, type PilotProgress } from "@/pilot-api";
+import { createPilotScan, isCurrentPilotResponse, loadPilotDashboardData, loadPilotProgress, loadPilotPublicPoints, PilotApiError, retryWaitSuffix, type PilotDashboardData, type PilotDeliveryOptions, type PilotProgress } from "@/pilot-api";
 import { colombianSeparationReference, manualScanCategories, manualScanGuidance, materialCategoryByScan, type ManualScanCategory } from "@/scan-catalog";
 const DeliveryPanel = lazy(() => import("@/delivery-panel").then(module => ({ default: module.DeliveryPanel })));
 const VerifierQueue = lazy(() => import("@/delivery-panel").then(module => ({ default: module.VerifierQueue })));
@@ -393,24 +393,19 @@ function ScanPage() {
 function MapPage({ initialMaterial = "" }: { initialMaterial?: string }) {
   const { getToken, userId } = useAuth();
   const [points, setPoints] = useState<PilotDeliveryOptions["points"]>([]);
-  const [evaluationPoints, setEvaluationPoints] = useState<EvaluationPoint[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setStatus("loading");
     setPoints([]);
-    setEvaluationPoints([]);
     void (async () => {
       try {
         const token = await getToken();
         if (!token || !userId) throw new Error("missing_session_token");
         // Explore the same published catalog without enabling delivery writes.
-        const [published, evaluation] = await Promise.all([
-          loadPilotPublicPoints(pilotApiUrl, token, controller.signal),
-          loadEvaluationPoints(pilotApiUrl, token, controller.signal).catch(() => [] as EvaluationPoint[]),
-        ]);
-        if (!controller.signal.aborted) { setPoints(published); setEvaluationPoints(evaluation); setStatus("ready"); }
+        const published = await loadPilotPublicPoints(pilotApiUrl, token, controller.signal);
+        if (!controller.signal.aborted) { setPoints(published); setStatus("ready"); }
       } catch {
         if (!controller.signal.aborted) setStatus("error");
       }
@@ -422,7 +417,7 @@ function MapPage({ initialMaterial = "" }: { initialMaterial?: string }) {
     <PageTitle eyebrow="Mapa" title="Centros de reciclaje" copy="Encuentra materiales, horarios y cupos disponibles para tu entrega." action={<Link href="/deliveries" className="inline-flex items-center gap-2 rounded-full bg-[hsl(var(--primary))] px-5 py-3 font-semibold text-[hsl(var(--primary-foreground))]" data-testid="link-map-deliveries"><PackageCheck size={16} /> Solicitar entrega</Link>} />
     {status === "loading" && <p role="status" className="mb-4">Consultando el mapa…</p>}
     {status === "error" && <div role="alert" className="mb-4 rounded-2xl border p-4">No pudimos cargar el mapa. <button type="button" onClick={() => setRetry(value => value + 1)} className="underline">Reintentar</button></div>}
-    {status === "ready" && <Suspense fallback={<p role="status">Cargando mapa…</p>}><MapExperience apiUrl={pilotApiUrl} publishedPoints={points} evaluationPoints={evaluationPoints} initialMaterial={initialMaterial} /></Suspense>}
+    {status === "ready" && <Suspense fallback={<p role="status">Cargando mapa…</p>}><MapExperience apiUrl={pilotApiUrl} publishedPoints={points} initialMaterial={initialMaterial} /></Suspense>}
   </div>;
 }
 function RewardsPage() {

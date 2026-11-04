@@ -10,7 +10,6 @@ import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import { ArrowRight, Heart, MapPin, Navigation, Search, Building2 } from "lucide-react";
 import { materialCategoryLabels } from "./materials-catalog";
 import type { PilotDeliveryOptions } from "./pilot-api";
-import { mapAcademicCenters } from "./map-catalog";
 const categoryLabels = materialCategoryLabels as Record<string, string>;
 
 L.Icon.Default.mergeOptions({
@@ -382,18 +381,13 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
   </div>;
 }
 
-// The published catalog always drives the visible map. Evaluation coordinates
-// are only a fallback for an explicitly enabled internal evaluation environment.
-export function MapExperience({ publishedPoints, evaluationPoints = [], initialMaterial = "", apiUrl = "" }: {
+// Never replace an empty published catalog with evaluation locations.
+export function MapExperience({ publishedPoints, initialMaterial = "", apiUrl = "" }: {
   publishedPoints: PilotDeliveryOptions["points"];
-  evaluationPoints?: TestPoint[];
   initialMaterial?: string;
   apiUrl?: string;
 }) {
   const { getToken, userId } = useAuth();
-  const [query, setQuery] = useState("");
-  const [materialFilter, setMaterialFilter] = useState(initialMaterial);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<Set<string> | null>(null);
   const [favoriteError, setFavoriteError] = useState("");
   const [favoriteBusy, setFavoriteBusy] = useState(false);
@@ -432,7 +426,6 @@ export function MapExperience({ publishedPoints, evaluationPoints = [], initialM
     } catch { setFavoriteError("No se pudo actualizar el favorito. Inténtalo de nuevo."); }
     finally { setFavoriteBusy(false); }
   };
-  const fallback = useMemo(() => publishedPoints.length ? [] : mapAcademicCenters(publishedPoints, evaluationPoints), [publishedPoints, evaluationPoints]);
   const favoriteProps = {
     favoriteIds: favorites ?? undefined,
     favoriteBusy,
@@ -442,7 +435,6 @@ export function MapExperience({ publishedPoints, evaluationPoints = [], initialM
   return <div className="space-y-4">
     {initialMaterial && <p role="status" className="rounded-2xl border p-3 text-sm" data-testid="map-material-notice">Material desde tu escaneo: {categoryLabels[initialMaterial] ?? initialMaterial}. Confirma los materiales aceptados al solicitar.</p>}
     {favoriteError && <p role="alert" className="rounded-xl border p-3 text-sm">{favoriteError}</p>}
-    {fallback.length > 0 && <InteractiveMap points={fallback} selectedId={selectedId} onSelect={setSelectedId} query={query} materialFilter={materialFilter} onQueryChange={setQuery} onMaterialChange={setMaterialFilter} favoriteIds={favorites ?? undefined} onToggleFavorite={favorites ? id => { void toggleFavorite(id); } : undefined} />}
-    {(publishedPoints.length > 0 || fallback.length === 0) && <PublishedCentersMap points={publishedPoints} {...favoriteProps} />}
+    <PublishedCentersMap points={publishedPoints} {...favoriteProps} />
   </div>;
 }
