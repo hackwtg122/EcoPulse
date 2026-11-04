@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { setTimeout } from "node:timers/promises";
 import { parseQAAccounts, qaRoles, commonReads, adminReads, verifierReads, privatePages, expectedReadStatus, PrivateQAError, safePrivateDiagnostic } from "./private-qa-policy.mjs";
 import { reversibleFavoriteCheck } from "./private-write-check.mjs";
@@ -7,6 +7,7 @@ import { reversibleFavoriteCheck } from "./private-write-check.mjs";
 const frontend = "https://ecopulseef.netlify.app";
 const api = "https://ecopulse-3xb4.onrender.com";
 const results = [];
+const realAiAuthorized = process.env.PRIVATE_QA_AI_AUTHORIZED === "true";
 const report = (role, check, status, reason, scope = "authenticated_reads_and_session") => {
   const row = { role, check, status, scope, ...(reason ? { reason } : {}) };
   results.push(row);
@@ -85,10 +86,12 @@ async function run() {
     // fixtures must refer to already provisioned profiles, never real users.
     let identityApproved = false;
     let reversibleWriteApproved = false;
+    let aiInferenceApproved = false;
     await context.route(`${api}/api/pilot/**`, route => {
       const request = route.request(), method = request.method(), url = new URL(request.url());
       const allowedFavorite = reversibleWriteApproved && role === "participant" && ["POST", "DELETE"].includes(method) && /^\/api\/pilot\/favorites\/[0-9a-f-]{36}$/i.test(url.pathname);
-      return identityApproved && (["GET", "HEAD", "OPTIONS"].includes(method) || allowedFavorite) ? route.continue() : route.abort();
+      const allowedInference = aiInferenceApproved && role === "participant" && method === "POST" && ["/api/pilot/guide/ask", "/api/pilot/scans/classify"].includes(url.pathname);
+      return identityApproved && (["GET", "HEAD", "OPTIONS"].includes(method) || allowedFavorite || allowedInference) ? route.continue() : route.abort();
     });
     const page = await context.newPage();
     let jsErrors = 0;
@@ -155,8 +158,14 @@ async function run() {
         report(role, `GET ${path}`, response.status === expected && response.json ? "PASS" : "FAIL",
           response.status === expected && response.json ? undefined : `expected_${expected}_received_${response.status}`);
         if (path.endsWith("ai-capabilities") || path === "guide/capabilities") {
-          report(role, `${path}_real_inference`, "BLOCKED", response.aiEnabled ? "real_free_provider_call_and_input_not_authorized_by_this_read_suite" : "provider_capability_disabled", "deferred_inference");
+          if (!realAiAuthorized || role !== "participant") report(role, `${path}_real_inference`, "BLOCKED", response.aiEnabled ? "real_provider_calls_require_explicit_participant_opt_in" : "provider_capability_disabled", "deferred_inference");
         }
+      }
+      if (realAiAuthorized && role === "participant") {
+        aiInferenceApproved = true;
+        try {
+          await verifyRealAi(page, role);
+        } finally { aiInferenceApproved = false; }
       }
       if (role === "participant") {
         if (account.reversibleWritesAuthorized !== true) {
@@ -206,6 +215,54 @@ async function run() {
     report("all", check, "BLOCKED", "requires_separately_authorized_test_records_or_sensitive_operation", "deferred_write_flows");
   }
 }
+
+async function verifyRealAi(page, role) {
+  // Exercise the actual deployed UI, consent and authenticated endpoints. Never
+  // fabricate responses, mint sessions, auto-save records or award points.
+  for (const kind of ["ecoguide", "ecoscan"]) {
+    let failureReason = "live_ui_or_provider_check_failed";
+    try {
+      await page.goto(`${frontend}${kind === "ecoguide" ? "/chat" : "/scan"}`, { waitUntil: "domcontentloaded", timeout: 45000 });
+      if (kind === "ecoguide") {
+        const consent = page.getByTestId("guide-consent");
+        await consent.waitFor({ state: "visible", timeout: 30000 });
+        await page.waitForFunction(() => !document.querySelector('[data-testid="guide-consent"]')?.disabled, null, { timeout: 30000 });
+        await consent.check();
+        await page.getByTestId("input-chat-message").fill("¿Cómo separo el vidrio para reciclar?");
+        const [response] = await Promise.all([
+          page.waitForResponse(r => r.url() === `${api}/api/pilot/guide/ask` && r.request().method() === "POST", { timeout: 210000 }),
+          page.getByTestId("button-send-chat").click(),
+        ]);
+        failureReason = `live_inference_http_${response.status()}`;
+        if (!response.ok()) { report(role, kind, response.status() === 429 || response.status() === 503 ? "BLOCKED" : "FAIL", failureReason, "real_ai_inference"); continue; }
+        failureReason = "invalid_live_inference_response";
+        const result = await response.json();
+        if (result?.source !== "ai" || typeof result.answer !== "string" || !result.answer.trim() || result.answer.length > 800) throw new Error();
+        await page.locator('[data-testid^="message-a-"]').last().waitFor({ state: "visible", timeout: 15000 });
+        report(role, kind, "PASS", undefined, "real_ai_inference");
+      } else {
+        const input = page.getByTestId("input-ai-upload");
+        await input.waitFor({ state: "attached", timeout: 30000 });
+        await input.setInputFiles(fileURLToPath(new URL("../../artifacts/api-server/src/lib/fixtures/plastic-water-bottle.png", import.meta.url)));
+        await page.getByTestId("checkbox-ai-consent").check();
+        const [response] = await Promise.all([
+          page.waitForResponse(r => r.url() === `${api}/api/pilot/scans/classify` && r.request().method() === "POST", { timeout: 210000 }),
+          page.getByTestId("button-ai-analyze").click(),
+        ]);
+        failureReason = `live_inference_http_${response.status()}`;
+        if (!response.ok()) { report(role, kind, response.status() === 429 || response.status() === 503 ? "BLOCKED" : "FAIL", failureReason, "real_ai_inference"); continue; }
+        failureReason = "invalid_live_inference_response";
+        const result = await response.json();
+        if (result?.source !== "ai_suggestion" || result.persisted !== false || result.points !== 0 || result.category !== "plastic") throw new Error();
+        await page.getByTestId("ai-scan-result").waitFor({ state: "visible", timeout: 15000 });
+        if (await page.getByTestId("ai-scan-saved").count()) throw new Error();
+        report(role, kind, "PASS", "real_reference_photo_not_saved", "real_ai_inference");
+      }
+    } catch {
+      report(role, kind, "FAIL", failureReason, "real_ai_inference");
+    }
+  }
+}
 try { await run(); }
 catch (error) { Object.assign(report("all", "private_suite_setup", "BLOCKED", safePrivateDiagnostic(error).reason), safePrivateDiagnostic(error), { stage: setupStage }); }
 finally { await browser?.close().catch(() => {}); }
@@ -213,4 +270,4 @@ for (const result of results) console.log(JSON.stringify(result));
 const tested = results.filter(x => x.scope === "authenticated_reads_and_session");
 const summary = { scope: "authenticated_reads_and_session_only", passed: tested.filter(x => x.status === "PASS").length, failed: tested.filter(x => x.status === "FAIL").length, blocked: tested.filter(x => x.status === "BLOCKED").length, deferredBlocked: results.filter(x => x.scope !== "authenticated_reads_and_session" && x.status === "BLOCKED").length, systemComplete: false };
 console.log(JSON.stringify(summary));
-if (summary.failed || summary.blocked || results.some(x => x.scope === "reversible_writes" && x.status === "FAIL")) process.exitCode = 1;
+if (summary.failed || summary.blocked || results.some(x => (x.scope === "reversible_writes" && x.status === "FAIL") || (x.scope === "real_ai_inference" && x.status !== "PASS"))) process.exitCode = 1;

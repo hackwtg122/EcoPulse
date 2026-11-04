@@ -8,6 +8,11 @@ on:
         required: true
         default: false
         type: boolean
+      real_ai_calls:
+        description: Autorizar inferencias reales EcoGuía y EcoScan con foto de referencia, sin guardar clasificaciones ni acreditar puntos
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -42,6 +47,7 @@ jobs:
         run: node scripts/qa/production-private.mjs
         env:
           PRIVATE_QA_AUTHORIZED: ${{ inputs.confirm_test_accounts && 'true' || 'false' }}
+          PRIVATE_QA_AI_AUTHORIZED: ${{ inputs.real_ai_calls && 'true' || 'false' }}
           PRODUCTION_QA_ACCOUNTS: ${{ secrets.PRODUCTION_QA_ACCOUNTS }}
           PROD_QA_MODULES_DIR: ${{ github.workspace }}/scripts/qa/node_modules
           CHROME_PATH: /usr/bin/google-chrome
