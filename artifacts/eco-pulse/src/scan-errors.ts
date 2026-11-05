@@ -23,6 +23,14 @@ export const classifyErrorMessages: Record<string, string> = {
     "El proveedor rechazó la autenticación del servidor. La clasificación manual sigue disponible.",
   ai_provider_model_unavailable:
     "El modelo de análisis no está disponible. Reintenta más tarde o clasifica manualmente.",
+  ai_provider_model_not_allowed:
+    "El modelo de IA configurado no está permitido en el servidor. La clasificación manual sigue disponible.",
+  ai_provider_model_not_verified:
+    "El modelo de IA configurado no está verificado. La clasificación manual sigue disponible.",
+  ai_provider_no_verified_free_open_model:
+    "No hay un modelo gratuito verificado disponible. La clasificación manual sigue disponible.",
+  ai_provider_invalid:
+    "La configuración del proveedor de IA no es válida en el servidor. La clasificación manual sigue disponible.",
   ai_provider_rejected_request:
     "El proveedor no pudo aceptar esta imagen. Prueba con otra foto o clasifica manualmente.",
   ai_consent_required:

@@ -35,6 +35,14 @@ test("known codes keep their concrete message and wait hint", () => {
     classifyErrorMessages.ai_consent_required,
   );
   assert.equal(
+    classifyMessage("ai_provider_model_not_verified", 0, 503),
+    classifyErrorMessages.ai_provider_model_not_verified,
+  );
+  assert.equal(
+    classifyMessage("ai_provider_invalid", 0, 500),
+    classifyErrorMessages.ai_provider_invalid,
+  );
+  assert.equal(
     classifyMessage("ai_quota_minute", 30, 429),
     `${classifyErrorMessages.ai_quota_minute} Reintenta en 30 s.`,
   );

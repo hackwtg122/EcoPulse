@@ -77,6 +77,20 @@ const errors: Record<string, string> = {
     "El proveedor rechazó la autenticación del servidor.",
   ai_provider_model_unavailable:
     "El modelo de IA no está disponible en este momento.",
+  ai_provider_model_not_allowed:
+    "El modelo de IA configurado no está permitido en el servidor.",
+  ai_provider_model_not_verified:
+    "El modelo de IA configurado no está verificado en el servidor.",
+  ai_provider_no_verified_free_open_model:
+    "No hay un modelo gratuito verificado disponible en el servidor.",
+  ai_provider_invalid:
+    "La configuración del proveedor de IA no es válida en el servidor.",
+  ai_provider_unavailable:
+    "El proveedor de IA no respondió. Reintenta más tarde.",
+  ai_provider_rejected_request:
+    "El proveedor no pudo aceptar la solicitud. Reformula la pregunta o reintenta.",
+  invalid_ai_response:
+    "El proveedor devolvió una respuesta no válida. Reintenta la pregunta.",
 };
 function historyMessages(turns: StoredGuideTurn[]): Message[] {
   return turns.flatMap((turn) => [
