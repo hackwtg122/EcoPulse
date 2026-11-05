@@ -4,11 +4,10 @@ import { ArrowRight, Bot, Trash2, UserRound } from "lucide-react";
 import {
   askGuide,
   GuideApiError,
-  guideQuotaMessages,
   loadGuideCapabilities,
   type GuideTurn,
 } from "./guide-api";
-import { retryWaitSuffix } from "./pilot-api";
+import { guideErrorMessage, guideRetryable } from "./guide-errors.ts";
 import {
   askSavedGuide,
   createConversation,
@@ -46,52 +45,6 @@ const time = (value: string) =>
     dateStyle: "short",
     timeStyle: "short",
   });
-const errors: Record<string, string> = {
-  guide_storage_migration_required:
-    "El historial no está habilitado todavía en el servidor. Puedes conversar sin guardar.",
-  guide_storage_unavailable:
-    "No pudimos acceder al historial. No se ha confirmado el guardado; reintenta sin duplicar la pregunta.",
-  guide_storage_configuration_required:
-    "El historial requiere la conexión de base de datos con permisos limitados. Puedes conversar sin guardar mientras se configura.",
-  conversation_not_found:
-    "Esta conversación ya no existe o no pertenece a tu cuenta.",
-  conversation_limit_reached:
-    "Has alcanzado 50 conversaciones. Elimina una propia antes de crear otra.",
-  conversation_turn_limit_reached:
-    "Esta conversación alcanzó 100 preguntas. Inicia una nueva.",
-  guide_conversation_busy:
-    "Hay una respuesta pendiente. Espera; si se interrumpió el servidor, podrás reintentar tras cinco minutos.",
-  guide_idempotency_conflict:
-    "La solicitud anterior tenía otra pregunta. Recarga el historial antes de continuar.",
-  guide_storage_consent_required:
-    "Debes autorizar el almacenamiento antes de continuar esta conversación.",
-  ai_consent_required: "Debes autorizar el envío a la IA antes de preguntar.",
-  invalid_guide_question: "La pregunta debe tener entre 1 y 500 caracteres.",
-  invalid_guide_history:
-    "El historial enviado no es válido. Limpia la vista e inténtalo de nuevo.",
-  sensitive_guide_content:
-    "No envíes claves, tokens ni credenciales en tus preguntas.",
-  ai_provider_unconfigured:
-    "El proveedor de IA no está configurado en el servidor.",
-  ai_provider_auth_failed:
-    "El proveedor rechazó la autenticación del servidor.",
-  ai_provider_model_unavailable:
-    "El modelo de IA no está disponible en este momento.",
-  ai_provider_model_not_allowed:
-    "El modelo de IA configurado no está permitido en el servidor.",
-  ai_provider_model_not_verified:
-    "El modelo de IA configurado no está verificado en el servidor.",
-  ai_provider_no_verified_free_open_model:
-    "No hay un modelo gratuito verificado disponible en el servidor.",
-  ai_provider_invalid:
-    "La configuración del proveedor de IA no es válida en el servidor.",
-  ai_provider_unavailable:
-    "El proveedor de IA no respondió. Reintenta más tarde.",
-  ai_provider_rejected_request:
-    "El proveedor no pudo aceptar la solicitud. Reformula la pregunta o reintenta.",
-  invalid_ai_response:
-    "El proveedor devolvió una respuesta no válida. Reintenta la pregunta.",
-};
 function historyMessages(turns: StoredGuideTurn[]): Message[] {
   return turns.flatMap((turn) => [
     {
@@ -141,19 +94,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
   const request = useRef<AbortController | null>(null);
   const gate = useRef(false);
   const creationKey = useRef(crypto.randomUUID());
-  const showError = (cause: unknown) => {
-    if (cause instanceof GuideApiError) {
-      if (cause.status === 401)
-        return "Tu sesión expiró. Inicia sesión de nuevo.";
-      if (cause.status === 429)
-        return `${guideQuotaMessages[cause.code] ?? "Alcanzaste un límite temporal."}${retryWaitSuffix(cause.retryAfterSeconds)}`;
-      return (
-        errors[cause.code] ??
-        "No pudimos completar la operación. Reintenta más tarde."
-      );
-    }
-    return "No pudimos conectar con EcoGuía. Revisa tu conexión y reintenta.";
-  };
+  const showError = (cause: unknown) => guideErrorMessage(cause);
   const selectId = (id: string | null) => {
     setActiveId(id);
     const url = new URL(window.location.href);
@@ -437,8 +378,9 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
     } catch (cause) {
       if (!controller.signal.aborted) {
         setError(showError(cause));
-        setRetry(intent);
-        setRetryReason("failed");
+        const reusable = guideRetryable(cause);
+        setRetry(reusable ? intent : null);
+        setRetryReason(reusable ? "failed" : null);
       }
     } finally {
       if (request.current === controller) {
