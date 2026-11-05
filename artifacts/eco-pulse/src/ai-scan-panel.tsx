@@ -41,7 +41,7 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
   const [suggestion, setSuggestion] = useState<AiSuggestion | null>(null);
   const [editedCategory, setEditedCategory] = useState<ManualScanCategory | null>(null);
   const [editing, setEditing] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [savedCategory, setSavedCategory] = useState<ManualScanCategory | null>(null);
   const [error, setError] = useState("");
   const request = useRef<AbortController | null>(null);
@@ -171,7 +171,8 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
       if (status_code === 401) setError("Tu sesión expiró. Inicia sesión de nuevo para guardar la clasificación.");
       else if (status_code === 429) setError("Límite de solicitudes alcanzado. Espera un minuto y reintenta.");
       else setError("No se pudo guardar la clasificación. Se conservan tus datos; puedes reintentar.");
-      setSaveStatus("idle");
+      setEditing(false);
+      setSaveStatus("failed");
     } finally { savingInFlight.current = false; if (saveRequest.current === controller) saveRequest.current = null; }
   };
 
@@ -282,6 +283,13 @@ export function AiScanPanel({ apiUrl, onSaved }: { apiUrl: string; onCategory: (
               {suggestion.category === "unknown" && (
                  <button type="button" onClick={() => { const selector = document.getElementById("manual-scan-category"); selector?.scrollIntoView({ behavior: "smooth", block: "center" }); selector?.focus(); }} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[hsl(var(--border))] px-5 text-sm font-semibold text-[hsl(var(--primary))]" data-testid="button-ai-manual-fallback">Elegir manualmente abajo</button>
               )}
+            </div>
+          )}
+
+          {!editing && saveStatus === "failed" && (
+            <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900" role="status" data-testid="ai-scan-save-failed">
+              <p>El guardado no se confirmó. Reintenta con la misma categoría para no duplicar el registro.</p>
+              <button type="button" onClick={() => void confirmSave()} className="mt-2 inline-flex min-h-10 items-center gap-2 rounded-full bg-[hsl(var(--primary))] px-4 text-sm font-semibold text-[hsl(var(--primary-foreground))]" data-testid="button-ai-retry-save">Reintentar guardado</button>
             </div>
           )}
 
