@@ -63,6 +63,14 @@ const errors: Record<string, string> = {
     "Hay una respuesta pendiente. Espera; si se interrumpió el servidor, podrás reintentar tras cinco minutos.",
   guide_idempotency_conflict:
     "La solicitud anterior tenía otra pregunta. Recarga el historial antes de continuar.",
+  guide_storage_consent_required:
+    "Debes autorizar el almacenamiento antes de continuar esta conversación.",
+  ai_consent_required:
+    "Debes autorizar el envío a la IA antes de preguntar.",
+  invalid_guide_question:
+    "La pregunta debe tener entre 1 y 500 caracteres.",
+  invalid_guide_history:
+    "El historial enviado no es válido. Limpia la vista e inténtalo de nuevo.",
   sensitive_guide_content:
     "No envíes claves, tokens ni credenciales en tus preguntas.",
   ai_provider_unconfigured:
