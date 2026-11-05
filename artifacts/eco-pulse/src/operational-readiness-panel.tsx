@@ -48,6 +48,8 @@ export function OperationalReadinessPanel() {
   const [revision, setRevision] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [initializing, setInitializing] = useState(false);
+  const [initializationMessage, setInitializationMessage] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -87,6 +89,33 @@ export function OperationalReadinessPanel() {
     })();
     return () => controller.abort();
   }, [getToken, userId, revision]);
+
+  const prepareCatalog = async () => {
+    if (initializing || status === "loading") return;
+    setInitializing(true);
+    setInitializationMessage("");
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("session_required");
+      const response = await fetch(apiUrl + "/api/pilot/admin/catalog/initialize", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+        body: "{}",
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("initialization_unavailable");
+      const created: { centersCreated: number; slotsCreated: number; rewardsCreated: number } = await response.json();
+      setInitializationMessage(
+        created.centersCreated + " centros, " + created.slotsCreated + " horarios y " +
+        created.rewardsCreated + " premios preparados. Puedes editarlos y publicarlos desde Administración."
+      );
+      setRevision(value => value + 1);
+    } catch {
+      setInitializationMessage("No se pudo preparar el catálogo. Comprueba los permisos de administración e inténtalo nuevamente.");
+    } finally {
+      setInitializing(false);
+    }
+  };
 
   const steps = snapshot ? [
     {
@@ -136,10 +165,17 @@ export function OperationalReadinessPanel() {
         <h2 id="operational-status-title" className="font-display text-2xl text-[hsl(var(--primary))]">Estado operativo</h2>
         <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">Información actualizada desde los servicios de EcoPulse. Accede a cada gestión desde aquí.</p>
       </div>
-      <button type="button" onClick={() => setRevision(value => value + 1)} disabled={status === "loading"} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[hsl(var(--border))] px-4 text-sm font-semibold disabled:opacity-50" data-testid="button-refresh-operational-status">
+      <button type="button" onClick={() => setRevision(value => value + 1)} disabled={status === "loading" || initializing} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[hsl(var(--border))] px-4 text-sm font-semibold disabled:opacity-50" data-testid="button-refresh-operational-status">
         <RefreshCw size={16} /> Actualizar
       </button>
     </div>
+    <div className="flex flex-wrap items-center gap-3">
+      <button type="button" onClick={() => void prepareCatalog()} disabled={initializing || status === "loading"}
+        className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-sm font-semibold text-[hsl(var(--primary-foreground))] disabled:opacity-50"
+        data-testid="button-initialize-admin-catalog">{initializing ? "Preparando..." : "Preparar centros, horarios y premios"}</button>
+      <p className="max-w-xl text-xs text-[hsl(var(--muted-foreground))]">Genera registros iniciales editables cuando no existan. No reemplaza registros existentes ni publica disponibilidad.</p>
+    </div>
+    {initializationMessage && <p role="status" className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm">{initializationMessage}</p>}
     {status === "loading" && <p role="status" className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm">Consultando centros, usuarios y recompensas…</p>}
     {status === "error" && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">No se pudo consultar el estado operativo. Las gestiones siguen accesibles; vuelve a intentar.</p>}
     {status === "ready" && <div className="grid gap-3 md:grid-cols-3">
