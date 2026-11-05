@@ -1,6 +1,6 @@
-export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean };
+export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean; draftRecoveryAvailable?: boolean; operationallyValidated?: boolean };
 export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled"; digitalAsset?: "nature-v1" | "badge-v1" | "guide-v1" | null };
-export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean; canRestock: boolean; inventorySchemaReady: boolean };
+export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean; canRestock: boolean; inventorySchemaReady: boolean; canRecoverDraft: boolean };
 export type RewardRestockInput = { quantity: number; evidenceReference: string; availabilityConfirmed: true };
 export type InventoryMovement = { id: string; rewardId: string; administratorId: string; quantity: number; inventoryBefore: number; inventoryAfter: number; evidenceReference: string; createdAt: string };
 export type RewardDraftInput = { title: string; description: string; cost: number };
@@ -11,6 +11,9 @@ export type FulfillmentHistory = { items: FulfilledRedemption[]; nextCursor: str
 
 export function hasRewardInventory(item: RewardItem): boolean {
   return item.active === true && Number.isSafeInteger(item.inventoryRemaining) && (item.inventoryRemaining as number) > 0;
+}
+export function canEditRewardDraft(item: RewardItem): boolean {
+  return item.active === false && item.validationRecorded !== true && item.fulfillmentDocumented !== true;
 }
 
 export function canRedeemReward(item: RewardItem, canRedeem: boolean, balance: number): boolean {
@@ -53,7 +56,9 @@ function reward(value: Record<string, unknown>): RewardItem {
     ...(typeof value.active === "boolean" ? { active: value.active } : {}),
     ...(value.inventoryRemaining === null || Number.isSafeInteger(value.inventoryRemaining) ? { inventoryRemaining: value.inventoryRemaining as number | null } : {}),
     ...(typeof value.fulfillmentDocumented === "boolean" ? { fulfillmentDocumented: value.fulfillmentDocumented } : {}),
-    ...(typeof value.validationRecorded === "boolean" ? { validationRecorded: value.validationRecorded } : {}) };
+    ...(typeof value.validationRecorded === "boolean" ? { validationRecorded: value.validationRecorded } : {}),
+    ...(typeof value.draftRecoveryAvailable === "boolean" ? { draftRecoveryAvailable: value.draftRecoveryAvailable } : {}),
+    ...(typeof value.operationallyValidated === "boolean" ? { operationallyValidated: value.operationallyValidated } : {}) };
 }
 export async function loadRewards(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch) {
   return items(await call(apiUrl, token, "rewards", signal, undefined, fetchImpl)).map(reward);
@@ -131,9 +136,15 @@ export async function loadRewardCapabilities(apiUrl: string, token: string, sign
   const row = object(await call(apiUrl, token, "rewards/capabilities", signal, undefined, fetchImpl));
   if (typeof row.canRedeem !== "boolean" || typeof row.canManageDrafts !== "boolean" || typeof row.canFulfill !== "boolean" || typeof row.schemaReady !== "boolean") throw new RewardApiError(502, "invalid_reward_capabilities");
   if (row.canPublish !== undefined && typeof row.canPublish !== "boolean") throw new RewardApiError(502, "invalid_reward_capabilities");
-  for (const key of ["canRestock", "inventorySchemaReady"]) if (row[key] !== undefined && typeof row[key] !== "boolean") throw new RewardApiError(502, "invalid_reward_capabilities");
+  for (const key of ["canRestock", "inventorySchemaReady", "canRecoverDraft"]) if (row[key] !== undefined && typeof row[key] !== "boolean") throw new RewardApiError(502, "invalid_reward_capabilities");
   return { canRedeem: row.canRedeem, canManageDrafts: row.canManageDrafts, canPublish: row.canPublish === true, canFulfill: row.canFulfill, schemaReady: row.schemaReady,
-    canRestock: row.canRestock === true, inventorySchemaReady: row.inventorySchemaReady === true };
+    canRestock: row.canRestock === true, inventorySchemaReady: row.inventorySchemaReady === true, canRecoverDraft: row.canRecoverDraft === true };
+}
+
+export async function recoverRewardDraft(apiUrl: string, token: string, rewardId: string, key: string, signal: AbortSignal, fetchImpl?: typeof fetch) {
+  const row = object(await call(apiUrl, token, `admin/rewards/${encodeURIComponent(rewardId)}/recover-draft`, signal, { method: "POST", body: {}, key }, fetchImpl));
+  if (row.rewardId !== rewardId || typeof row.replayed !== "boolean") throw new RewardApiError(502, "invalid_reward_recovery_response");
+  return { rewardId, replayed: row.replayed };
 }
 
 export function validInventoryRestock(value: unknown): value is RewardRestockInput {

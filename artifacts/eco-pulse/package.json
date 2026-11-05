@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts",
-    "build": "node --experimental-strip-types --test src/reward-api.test.mjs src/reward-inventory.test.mjs src/map-catalog.test.mjs src/scan-errors.test.mjs src/guide-errors.test.mjs src/delivery-submission.test.mjs && vite build --config vite.config.ts",
+    "build": "node --experimental-strip-types --test src/reward-api.test.mjs src/reward-draft-recovery.test.mjs src/reward-inventory.test.mjs src/map-catalog.test.mjs src/scan-errors.test.mjs src/guide-errors.test.mjs src/delivery-submission.test.mjs && vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:pilot-api": "node --experimental-strip-types src/pilot-api.test.mjs",

@@ -10,6 +10,7 @@ import { canRedeemReward, hasRewardInventory } from "./reward-api";
 import { loadAdminFulfillmentHistory, type FulfilledRedemption } from "./reward-api";
 import { loadRewardInventoryHistory, restockRewardInventory, validInventoryRestock, type InventoryMovement } from "./reward-api";
 import { readRestockIntent, saveRestockIntent, clearRestockIntent, type RestockIntent } from "./reward-inventory-intent";
+import { canEditRewardDraft, recoverRewardDraft } from "./reward-api";
 
 const emptyDraft: RewardDraftInput = { title: "", description: "", cost: 1 };
 const fulfillmentReferencePattern = /^[A-Za-z0-9_:/.-]{10,120}$/;
@@ -177,6 +178,7 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const draftKey = useRef<string | null>(null);
+  const recoveryKeys = useRef(new Map<string, string>());
   const inFlight = useRef(false);
   const load = useCallback(async (signal: AbortSignal) => {
     if (!userId || role !== "admin") return;
@@ -204,6 +206,7 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
   const refresh = () => void load(new AbortController().signal);
   useEffect(() => {
     const saved = role === "admin" && userId ? readRestockIntent(userId) : null;
+    recoveryKeys.current.clear();
     setRestockIntent(saved); setRestockTarget(saved?.rewardId ?? ""); setRestockQuantity(saved ? String(saved.input.quantity) : "");
     setRestockEvidence(saved?.input.evidenceReference ?? ""); setRestockConfirmed(false);
     setInventoryTarget(""); setInventoryRows([]); setInventoryCursor(null); setInventoryError(""); setInventoryLoading(false);
@@ -274,6 +277,28 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
     finally { if (historyRequest.current === controller) { historyRequest.current = null; setHistoryLoading(false); } }
   };
   const updateDraft = (next: RewardDraftInput) => { setDraft(next); draftKey.current = null; setError(""); };
+  const recoverDraft = async (item: RewardItem) => {
+    if (!userId || !item.draftRecoveryAvailable || !capabilities?.canRecoverDraft || inFlight.current) return;
+    if (!window.confirm(`¿Preparar «${item.title}» para edición? Se retirará su estado no operativo y quedará sin inventario ni publicación. El registro original se conserva en auditoría. Solo se permite si no tiene canjes, reposiciones ni validación operativa real.`)) return;
+    inFlight.current = true; setBusy(true); setError(""); setMessage("");
+    const storageKey = `ecopulse:reward-recovery:${userId}:${item.id}`;
+    let key = recoveryKeys.current.get(item.id);
+    if (!key) { try { const stored = sessionStorage.getItem(storageKey); if (stored && /^[A-Za-z0-9_-]{8,128}$/.test(stored)) key = stored; } catch { /* Storage may be blocked. */ } }
+    key ??= `recovery_${crypto.randomUUID()}`; recoveryKeys.current.set(item.id, key);
+    try { sessionStorage.setItem(storageKey, key); } catch { /* Keep it in memory. */ }
+    try {
+      const token = await getToken(); if (!token) throw new RewardApiError(401, "missing_session_token");
+      const result = await recoverRewardDraft(apiUrl, token, item.id, key, new AbortController().signal);
+      recoveryKeys.current.delete(item.id); try { sessionStorage.removeItem(storageKey); } catch { /* No credentials stored. */ }
+      setEditing(null); setDraft(emptyDraft); draftKey.current = null;
+      setMessage(result.replayed ? "El borrador ya estaba preparado; no se repitió el cambio. Actualiza o edita su contenido." : "Premio preparado para edición, sin publicación ni inventario. El estado anterior se conservó en auditoría. Edita el borrador y publica solo con disponibilidad real.");
+      refresh();
+    } catch (cause) {
+      const code = cause instanceof RewardApiError ? cause.code : "request_failed";
+      setError(code === "reward_has_operations" || code === "reward_already_operational" ? "El premio tiene operaciones o validación real: no se puede reiniciar ni alterar su historial." :
+        "No pudimos confirmar la preparación. Reintenta la misma acción; se conserva la clave para evitar repetir cambios.");
+    } finally { setBusy(false); inFlight.current = false; }
+  };
   const chooseDraft = (item: RewardItem) => { setEditing(item); updateDraft({ title: item.title, description: item.description, cost: item.cost }); };
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault();
@@ -348,7 +373,7 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
         {!capabilities.canManageDrafts && <p className="mt-4 rounded-xl bg-[hsl(var(--muted))] p-4 text-sm">La creación y edición de borradores siguen desactivadas por configuración. No se pueden publicar recompensas ni realizar canjes.</p>}
         <form onSubmit={saveDraft} className="mt-5 grid gap-3"><label className="text-sm">Título<input required maxLength={120} value={draft.title} onChange={event => updateDraft({ ...draft, title: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border p-2" /></label><label className="text-sm">Descripción<textarea required maxLength={500} value={draft.description} onChange={event => updateDraft({ ...draft, description: event.target.value })} className="mt-1 w-full rounded-xl border p-2" /></label><label className="text-sm">Costo provisional en puntos<input required type="number" min={1} max={100000} step={1} value={draft.cost} onChange={event => updateDraft({ ...draft, cost: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border p-2" /></label><div className="flex gap-3"><button disabled={!capabilities.canManageDrafts || busy} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-[hsl(var(--primary-foreground))] disabled:opacity-50">{busy ? "Guardando…" : editing ? "Actualizar borrador" : "Guardar borrador"}</button>{editing && <button type="button" onClick={() => { setEditing(null); setDraft(emptyDraft); }} className="underline">Cancelar edición</button>}</div></form>
         {!capabilities.canPublish && <p className="mt-3 text-sm text-[hsl(var(--muted-foreground))]" data-testid="reward-publication-disabled">La publicación permanece cerrada hasta habilitar explícitamente la política, los permisos y PILOT_REWARD_PUBLICATION_ENABLED.</p>}
-        <div className="mt-6 space-y-2">{drafts.length === 0 ? <p className="text-sm">No hay borradores registrados.</p> : drafts.map(item => <article key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"><div><strong>{item.title}</strong><p className="text-xs">{item.active ? "Publicado" : "Borrador"} · {item.cost} pts · Inventario: {item.inventoryRemaining == null ? "sin documentar" : item.inventoryRemaining} · Validación: {item.validationRecorded ? "registrada" : "pendiente"} · Entrega: {item.fulfillmentDocumented ? "documentada" : "pendiente"}</p></div><div className="flex gap-3"><button type="button" disabled={item.active || !capabilities.canManageDrafts || busy} onClick={() => chooseDraft(item)} className="underline disabled:opacity-50">Editar</button><button type="button" disabled={item.active || item.validationRecorded || !capabilities.canPublish || busy} onClick={() => { setPublishTarget(item); setPublishInventory(""); setPublishReference(""); setPublishConfirmed(false); }} className="underline disabled:opacity-50" data-testid={`button-publish-reward-${item.id}`}>Documentar y publicar</button></div></article>)}</div>
+        <div className="mt-6 space-y-2">{drafts.length === 0 ? <p className="text-sm">No hay borradores registrados.</p> : drafts.map(item => <article key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"><div><strong>{item.title}</strong><p className="text-xs">{item.operationallyValidated === false && !canEditRewardDraft(item) ? "Requiere validación real" : item.active ? "Publicado" : item.validationRecorded ? "Agotado o retirado" : "Borrador"} · {item.cost} pts · Inventario: {item.inventoryRemaining == null ? "sin documentar" : item.inventoryRemaining} · Validación: {item.validationRecorded ? "registrada" : "pendiente"} · Entrega: {item.fulfillmentDocumented ? "documentada" : "pendiente"}</p></div><div className="flex flex-wrap gap-3"><button type="button" disabled={!canEditRewardDraft(item) || !capabilities.canManageDrafts || busy} onClick={() => chooseDraft(item)} className="underline disabled:opacity-50">Editar</button><button type="button" disabled={item.active || item.validationRecorded || !capabilities.canPublish || busy} onClick={() => { setPublishTarget(item); setPublishInventory(""); setPublishReference(""); setPublishConfirmed(false); }} className="underline disabled:opacity-50" data-testid={`button-publish-reward-${item.id}`}>Documentar y publicar</button>{item.draftRecoveryAvailable && <button type="button" disabled={!capabilities.canRecoverDraft || busy} onClick={() => void recoverDraft(item)} className="underline disabled:opacity-50" data-testid={`button-recover-reward-${item.id}`}>Preparar para edición</button>}</div></article>)}</div>
         {publishTarget && <form onSubmit={confirmPublication} className="mt-4 space-y-3 rounded-xl border p-4" data-testid="reward-publication-form"><h3 className="font-semibold">Publicar {publishTarget.title}</h3><label className="block text-sm">Inventario confirmado<input type="number" required min={1} max={100000} step={1} value={publishInventory} onChange={event => setPublishInventory(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="input-publish-inventory" /></label><label className="block text-sm">Evidencia pública de cumplimiento (HTTPS)<input type="url" required minLength={10} maxLength={500} value={publishReference} onChange={event => setPublishReference(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="input-publish-evidence" /></label><label className="flex gap-2 text-sm"><input type="checkbox" checked={publishConfirmed} onChange={event => setPublishConfirmed(event.target.checked)} />Confirmo que el inventario y la capacidad de cumplimiento están respaldados por la política aprobada. No son datos de ejemplo.</label><div className="flex gap-3"><button type="submit" disabled={busy || !publishConfirmed || !capabilities.canPublish} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-[hsl(var(--primary-foreground))] disabled:opacity-50" data-testid="button-confirm-publish-reward">{busy ? "Publicando…" : "Confirmar publicación"}</button><button type="button" disabled={busy} onClick={() => setPublishTarget(null)} className="underline">Cancelar</button></div></form>}
       </section>
        <section aria-labelledby="admin-fulfillment-title" className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6"><div className="flex items-center gap-2"><PackageCheck size={18} /><h2 id="admin-fulfillment-title" className="font-display text-2xl text-[hsl(var(--primary))]">Cumplimiento de canjes</h2></div><p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">Registra únicamente el cumplimiento realizado. Para el fondo digital usa <code>digital:ecopulse/nature-v1</code> y para la insignia <code>digital:ecopulse/badge-v1</code>; no uses estas referencias para otras recompensas.</p>

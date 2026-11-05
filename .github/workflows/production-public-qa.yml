@@ -38,7 +38,7 @@ jobs:
       - name: Frontend API contracts (mocked HTTP)
         run: node --experimental-strip-types --test artifacts/eco-pulse/src/pilot-api.test.mjs
       - name: Inventory authorization, concurrency, rollback and client contracts (no remote writes)
-        run: node --experimental-strip-types --test artifacts/api-server/src/lib/rewardInventory.test.mjs artifacts/eco-pulse/src/reward-inventory.test.mjs
+        run: node --experimental-strip-types --test artifacts/api-server/src/lib/rewardInventory.test.mjs artifacts/api-server/src/lib/rewardDraftRecovery.test.mjs artifacts/api-server/src/lib/adminInitialCatalog.test.mjs artifacts/eco-pulse/src/reward-inventory.test.mjs artifacts/eco-pulse/src/reward-draft-recovery.test.mjs
 
   deploy-render:
     needs: role-policy

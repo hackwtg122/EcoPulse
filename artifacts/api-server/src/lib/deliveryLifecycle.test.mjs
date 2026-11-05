@@ -72,6 +72,26 @@ test("received delivery at verified destination credits at most 100 points atomi
   assert.equal(pool.queries.at(-1).text, "COMMIT");
 });
 
+test("administrator can verify a student's received delivery without a separate verifier account", async () => {
+  const pool = poolFor({ currentRole: "admin" });
+  const result = await verifyPhysicalDelivery(pool, "user_Admin", "admin", deliveryId, "approved", 6000, "receipt_admin_123", 20, null, 100);
+  assert.equal(result.points, 100);
+  assert.equal(pool.queries.find(query => query.text.startsWith("INSERT INTO point_movements")).params[1], "user_owner");
+  assert.equal(pool.queries.at(-1).text, "COMMIT");
+});
+
+test("administrator cannot receive or verify their own delivery", async () => {
+  for (const action of [
+    pool => receivePhysicalDelivery(pool, "user_owner", "admin", deliveryId),
+    pool => verifyPhysicalDelivery(pool, "user_owner", "admin", deliveryId, "approved", 6000, "receipt_admin_123", 20, null, 100),
+  ]) {
+    const pool = poolFor({ currentRole: "admin" });
+    await assert.rejects(action(pool), { code: "self_verification_forbidden", status: 403 });
+    assert.ok(!pool.queries.some(query => /^(INSERT|UPDATE)\b/.test(query.text)));
+    assert.equal(pool.queries.at(-1).text, "ROLLBACK");
+  }
+});
+
 test("rejection remains possible without a verified destination and awards no points", async () => {
   const pool = poolFor({ version: 1 });
   const result = await verifyPhysicalDelivery(pool, "user_verifier", "verifier", deliveryId, "rejected", null, null, null, "material_not_received");

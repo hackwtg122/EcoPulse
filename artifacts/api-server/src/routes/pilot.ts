@@ -11,12 +11,12 @@ import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraft
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { listFulfilledRedemptions } from "../lib/rewardService";
 import { hasRewardInventorySchema, listRewardInventoryMovements, parseRewardRestock, restockReward } from "../lib/rewardService";
+import { adminRewardView, hasRewardDraftRecoverySchema, recoverRewardDraft } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { ownedDigitalAsset } from "../lib/digitalAssets";
 import { guideAccountDetails } from "../lib/aiGuideCore";
 import { GuideStorageError, hasGuideStorage, listGuideConversations, createGuideConversation, readGuideConversation, deleteGuideConversation, parseStoredQuestion, answerStoredGuideQuestion } from "../lib/guideStorage";
-import { presentReward } from "../lib/pointPresentation";
 import { AiProviderError, ProviderConfig, classifyImageWithVision } from "../lib/aiProvider";
 import { resolveAiSettings, resolveAiRuntimeLimits } from "../lib/aiProviderConfig";
 import { QuotaConfig, QuotaStoreError, reserveQuota, finishQuotaAttempt } from "../lib/aiQuota";
@@ -694,6 +694,9 @@ router.get("/rewards/capabilities", async (_req, res) => {
   const pool = await databasePool();
   const schemaReady = await hasRewardFulfillmentSchema(pool);
   const inventorySchemaReady = schemaReady && await hasRewardInventorySchema(pool);
+  const recoveryReady = inventorySchemaReady && await hasRewardDraftRecoverySchema(pool);
+  const recoveryPrivileges = recoveryReady ? await pool.query<{ ready: boolean }>(`SELECT
+    has_table_privilege(current_user,'public.reward_draft_recoveries','SELECT') AND has_table_privilege(current_user,'public.reward_draft_recoveries','INSERT') AS ready`) : null;
   const inventoryPrivileges = inventorySchemaReady ? await pool.query<{ ready: boolean }>(`SELECT
     has_table_privilege(current_user,'public.reward_inventory_movements','SELECT') AND
     has_table_privilege(current_user,'public.reward_inventory_movements','INSERT') AS ready`) : null;
@@ -710,6 +713,8 @@ router.get("/rewards/capabilities", async (_req, res) => {
       rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED, admin: process.env.PILOT_REWARD_ADMIN_ENABLED,
         rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, inventorySchemaReady),
     inventorySchemaReady,
+    canRecoverDraft: res.locals.role === "admin" && process.env.PILOT_REWARD_ADMIN_ENABLED === "true" &&
+      privileges.rows[0]?.publication_update === true && recoveryPrivileges?.rows[0]?.ready === true,
     schemaReady,
   });
 });
@@ -720,14 +725,29 @@ router.get("/rewards", async (_req, res) => {
     WHERE active=true AND inventory_remaining>0 AND fulfillment_reference IS NOT NULL
     ORDER BY created_at DESC,id DESC LIMIT 50`);
   return res.json(rows.rows.filter(row => hasRewardFulfillmentEvidence(row.fulfillment_reference, row.validated_at, row.validated_by))
-    .map(({ fulfillment_reference: _reference, validated_at: _validatedAt, validated_by: _validatedBy, ...row }) => presentReward(row as { title: string; description: string })));
+    .map(({ fulfillment_reference: _reference, validated_at: _validatedAt, validated_by: _validatedBy, ...row }) => row));
 });
 router.get("/admin/rewards", async (_req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
   const pool = await databasePool();
   if (!await hasRewardFulfillmentSchema(pool)) return res.json([]);
-  const rows = await pool.query("SELECT id,title,description,cost,active,inventory_remaining AS \"inventoryRemaining\",fulfillment_reference IS NOT NULL AS \"fulfillmentDocumented\",validated_at IS NOT NULL AS \"validationRecorded\",created_at AS \"createdAt\" FROM rewards ORDER BY created_at DESC,id DESC LIMIT 100");
-  return res.json((rows.rows as Array<{ title: string; description: string }>).map(presentReward));
+  const inventoryReady = await hasRewardInventorySchema(pool);
+  const rows = await pool.query(`SELECT r.id,r.title,r.description,r.cost,r.active,r.inventory_remaining AS "inventoryRemaining",
+    r.fulfillment_reference IS NOT NULL AS "fulfillmentDocumented",r.validated_at IS NOT NULL AS "validationRecorded",r.created_at AS "createdAt",
+    r.fulfillment_reference,r.validated_at,r.validated_by,
+    (EXISTS(SELECT 1 FROM redemptions x WHERE x.reward_id=r.id) OR ${inventoryReady ? "EXISTS(SELECT 1 FROM reward_inventory_movements m WHERE m.reward_id=r.id)" : "true"}) AS "hasOperations"
+    FROM rewards r ORDER BY r.created_at DESC,r.id DESC LIMIT 100`);
+  return res.json(rows.rows.map(row => adminRewardView(row)));
+});
+router.post("/admin/rewards/:id/recover-draft", async (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  if (process.env.PILOT_REWARD_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "reward_drafts_disabled" });
+  if (!hasOnlyFields(req.body ?? {}, [])) return res.status(400).json({ error: "unexpected_fields" });
+  const pool = await databasePool();
+  if (!await hasRewardDraftRecoverySchema(pool) || !await hasRewardInventorySchema(pool)) return res.status(503).json({ error: "reward_recovery_migration_required" });
+  const result = await recoverRewardDraft(pool, res.locals.userId, String(req.params.id), req.get("Idempotency-Key"));
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.json(result);
 });
 router.post("/admin/rewards", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });

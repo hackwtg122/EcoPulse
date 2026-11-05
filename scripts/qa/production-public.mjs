@@ -116,6 +116,17 @@ try {
     } catch (error) {
       results.push({ profile: profile.name, path: "/ (quick guide flow)", status: null, errors: [...errors], pass: false, reason: `quick_guide_failed_at_${quickGuideStep}`, detail: String(error?.message ?? error).slice(0, 160) });
     }
+    for (const path of ["/deliveries", "/rewards", "/admin", "/admin/centers", "/admin/rewards", "/admin/users"]) {
+      errors.length = 0;
+      try {
+        await page.goto(path, { waitUntil: "domcontentloaded", timeout: 45000 });
+        await page.waitForURL(url => url.pathname === "/" || url.pathname.startsWith("/sign-in"), { timeout: 20000 });
+        await page.locator("h1").first().waitFor({ state: "visible", timeout: 15000 });
+        results.push({ profile: profile.name, path, pass: errors.length === 0, errors: [...errors], scope: "anonymous_browser_protection_not_authenticated_operation" });
+      } catch {
+        results.push({ profile: profile.name, path, pass: false, errors: [...errors], reason: "private_page_protection_or_browser_failed", scope: "anonymous_browser_protection_not_authenticated_operation" });
+      }
+    }
     await context.close();
   }
 } finally {

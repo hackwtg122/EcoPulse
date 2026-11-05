@@ -14,6 +14,53 @@ export type RewardPublication = { expected: RewardDraft; inventoryRemaining: num
 export type RewardRestock = { quantity: number; evidenceReference: string; availabilityConfirmed: true };
 export type InventoryMovement = { id: string; rewardId: string; administratorId: string; quantity: number; inventoryBefore: number; inventoryAfter: number; evidenceReference: string; createdAt: Date };
 
+export async function hasRewardDraftRecoverySchema(pool: Pool): Promise<boolean> {
+  const result = await pool.query<{ ready: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname='reward_draft_recoveries' AND obj_description(c.oid,'pg_class')='ecopulse:reward-draft-recovery:v1') AS ready`);
+  return result.rows[0]?.ready === true;
+}
+
+export function adminRewardView<T extends { fulfillment_reference: unknown; validated_at: unknown; validated_by: unknown; hasOperations: boolean;
+  active: boolean; validationRecorded: boolean; fulfillmentDocumented: boolean; inventoryRemaining: number | null }>(value: T) {
+  const { fulfillment_reference, validated_at, validated_by, hasOperations, ...row } = value;
+  const operationallyValidated = hasRewardFulfillmentEvidence(fulfillment_reference, validated_at, validated_by);
+  // Preserve stored title/description/cost exactly. They are optimistic-lock
+  // snapshots for editing/publication, not a place for editorial substitutions.
+  return { ...row, operationallyValidated, draftRecoveryAvailable: !operationallyValidated && !hasOperations &&
+    Boolean(row.active || row.validationRecorded || row.fulfillmentDocumented || row.inventoryRemaining !== null) };
+}
+
+// Only an explicit administrator action may recover unused, non-operational
+// legacy records. Original values survive in an append-only audit snapshot.
+export async function recoverRewardDraft(pool: Pool, actorId: string, rewardId: string, key: unknown) {
+  if (!uuidPattern.test(rewardId) || !validIdempotencyKey(key)) throw new RewardError(400, "invalid_reward_recovery");
+  return transaction(pool, async client => {
+    const actor = await client.query("SELECT role FROM users WHERE clerk_user_id=$1 FOR SHARE", [actorId]);
+    if (actor.rows[0]?.role !== "admin") throw new RewardError(403, "admin_required");
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", [JSON.stringify(["reward-draft-recovery", actorId, key])]);
+    const prior = await client.query<{ reward_id: string }>("SELECT reward_id FROM reward_draft_recoveries WHERE administrator_id=$1 AND idempotency_key=$2", [actorId, key]);
+    if (prior.rows[0]) {
+      if (prior.rows[0].reward_id !== rewardId) throw new RewardError(409, "idempotency_key_reused");
+      return { rewardId, replayed: true };
+    }
+    const locked = await client.query<{ snapshot: Record<string, unknown> }>("SELECT to_jsonb(r) AS snapshot FROM rewards r WHERE id=$1 FOR UPDATE", [rewardId]);
+    const row = locked.rows[0]?.snapshot;
+    if (!row) throw new RewardError(404, "reward_not_found");
+    if (hasRewardFulfillmentEvidence(row.fulfillment_reference, row.validated_at, row.validated_by)) throw new RewardError(409, "reward_already_operational");
+    const operations = await client.query<{ used: boolean }>(`SELECT EXISTS(SELECT 1 FROM redemptions WHERE reward_id=$1) OR
+      EXISTS(SELECT 1 FROM reward_inventory_movements WHERE reward_id=$1) AS used`, [rewardId]);
+    if (operations.rows[0]?.used !== false) throw new RewardError(409, "reward_has_operations");
+    if (row.active === false && row.inventory_remaining == null && row.fulfillment_reference == null && row.validated_at == null && row.validated_by == null) return { rewardId, replayed: true };
+    await client.query(`INSERT INTO reward_draft_recoveries(id,reward_id,administrator_id,idempotency_key,previous_state)
+      VALUES ($1,$2,$3,$4,$5::jsonb)`, [randomUUID(), rewardId, actorId, key, JSON.stringify(row)]);
+    // Deactivate first: the existing database trigger protects published details.
+    await client.query("UPDATE rewards SET active=false,updated_at=now() WHERE id=$1", [rewardId]);
+    await client.query(`UPDATE rewards SET inventory_remaining=NULL,fulfillment_reference=NULL,validated_by=NULL,validated_at=NULL,updated_at=now()
+      WHERE id=$1 AND active=false`, [rewardId]);
+    return { rewardId, replayed: false };
+  });
+}
+
 export function parseRewardRestock(value: unknown): RewardRestock {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new RewardError(400, "invalid_reward_restock");
   const row = value as Record<string, unknown>;
@@ -181,7 +228,8 @@ export async function createRewardDraft(pool: Pool, actorId: string, key: unknow
 export async function editRewardDraft(pool: Pool, id: string, expected: RewardDraft, input: RewardDraft) {
   if (!uuidPattern.test(id)) throw new RewardError(400, "invalid_reward_id");
   const result = await pool.query(`UPDATE rewards SET title=$3, description=$4, cost=$5
-    WHERE id=$1 AND active=false AND title=$2 AND description=$6 AND cost=$7
+    WHERE id=$1 AND active=false AND validated_at IS NULL AND validated_by IS NULL AND fulfillment_reference IS NULL
+      AND NOT EXISTS (SELECT 1 FROM redemptions WHERE reward_id=$1) AND title=$2 AND description=$6 AND cost=$7
     RETURNING id,title,description,cost,active`, [id,expected.title,input.title,input.description,input.cost,expected.description,expected.cost]);
   if (!result.rows[0]) throw new RewardError(409, "reward_changed_or_unavailable");
   return result.rows[0];
