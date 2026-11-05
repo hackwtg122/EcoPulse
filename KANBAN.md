@@ -11,7 +11,7 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 
 ## EN PROCESO
 
-- Aclarar el chat flotante público: hoy se presenta como «EcoGuía» y «Habla con EcoGuía», pero responde con reglas locales, sin IA ni sesión. Debe identificarse como guía rápida de referencia, sin simular una conversación de IA, y ofrecer el acceso a la EcoGuía real con cuenta. Sin inventar datos ni duplicar la IA.
+- Mejorar la guía rápida pública: al recibir mensajes debe mostrar siempre el último, cerrarse con la tecla Escape, anunciar las respuestas a lectores de pantalla y etiquetar el panel y la pregunta; además, limitar la entrada a 500 caracteres como la guía real. Comprobarlo en producción con el flujo público de navegador (desplazamiento, cierre por teclado y atributos accesibles), sin presentarlo como IA.
 
 ## BLOQUEADO
 
@@ -23,6 +23,7 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 
 ## TERMINADO
 
+- Guía rápida pública identificada como referencia sin IA, desplegada en `339ccd15b5800afd5b2de23fc7bb83a940906425`: el chat flotante se llama «EcoGuía rápida», declara «Respuestas de referencia · sin IA», explica que usa la biblioteca local y enlaza con la EcoGuía autenticada (`/chat` con sesión, `/sign-in` sin ella) sin simular inferencia. [QA de producción aprobado](https://github.com/hackwtg122/EcoPulse/actions/runs/41950753060), con `guide-storage-schema` y `public-browser`; Netlify (`ready`) y Render (`/api/version`) sirven ese SHA; el archivo público `/assets/index-UcdgoXSC.js` contiene las etiquetas nuevas y ya no contiene «Habla con EcoGuía» ni el subtítulo anterior; las rutas privadas de guía siguen devolviendo 401 sin sesión; build, tipos y pruebas aprobados. Alcance: etiquetado y enlace públicos; la conversación autenticada con IA sigue en BLOQUEADO.
 - Integración segura y despliegue técnico de `f473bae3df9ee49f82445a73031231b1c16d81aa`: SHA exacto comprobado en Render (`/api/version`) y Netlify (`published_deploy`, estado ready). [QA de producción aprobado](https://github.com/hackwtg122/EcoPulse/actions/runs/41786760138): políticas, despliegue Render, API pública y navegador público.
 - Comprobación directa de lectura en Chrome sobre https://ecopulseef.netlify.app: inicio y materiales HTTP 200 sin errores de JavaScript; `/map` y `/deliveries` redirigen al inicio sin sesión. Esto verifica disponibilidad pública y protección, no solicitudes ni operaciones privadas.
 - Infraestructura de persistencia de EcoGuía, verificada en producción en `1edd093c25799337ce72729f80a72db84a4a8982`: tablas aditivas con RLS forzado, políticas de propietario, rol técnico sin BYPASSRLS limitado a las dos tablas, conexión exclusiva `GUIDE_DATABASE_URL`, fallo cerrado sin ella, consentimiento separado, listado/lectura/continuación/borrado propios e idempotencia. [QA de producción aprobado](https://github.com/hackwtg122/EcoPulse/actions/runs/41885569319), incluido el trabajo `guide-storage-schema`; [verificación de la conexión real de Render](https://github.com/hackwtg122/EcoPulse/actions/runs/41885569319) con `existingNeonDatabase:true`, `rlsActive:true`, `noPrincipalRowsVisible:0` y `conversationWrites:0`. Netlify y Render sirven ese SHA. Alcance: infraestructura y protecciones; el flujo autenticado de extremo a extremo sigue en BLOQUEADO.

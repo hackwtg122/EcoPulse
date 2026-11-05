@@ -167,25 +167,42 @@ function LandingChat() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(seedChat);
+  const messageList = useRef<HTMLDivElement | null>(null);
+  const nextMessage = useRef(0);
+  useEffect(() => {
+    if (!open) return;
+    const list = messageList.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [messages, open]);
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
   const send = (content = input) => {
-    if (!content.trim()) return;
+    const question = content.trim();
+    if (!question) return;
     const now = "Ahora";
+    const id = `landing-${nextMessage.current++}`;
     setMessages((current) => [
       ...current,
-      { id: `landing-u-${Date.now()}`, role: "user", content: content.trim(), timestamp: now },
-      { id: `landing-a-${Date.now() + 1}`, role: "assistant", content: answer(content), timestamp: now },
+      { id: `${id}-u`, role: "user", content: question, timestamp: now },
+      { id: `${id}-a`, role: "assistant", content: answer(question), timestamp: now },
     ]);
     setInput("");
   };
 
   return <div className="fixed bottom-5 right-5 z-40">
-    {open && <div className="mb-3 w-[min(360px,calc(100vw-2.5rem))] overflow-hidden rounded-[1.75rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl animate-rise" data-testid="landing-chat-panel">
+    {open && <div className="mb-3 w-[min(360px,calc(100vw-2.5rem))] overflow-hidden rounded-[1.75rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl animate-rise" role="dialog" aria-label="EcoGuía rápida" data-testid="landing-chat-panel">
       <div className="flex items-center gap-3 bg-[hsl(var(--primary))] p-4 text-[hsl(var(--primary-foreground))]">
         <span className="grid h-10 w-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Bot size={20} /></span>
         <div className="min-w-0 flex-1"><p className="font-semibold">EcoGuía rápida</p><p className="text-xs text-[hsl(var(--primary-foreground)/.7)]">Respuestas de referencia · sin IA</p></div>
         <button onClick={() => setOpen(false)} className="rounded-full p-1 hover:bg-[hsl(var(--primary-foreground)/.12)]" aria-label="Cerrar guía rápida" data-testid="button-close-landing-chat"><X size={17} /></button>
       </div>
-      <div className="flex max-h-72 min-h-48 flex-col gap-3 overflow-y-auto p-4">
+      <div ref={messageList} className="flex max-h-72 min-h-48 flex-col gap-3 overflow-y-auto p-4" role="log" aria-live="polite" aria-relevant="additions" data-testid="landing-chat-messages">
         {messages.map((message) => <div key={message.id} className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${message.role === "user" ? "ml-auto rounded-tr-sm bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "rounded-tl-sm bg-[hsl(var(--muted))]"}`} data-testid={`landing-chat-message-${message.id}`}>{message.content}</div>)}
       </div>
       <div className="border-t border-[hsl(var(--border))] p-3">
@@ -194,7 +211,7 @@ function LandingChat() {
         </div>
         <Link href={isSignedIn ? "/chat" : "/sign-in"} className="mb-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[hsl(var(--primary))] underline" data-testid="link-landing-real-guide">{isSignedIn ? "Abrir EcoGuía con IA" : "Inicia sesión para EcoGuía con IA"} <ArrowRight size={12} /></Link>
         <form onSubmit={(event) => { event.preventDefault(); send(); }} className="flex gap-2">
-          <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Escribe tu duda..." className="min-w-0 flex-1 rounded-full bg-[hsl(var(--muted))] px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/.35)]" data-testid="input-landing-chat" />
+          <input value={input} onChange={(event) => setInput(event.target.value)} maxLength={500} aria-label="Pregunta para la guía rápida" enterKeyHint="send" placeholder="Escribe tu duda..." className="min-w-0 flex-1 rounded-full bg-[hsl(var(--muted))] px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/.35)]" data-testid="input-landing-chat" />
           <button type="submit" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" aria-label="Enviar mensaje" data-testid="button-send-landing-chat"><ArrowRight size={16} /></button>
         </form>
       </div>
