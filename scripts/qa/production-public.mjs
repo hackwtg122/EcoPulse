@@ -94,7 +94,13 @@ try {
       await page.getByTestId("button-close-landing-chat").click();
       await panel.waitFor({ state: "hidden", timeout: 15000 });
       await page.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "button-open-landing-chat", undefined, { timeout: 15000 });
-      results.push({ profile: profile.name, path: "/ (quick guide flow)", status: 200, heading: "quick_guide_scroll_escape_focus_labels", errors: [...errors], pass: errors.length === 0 });
+      quickGuideStep = "sign_in_redirect";
+      await page.getByTestId("button-open-landing-chat").click();
+      await panel.waitFor({ state: "visible", timeout: 15000 });
+      await page.getByTestId("link-landing-real-guide").click();
+      await page.waitForURL(url => url.pathname === "/sign-in" && url.searchParams.get("redirect_url") === "/chat", { timeout: 20000 });
+      await page.locator('input[name="identifier"]').waitFor({ state: "visible", timeout: 20000 });
+      results.push({ profile: profile.name, path: "/ (quick guide flow)", status: 200, heading: "quick_guide_scroll_escape_focus_redirect", errors: [...errors], pass: errors.length === 0 });
     } catch (error) {
       results.push({ profile: profile.name, path: "/ (quick guide flow)", status: null, errors: [...errors], pass: false, reason: `quick_guide_failed_at_${quickGuideStep}`, detail: String(error?.message ?? error).slice(0, 160) });
     }
