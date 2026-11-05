@@ -82,3 +82,18 @@ test("point history is server scoped and rejects malformed movements", async () 
   const invalid=mock({"/api/pilot/point-movements":[{id:"movement-2",delta:"100",kind:"delivery",createdAt:"2026-10-18T00:00:00Z"}]});
   await assert.rejects(loadPointMovements("http://127.0.0.1:5001","user-token",new AbortController().signal,invalid.fetcher),{code:"invalid_movement_response"});
 });
+import { canRedeemReward, hasRewardInventory } from "./reward-api.ts";
+
+test("redemption requires confirmed positive inventory and sufficient real balance", () => {
+  const item = { id: "reward", title: "Contract test", description: "Unit test only", cost: 20, active: true, inventoryRemaining: 1 };
+  assert.equal(canRedeemReward(item, true, 20), true);
+  assert.equal(canRedeemReward(item, false, 20), false);
+  assert.equal(canRedeemReward(item, true, 19), false);
+  assert.equal(canRedeemReward(item, true, NaN), false);
+  assert.equal(canRedeemReward({ ...item, active: false }, true, 100), false);
+  for (const inventoryRemaining of [undefined, null, 0, -1, 0.5, NaN]) {
+    const unavailable = { ...item, inventoryRemaining };
+    assert.equal(hasRewardInventory(unavailable), false);
+    assert.equal(canRedeemReward(unavailable, true, 100), false);
+  }
+});

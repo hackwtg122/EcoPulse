@@ -5,6 +5,15 @@ export type RewardDraftInput = { title: string; description: string; cost: numbe
 export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number; fulfillmentReference: string };
 export type PointMovement = { id: string; delta: number; kind: "delivery" | "redemption" | "adjustment"; createdAt: string };
 
+export function hasRewardInventory(item: RewardItem): boolean {
+  return item.active === true && Number.isSafeInteger(item.inventoryRemaining) && (item.inventoryRemaining as number) > 0;
+}
+
+export function canRedeemReward(item: RewardItem, canRedeem: boolean, balance: number): boolean {
+  return canRedeem && hasRewardInventory(item) && Number.isSafeInteger(item.cost) && item.cost > 0 &&
+    Number.isSafeInteger(balance) && balance >= item.cost;
+}
+
 export class RewardApiError extends Error {
   readonly status: number;
   readonly code: string;
