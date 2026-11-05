@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canEditRewardDraft, recoverRewardDraft } from "./reward-api.ts";
+import { canEditRewardDraft, canRestockReward, recoverRewardDraft } from "./reward-api.ts";
 const id = "00000000-0000-4000-8000-000000000001";
+test("legacy validation metadata alone cannot enable restocking or claim availability", () => {
+  const base = { id, title: "Unit", description: "Unit", cost: 20, active: true, inventoryRemaining: 10, validationRecorded: true, fulfillmentDocumented: true };
+  assert.equal(canRestockReward(base), false);
+  assert.equal(canRestockReward({ ...base, operationallyValidated: false }), false);
+  assert.equal(canRestockReward({ ...base, operationallyValidated: true }), true);
+  assert.equal(canRestockReward({ ...base, operationallyValidated: true, active: false, inventoryRemaining: 0 }), true);
+});
 test("only unvalidated inactive drafts are editable, never an exhausted validated reward", () => {
   const base = { id, title: "Unit", description: "Unit", cost: 20, active: false, inventoryRemaining: 0 };
   assert.equal(canEditRewardDraft(base), true);

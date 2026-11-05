@@ -10,7 +10,7 @@ import { canRedeemReward, hasRewardInventory } from "./reward-api";
 import { loadAdminFulfillmentHistory, type FulfilledRedemption } from "./reward-api";
 import { loadRewardInventoryHistory, restockRewardInventory, validInventoryRestock, type InventoryMovement } from "./reward-api";
 import { readRestockIntent, saveRestockIntent, clearRestockIntent, type RestockIntent } from "./reward-inventory-intent";
-import { canEditRewardDraft, recoverRewardDraft } from "./reward-api";
+import { canEditRewardDraft, canRestockReward, recoverRewardDraft } from "./reward-api";
 
 const emptyDraft: RewardDraftInput = { title: "", description: "", cost: 1 };
 const fulfillmentReferencePattern = /^[A-Za-z0-9_:/.-]{10,120}$/;
@@ -359,8 +359,7 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
     } finally { setBusy(false); inFlight.current = false; }
   };
   const restockItem = drafts.find(item => item.id === restockTarget);
-  const restockable = Boolean(restockItem?.validationRecorded && restockItem.fulfillmentDocumented && Number.isSafeInteger(restockItem.inventoryRemaining) &&
-    (restockItem.inventoryRemaining as number) >= 0 && (restockItem.active || restockItem.inventoryRemaining === 0));
+  const restockable = Boolean(restockItem && canRestockReward(restockItem));
   if (role !== "admin") return <p className="rounded-[2rem] border border-[hsl(var(--border))] p-6" role="alert">Esta sección es exclusiva para administradores.</p>;
   return <div className="animate-rise space-y-6" data-testid="rewards-admin-panel">
     <header><p className="text-xs font-bold uppercase tracking-[.2em] text-[hsl(var(--accent))]">Administración</p><h1 className="mt-2 font-display text-4xl text-[hsl(var(--primary))]">Gestión de recompensas</h1><p className="mt-2 max-w-xl text-sm text-[hsl(var(--muted-foreground))]">Gestiona borradores y recompensas documentadas. Publicar no acredita una entrega; el cumplimiento se registra por separado.</p><button type="button" disabled={busy || status === "loading"} onClick={refresh} className="mt-3 min-h-11 underline disabled:opacity-50" data-testid="button-refresh-rewards-admin">Actualizar gestión</button></header>
@@ -387,7 +386,7 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
         <h2 id="inventory-management-title" className="font-display text-2xl">Reposición de inventario real</h2>
         <p className="text-sm">Añade únicamente unidades adicionales cuya disponibilidad esté autorizada y documentada. Una recompensa agotada se vuelve a publicar con estas unidades; no se cambian precios, canjes, puntos ni cumplimientos previos.</p>
         {!capabilities.canRestock && <p role="status" data-testid="reward-restock-disabled">La reposición requiere el registro de inventario, permisos administrativos y la política de publicación habilitada.</p>}
-        <label className="block text-sm">Recompensa<select value={restockTarget} disabled={busy || Boolean(restockIntent)} onChange={event => { setRestockTarget(event.target.value); setRestockQuantity(""); setRestockEvidence(""); setRestockConfirmed(false); }} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="select-restock-reward"><option value="">Selecciona una recompensa registrada</option>{drafts.map(item => <option key={item.id} value={item.id}>{item.title} · {item.inventoryRemaining == null ? "sin inventario documentado" : `${item.inventoryRemaining} disponibles`}</option>)}{restockIntent && !restockItem && <option value={restockIntent.rewardId}>Reposición pendiente · {restockIntent.rewardId}</option>}</select></label>
+        <label className="block text-sm">Recompensa<select value={restockTarget} disabled={busy || Boolean(restockIntent)} onChange={event => { setRestockTarget(event.target.value); setRestockQuantity(""); setRestockEvidence(""); setRestockConfirmed(false); }} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="select-restock-reward"><option value="">Selecciona una recompensa registrada</option>{drafts.map(item => <option key={item.id} value={item.id}>{item.title} · {item.operationallyValidated !== true ? "sin disponibilidad validada" : inventoryLabel(item)}</option>)}{restockIntent && !restockItem && <option value={restockIntent.rewardId}>Reposición pendiente · {restockIntent.rewardId}</option>}</select></label>
         {restockTarget && <button type="button" disabled={inventoryLoading || busy} onClick={() => void loadInventoryHistory(restockTarget)} className="min-h-11 underline" data-testid="button-inventory-history">Consultar movimientos de esta recompensa</button>}
         {restockTarget && capabilities.canRestock && <form onSubmit={submitRestock} className="space-y-3 rounded-xl border p-4" data-testid="reward-restock-form">
           {!restockIntent && !restockable && <p role="status">Este registro no admite reposición: publica primero su inventario inicial y evidencia, o selecciona una recompensa publicada o agotada.</p>}

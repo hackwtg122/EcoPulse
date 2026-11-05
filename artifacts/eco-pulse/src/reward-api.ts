@@ -15,6 +15,11 @@ export function hasRewardInventory(item: RewardItem): boolean {
 export function canEditRewardDraft(item: RewardItem): boolean {
   return item.active === false && item.validationRecorded !== true && item.fulfillmentDocumented !== true;
 }
+export function canRestockReward(item: RewardItem): boolean {
+  return item.operationallyValidated === true && item.validationRecorded === true && item.fulfillmentDocumented === true &&
+    Number.isSafeInteger(item.inventoryRemaining) && (item.inventoryRemaining as number) >= 0 && (item.inventoryRemaining as number) <= 100000 &&
+    (item.active === true || item.inventoryRemaining === 0);
+}
 
 export function canRedeemReward(item: RewardItem, canRedeem: boolean, balance: number): boolean {
   return canRedeem && hasRewardInventory(item) && Number.isSafeInteger(item.cost) && item.cost > 0 &&
