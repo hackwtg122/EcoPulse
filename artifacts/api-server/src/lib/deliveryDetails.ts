@@ -505,7 +505,7 @@ export async function createDetailedDelivery(
     `, [input.deliveryPointId]);
     const point = rowsOf<{ appointment_required: boolean; validation_reference: string | null; validated_by: string | null; validated_at: Date | null }>(pointResult)[0];
     if (!point) throw new DeliveryRequestError(409, "delivery_point_unavailable");
-    if (process.env.EVALUATION_MODE_ENABLED !== "true" && !hasOperationalEvidence(point)) throw new DeliveryRequestError(409, "delivery_point_unavailable");
+    if (!hasOperationalEvidence(point)) throw new DeliveryRequestError(409, "delivery_point_unavailable");
     const materialSchema = await client.query("SELECT to_regclass('public.delivery_point_materials') IS NOT NULL AS present, CASE WHEN to_regclass('public.delivery_point_materials') IS NULL THEN false ELSE has_table_privilege(current_user,'public.delivery_point_materials','SELECT') END AS ready");
     const materialState = rowsOf<{ present?: boolean; ready: boolean }>(materialSchema)[0];
     if (materialState?.ready !== true) throw new DeliveryRequestError(503, "delivery_details_configuration_unavailable");
@@ -527,7 +527,7 @@ export async function createDetailedDelivery(
       `, [input.slotId, input.deliveryPointId]);
       const slot = rowsOf<{ id: string; capacity: number; validation_reference: string | null; validated_by: string | null; validated_at: Date | null }>(slotResult)[0];
       if (!slot) throw new DeliveryRequestError(409, "delivery_slot_unavailable");
-      if (process.env.EVALUATION_MODE_ENABLED !== "true" && !hasOperationalEvidence(slot)) throw new DeliveryRequestError(409, "delivery_slot_unavailable");
+      if (!hasOperationalEvidence(slot)) throw new DeliveryRequestError(409, "delivery_slot_unavailable");
       const reservedResult = await client.query(`
         SELECT count(*)::integer AS count FROM deliveries
         WHERE slot_id = $1 AND status NOT IN ('cancelled', 'rejected')

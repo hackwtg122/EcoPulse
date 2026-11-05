@@ -152,6 +152,48 @@ test("creation rejects unconfigured center materials and rolls back", async () =
   assert.ok(!queries.some(text => text.startsWith("INSERT INTO deliveries")));
 });
 
+test("delivery creation requires real center and slot evidence even in evaluation mode", async () => {
+  const priorMode = process.env.EVALUATION_MODE_ENABLED;
+  const evidence = { validation_reference: "https://example.org/operational-evidence", validated_by: "user_operator", validated_at: new Date() };
+  const referenceOnly = { ...evidence, validation_reference: "academic:ecopulse/center" };
+  try {
+    for (const mode of ["false", "true"]) {
+      process.env.EVALUATION_MODE_ENABLED = mode;
+      for (const scenario of [
+        { point: referenceOnly, slot: evidence, expected: "delivery_point_unavailable" },
+        { point: { ...evidence, validated_at: null }, slot: evidence, expected: "delivery_point_unavailable" },
+        { point: evidence, slot: referenceOnly, expected: "delivery_slot_unavailable" },
+        { point: evidence, slot: { ...evidence, validated_by: null }, expected: "delivery_slot_unavailable" },
+        { point: evidence, slot: evidence, expected: "before_commit_reached" },
+        { point: evidence, slot: null, expected: "before_commit_reached" },
+      ]) {
+        const queries = [];
+        const client = { release() {}, async query(sql) {
+          const text = sql.trim(); queries.push(text);
+          if (["BEGIN", "ROLLBACK"].includes(text) || /^(INSERT|UPDATE)\b/.test(text) || text.startsWith("SELECT pg_advisory")) return { rows: [] };
+          if (text.startsWith("SELECT request_hash")) return { rows: [] };
+          if (text.startsWith("SELECT code FROM material_categories")) return { rows: [{ code: "paper" }], rowCount: 1 };
+          if (text.startsWith("SELECT appointment_required")) return { rows: [{ appointment_required: !!scenario.slot, ...scenario.point }] };
+          if (text.includes("to_regclass('public.delivery_point_materials')")) return { rows: [{ present: true, ready: true }] };
+          if (text.startsWith("SELECT category_code FROM delivery_point_materials")) return { rows: [{ category_code: "paper" }] };
+          if (text.startsWith("SELECT id, capacity")) return { rows: [{ id: slotId, capacity: 1, ...scenario.slot }] };
+          if (text.startsWith("SELECT count(*)")) return { rows: [{ count: 0 }] };
+          throw Error(`unexpected query: ${text}`);
+        } };
+        const input = parseDetailedDeliveryInput({ deliveryPointId: pointId, slotId: scenario.slot ? slotId : null, materials: [{ categoryCode: "paper", estimatedGrams: 1000 }] });
+        await assert.rejects(createDetailedDelivery({ connect: async () => client }, "user_owner", "delivery_regression_key", input, {
+          beforeCommit: async () => { throw Object.assign(Error("stop before commit"), { code: "before_commit_reached" }); },
+        }), error => error.code === scenario.expected, `${mode}: ${scenario.expected}`);
+        assert.equal(queries.at(-1), "ROLLBACK");
+        assert.equal(queries.some(sql => sql.startsWith("INSERT INTO deliveries")), scenario.expected === "before_commit_reached");
+      }
+    }
+  } finally {
+    if (priorMode === undefined) delete process.env.EVALUATION_MODE_ENABLED;
+    else process.env.EVALUATION_MODE_ENABLED = priorMode;
+  }
+});
+
 test("delivery details require an exact and bounded payload", () => {
   const parsed = parseDetailedDeliveryInput({
     deliveryPointId: pointId,
