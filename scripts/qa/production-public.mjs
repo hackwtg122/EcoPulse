@@ -37,9 +37,21 @@ try {
         const response = await page.goto(path, { waitUntil: "domcontentloaded", timeout: 45000 });
         await page.locator("h1").first().waitFor({ state: "visible", timeout: 20000 });
         const heading = (await page.locator("h1").first().innerText()).trim().slice(0, 120);
+        if (path === "/privacy") {
+          const body = await page.locator("body").innerText();
+          for (const text of ["PostgreSQL vinculadas a tu cuenta", "proveedor de IA", "eliminar cada conversación desde EcoGuía"]) {
+            if (!body.includes(text)) throw new Error(`privacy_copy_missing:${text}`);
+          }
+        }
+        if (path === "/faq") {
+          const body = await page.locator("body").innerText();
+          for (const text of ["guía rápida del inicio", "no usa IA"]) {
+            if (!body.includes(text)) throw new Error(`faq_copy_missing:${text}`);
+          }
+        }
         results.push({ profile: profile.name, path, status: response?.status(), heading, errors: [...errors], pass: response?.status() === 200 && Boolean(heading) && errors.length === 0 });
-      } catch {
-        results.push({ profile: profile.name, path, status: null, errors: [...errors], pass: false, reason: "navigation_or_visible_heading_failed" });
+      } catch (error) {
+        results.push({ profile: profile.name, path, status: null, errors: [...errors], pass: false, reason: "navigation_visible_heading_or_public_copy_failed", detail: String(error?.message ?? error).slice(0, 160) });
       }
     }
     errors.length = 0;

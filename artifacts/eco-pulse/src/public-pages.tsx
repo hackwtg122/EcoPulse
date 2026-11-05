@@ -82,9 +82,9 @@ const faqItems: Array<{ q: string; a: string }> = [
   { q: "¿Un escaneo o una foto me dan EcoPuntos?", a: "No. Una clasificación manual o una sugerencia de imagen no certifican un reciclaje, así que no suman puntos ni kilogramos. Escanear y reciclar son cosas distintas." },
   { q: "¿Cómo se ganan puntos, entonces?", a: "Con entregas recibidas y verificadas por un operador distinto al participante. El saldo y los canjes disponibles se muestran al iniciar sesión." },
   { q: "¿Hay centros de entrega disponibles?", a: "El mapa muestra los centros de acopio publicados. Los horarios con cupo aparecen al iniciar sesión cuando están disponibles para solicitar una entrega." },
-  { q: "¿EcoGuía usa inteligencia artificial?", a: "Sí, si está disponible y aceptas enviar tu consulta. Sin consentimiento o conexión puedes consultar la biblioteca de materiales." },
+  { q: "¿EcoGuía usa inteligencia artificial?", a: "La EcoGuía de tu cuenta usa un proveedor de IA solo si está disponible y autorizas el envío. Con un consentimiento separado puedes guardar la conversación en PostgreSQL. La guía rápida del inicio responde con reglas locales, no usa IA y no envía tus preguntas." },
   { q: "¿Qué hago con residuos peligrosos como pilas o medicamentos?", a: "Revísalos en la categoría «Manejo especial» de la biblioteca: pilas, medicamentos vencidos, lámparas, electrónicos, cortopunzantes, aceite usado y químicos requieren canales posconsumo o autorizados, nunca la basera común." },
-  { q: "¿Cómo corrijo o elimino mis datos?", a: "Tu cuenta (nombre, correo, contraseña y 2FA) se gestiona con Clerk. Para solicitudes de rectificación o eliminación de datos operativos, el canal público está en preparación; la política de privacidad describe qué tratamos y qué está pendiente." },
+  { q: "¿Cómo corrijo o elimino mis datos?", a: "Tu cuenta (nombre, correo, contraseña y 2FA) se gestiona con Clerk. En EcoGuía puedes eliminar cada conversación guardada, junto con sus preguntas y respuestas. Para rectificar o suprimir otros datos operativos, el canal público está en preparación; la política de privacidad describe qué tratamos y qué está pendiente." },
   { q: "¿Tiene algún costo?", a: "Crear una cuenta y usar la app no tienen costo. Las recompensas se obtienen con entregas verificadas." },
 ];
 
@@ -108,7 +108,7 @@ export function PrivacyPage() {
     <InfoBlock title="Datos que tratamos">
       <p><strong className="text-[hsl(var(--primary))]">Identificación de cuenta:</strong> nombre y correo electrónico, gestionados por Clerk como proveedor de autenticación.</p>
       <p><strong className="text-[hsl(var(--primary))]">Registros operativos:</strong> clasificaciones, solicitudes de entrega, eventos de verificación, movimientos y canjes, almacenados en PostgreSQL para tu cuenta.</p>
-      <p><strong className="text-[hsl(var(--primary))]">Conversación con EcoGuía:</strong> permanece en memoria mientras la pantalla está abierta. Con tu consentimiento, se envían la pregunta y hasta seis mensajes anteriores al proveedor de IA mediante el servidor. El servidor consulta solo el contexto autorizado de tu cuenta.</p>
+      <p><strong className="text-[hsl(var(--primary))]">Conversación con EcoGuía:</strong> sin autorización de almacenamiento permanece en memoria mientras la pantalla está abierta. Solo si autorizas el envío, se comparten la pregunta, hasta seis mensajes anteriores y un resumen autorizado de tu cuenta con el proveedor de IA mediante el servidor. Con otro consentimiento independiente, tus preguntas y las respuestas reales se guardan en PostgreSQL vinculadas a tu cuenta para recuperarlas. Puedes eliminar cada conversación desde EcoGuía. No se copian al historial el correo, la fotografía ni el resumen de cuenta; una pregunta o respuesta puede incluir datos personales que hayas consultado. No incluyas credenciales ni información sensible.</p>
       <p><strong className="text-[hsl(var(--primary))]">Fotografías:</strong> se procesan para sugerir una clasificación solo si seleccionas una imagen, aceptas su envío y la IA está disponible. El escaneo confirmado se almacena sin guardar la fotografía.</p>
       <p><strong className="text-[hsl(var(--primary))]">Ubicación GPS:</strong> EcoPulse no solicita ni almacena tu ubicación.</p>
     </InfoBlock>
@@ -116,13 +116,13 @@ export function PrivacyPage() {
       <p>Operar tu cuenta y mostrar tu actividad registrada, permitir la verificación de entregas por parte de operadores autorizados, y responder consultas sobre separación de residuos. No usamos tus datos para publicidad ni para venderlos.</p>
     </InfoBlock>
     <InfoBlock title="Con quién se comparten">
-      <p>Con proveedores técnicos necesarios: Clerk para autenticación. El mapa base se carga como contenido de OpenStreetMap, que puede recibir la dirección IP de tu navegador al mostrarse. No compartimos tu actividad privada entre cuentas ni con terceros ajenos a la operación.</p>
+      <p>Con proveedores técnicos necesarios: Clerk para autenticación; el proveedor de IA configurado (OpenRouter) para responder solo cuando autorizas el envío; PostgreSQL (Neon) para los registros operativos y el historial que autorices guardar; y OpenStreetMap para el mapa base, que puede recibir la dirección IP de tu navegador. No compartimos tu actividad privada entre cuentas ni con terceros ajenos a la operación.</p>
     </InfoBlock>
     <InfoBlock title="Conservación">
-      <p>Los registros asociados a tu cuenta se conservan mientras la cuenta exista. Si eliminas tu cuenta con Clerk, los datos operativos asociados requieren una solicitud de supresión por el canal formal, aún en preparación.</p>
+      <p>Las conversaciones guardadas se conservan hasta que las elimines desde EcoGuía. Los demás registros operativos se conservan mientras la cuenta exista; si eliminas tu cuenta con Clerk, su supresión requiere una solicitud por el canal formal, aún en preparación.</p>
     </InfoBlock>
     <InfoBlock title="Tus derechos">
-      <p>De acuerdo con la Ley 1581 de 2012 puedes conocer, actualizar, rectificar y solicitar la supresión de tus datos. El canal público para presentar solicitudes está en preparación; mientras se habilita, puedes actualizar tu nombre y correo desde tu cuenta y gestionar el segundo factor desde la sección Seguridad.</p>
+      <p>De acuerdo con la Ley 1581 de 2012 puedes conocer, actualizar, rectificar y solicitar la supresión de tus datos. Mientras se habilita el canal público de solicitudes, puedes actualizar tu nombre y correo desde tu cuenta, gestionar el segundo factor desde la sección Seguridad y eliminar tus conversaciones guardadas desde EcoGuía.</p>
       <p className="text-xs">No prometemos eliminación completa hasta que exista un mecanismo implementado y verificable.</p>
     </InfoBlock>
     <InfoBlock title="Seguridad">
@@ -131,7 +131,7 @@ export function PrivacyPage() {
     <InfoBlock title="Menores de edad">
       <p>EcoPulse no está dirigido a menores de 18 años sin acompañamiento de una persona adulta responsable.</p>
     </InfoBlock>
-    <p className="text-xs text-[hsl(var(--muted-foreground))]">Última revisión: 17 de octubre de 2026. Este documento se actualizará publicando una nueva fecha.</p>
+    <p className="text-xs text-[hsl(var(--muted-foreground))]">Última revisión: 4 de noviembre de 2026. Este documento se actualizará publicando una nueva fecha.</p>
   </InfoPageShell>;
 }
 
