@@ -70,6 +70,8 @@ try {
       const input = page.getByTestId("input-landing-chat");
       if ((await input.getAttribute("maxlength")) !== "500") throw new Error("quick_guide_maxlength_missing");
       if ((await input.getAttribute("aria-label")) !== "Pregunta para la guía rápida") throw new Error("quick_guide_label_missing");
+      quickGuideStep = "focus_input";
+      await page.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "input-landing-chat", undefined, { timeout: 15000 });
       const questions = ["¿Dónde va el vidrio?", "¿Cómo gano puntos?", "¿Dónde va el papel?", "¿Qué hago con una lata?"];
       for (const [index, question] of questions.entries()) {
         quickGuideStep = `message_${index + 1}`;
@@ -82,7 +84,15 @@ try {
       quickGuideStep = "escape";
       await page.keyboard.press("Escape");
       await panel.waitFor({ state: "hidden", timeout: 15000 });
-      results.push({ profile: profile.name, path: "/ (quick guide flow)", status: 200, heading: "quick_guide_scroll_escape_labels", errors: [...errors], pass: errors.length === 0 });
+      quickGuideStep = "focus_launcher_escape";
+      await page.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "button-open-landing-chat", undefined, { timeout: 15000 });
+      quickGuideStep = "close_button";
+      await page.getByTestId("button-open-landing-chat").click();
+      await panel.waitFor({ state: "visible", timeout: 15000 });
+      await page.getByTestId("button-close-landing-chat").click();
+      await panel.waitFor({ state: "hidden", timeout: 15000 });
+      await page.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "button-open-landing-chat", undefined, { timeout: 15000 });
+      results.push({ profile: profile.name, path: "/ (quick guide flow)", status: 200, heading: "quick_guide_scroll_escape_focus_labels", errors: [...errors], pass: errors.length === 0 });
     } catch (error) {
       results.push({ profile: profile.name, path: "/ (quick guide flow)", status: null, errors: [...errors], pass: false, reason: `quick_guide_failed_at_${quickGuideStep}`, detail: String(error?.message ?? error).slice(0, 160) });
     }
