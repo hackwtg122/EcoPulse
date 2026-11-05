@@ -4,6 +4,8 @@ export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean;
 export type RewardDraftInput = { title: string; description: string; cost: number };
 export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number; fulfillmentReference: string };
 export type PointMovement = { id: string; delta: number; kind: "delivery" | "redemption" | "adjustment"; createdAt: string };
+export type FulfilledRedemption = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfilledAt: string; fulfillmentReference: string };
+export type FulfillmentHistory = { items: FulfilledRedemption[]; nextCursor: string | null };
 
 export function hasRewardInventory(item: RewardItem): boolean {
   return item.active === true && Number.isSafeInteger(item.inventoryRemaining) && (item.inventoryRemaining as number) > 0;
@@ -78,8 +80,29 @@ export async function loadAdminRedemptions(apiUrl: string, token: string, signal
 }
 export async function fulfillRedemption(apiUrl: string, token: string, id: string, reference: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<{ id: string; replayed: boolean }> {
   const row = object(await call(apiUrl, token, `admin/redemptions/${encodeURIComponent(id)}/fulfill`, signal, { method: "POST", body: { reference } }, fetchImpl));
-  if (typeof row.id !== "string" || typeof row.replayed !== "boolean") throw new RewardApiError(502, "invalid_fulfillment_response");
+  if (row.id !== id || typeof row.replayed !== "boolean") throw new RewardApiError(502, "invalid_fulfillment_response");
   return { id: row.id, replayed: row.replayed };
+}
+
+export async function loadAdminFulfillmentHistory(apiUrl: string, token: string, cursor: string | null, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<FulfillmentHistory> {
+  const cursorPattern = /^[A-Za-z0-9_-]{8,1024}$/;
+  if (cursor !== null && !cursorPattern.test(cursor)) throw new RewardApiError(400, "invalid_pagination");
+  const path = `admin/redemptions/history?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+  const page = object(await call(apiUrl, token, path, signal, undefined, fetchImpl));
+  if (!Array.isArray(page.items) || page.items.length > 20 || (page.nextCursor !== null &&
+    (typeof page.nextCursor !== "string" || !cursorPattern.test(page.nextCursor)))) throw new RewardApiError(502, "invalid_fulfillment_history");
+  const history = items(page.items).map(row => {
+    if (typeof row.id !== "string" || typeof row.rewardId !== "string" || typeof row.rewardTitle !== "string" ||
+      !Number.isSafeInteger(row.cost) || (row.cost as number) < 1 ||
+      typeof row.createdAt !== "string" || !Number.isFinite(Date.parse(row.createdAt)) ||
+      typeof row.fulfilledAt !== "string" || !Number.isFinite(Date.parse(row.fulfilledAt)) ||
+      typeof row.fulfillmentReference !== "string" || !/^[A-Za-z0-9_:/.-]{10,120}$/.test(row.fulfillmentReference)) {
+      throw new RewardApiError(502, "invalid_fulfillment_history");
+    }
+    return { id: row.id, rewardId: row.rewardId, rewardTitle: row.rewardTitle, cost: row.cost as number,
+      createdAt: row.createdAt, fulfilledAt: row.fulfilledAt, fulfillmentReference: row.fulfillmentReference };
+  });
+  return { items: history, nextCursor: page.nextCursor as string | null };
 }
 export async function loadRewardBalance(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch) {
   const row = object(await call(apiUrl, token, "balance", signal, undefined, fetchImpl));

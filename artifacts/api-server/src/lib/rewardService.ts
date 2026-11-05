@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { uuidPattern, validIdempotencyKey } from "./pilotPolicy.ts";
+import type { DeliveryCursor } from "./pilotPolicy.ts";
 
 export class RewardError extends Error {
   readonly status: number;
@@ -181,6 +182,19 @@ export async function listReservedRedemptions(pool: Pool) {
     FROM redemptions r JOIN rewards w ON w.id=r.reward_id
     WHERE r.fulfillment_status='reserved' ORDER BY r.created_at ASC, r.id ASC LIMIT 100`);
   return rows.rows;
+}
+
+export async function listFulfilledRedemptions(pool: Pool, limit: number, cursor: DeliveryCursor | null) {
+  const result = await pool.query<{
+    id: string; rewardId: string; rewardTitle: string; cost: number;
+    createdAt: Date; fulfilledAt: Date; fulfillmentReference: string;
+  }>(`SELECT r.id, r.reward_id AS "rewardId", w.title AS "rewardTitle", r.cost,
+    r.created_at AS "createdAt", date_trunc('milliseconds',r.fulfilled_at) AS "fulfilledAt", r.fulfillment_reference AS "fulfillmentReference"
+    FROM redemptions r JOIN rewards w ON w.id=r.reward_id
+    WHERE r.fulfillment_status='fulfilled'
+      AND ($1::timestamptz IS NULL OR (date_trunc('milliseconds',r.fulfilled_at),r.id)<($1::timestamptz,$2::uuid))
+    ORDER BY date_trunc('milliseconds',r.fulfilled_at) DESC,r.id DESC LIMIT $3`, [cursor?.createdAt ?? null, cursor?.id ?? null, limit]);
+  return result.rows;
 }
 
 export async function fulfillRedemption(pool: Pool, actorId: string, id: string, reference: string) {

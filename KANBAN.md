@@ -11,7 +11,7 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 
 ## EN PROCESO
 
-- Sin corrección pendiente de desplegar. Siguiente prioridad ejecutable: continuar la integración de recepción, acreditación y cumplimiento de canjes; las operaciones físicas requieren las dependencias registradas abajo, no datos ficticios.
+- Integrar historial administrativo paginado de canjes cumplidos: hoy desaparecen de la bandeja al registrar su entrega y no se pueden consultar desde el panel. Mostrar fecha y referencia reales de cumplimiento, refrescar después de escribir y mantener acceso exclusivo de administrador sin exponer identidades de participantes ni modificar saldo/inventario.
 
 ## BLOQUEADO
 

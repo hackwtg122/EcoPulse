@@ -1,6 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createRewardDraft, fulfillRedemption, publishRewardDraft, loadAdminRedemptions, loadAdminRewards, loadPointMovements, loadRedemptions, loadRewardBalance, loadRewardCapabilities, loadRewards, RewardApiError } from "./reward-api.ts";
+import { loadAdminFulfillmentHistory } from "./reward-api.ts";
+
+test("administrative fulfillment history paginates authenticated no-store reads and strips identities", async () => {
+  const row = { id: "redemption", rewardId: "reward", rewardTitle: "Contract test", cost: 20,
+    createdAt: "2026-11-04T09:00:00Z", fulfilledAt: "2026-11-04T10:00:00Z", fulfillmentReference: "RECEIPT-2026-001" };
+  for (const cursor of [null, "continuation_cursor"]) {
+    const result = await loadAdminFulfillmentHistory("https://api.invalid", "test-token", cursor, new AbortController().signal, async (url, options) => {
+      const parsed = new URL(url);
+      assert.equal(parsed.pathname, "/api/pilot/admin/redemptions/history");
+      assert.equal(parsed.searchParams.get("limit"), "20");
+      assert.equal(parsed.searchParams.get("cursor"), cursor);
+      assert.equal(options.method, "GET");
+      assert.equal(options.cache, "no-store");
+      assert.equal(options.headers.Authorization, "Bearer test-token");
+      return Response.json({ items: [{ ...row, userId: "must_not_be_retained" }], nextCursor: "next_cursor" });
+    });
+    assert.deepEqual(result, { items: [row], nextCursor: "next_cursor" });
+  }
+});
+
+test("fulfillment history rejects invalid evidence, dates and cursors instead of showing false records", async () => {
+  const call = body => loadAdminFulfillmentHistory("https://api.invalid", "test-token", null, new AbortController().signal, async () => Response.json(body));
+  assert.deepEqual(await call({ items: [], nextCursor: null }), { items: [], nextCursor: null });
+  const row = { id: "r", rewardId: "w", rewardTitle: "Test", cost: 20, createdAt: "2026-11-04T09:00:00Z", fulfilledAt: "2026-11-04T10:00:00Z", fulfillmentReference: "RECEIPT-2026-001" };
+  for (const item of [{ ...row, fulfilledAt: null }, { ...row, fulfilledAt: "not-a-date" }, { ...row, fulfillmentReference: "" }, { ...row, cost: -1 }]) {
+    await assert.rejects(call({ items: [item], nextCursor: null }), { code: "invalid_fulfillment_history" });
+  }
+  await assert.rejects(call({ items: [], nextCursor: "?invalid" }), { code: "invalid_fulfillment_history" });
+  await assert.rejects(loadAdminFulfillmentHistory("https://api.invalid", "test-token", "?invalid", new AbortController().signal, async () => { throw Error("must_not_fetch"); }), { code: "invalid_pagination" });
+});
+
+test("fulfillment cannot confirm a response for another redemption", async () => {
+  await assert.rejects(fulfillRedemption("https://api.invalid", "test-token", "expected", "RECEIPT-2026-001", new AbortController().signal,
+    async () => Response.json({ id: "other", replayed: false })), { code: "invalid_fulfillment_response" });
+});
 
 function mock(routes) {
   const requests=[];

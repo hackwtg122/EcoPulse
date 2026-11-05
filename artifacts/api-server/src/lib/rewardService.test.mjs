@@ -1,6 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { digitalAssetForFulfillment } from "./rewardService.ts";
+import { listFulfilledRedemptions } from "./rewardService.ts";
+
+test("fulfilled redemption history uses stable keyset pagination and never writes", async () => {
+  const cursor = { createdAt: new Date("2026-11-04T10:00:00.123Z"), id: "00000000-0000-4000-8000-000000000001" };
+  for (const next of [null, cursor]) {
+    let calls = 0;
+    const rows = [];
+    const result = await listFulfilledRedemptions({ async query(sql, params) {
+      calls++;
+      assert.match(sql, /^SELECT/);
+      assert.match(sql, /fulfillment_status='fulfilled'/);
+      assert.match(sql, /date_trunc\('milliseconds',r.fulfilled_at\),r.id\)</);
+      assert.match(sql, /ORDER BY date_trunc\('milliseconds',r.fulfilled_at\) DESC,r.id DESC LIMIT \$3/);
+      assert.ok(!sql.includes("user_id"), "history must not select participant identity");
+      assert.deepEqual(params, [next?.createdAt ?? null, next?.id ?? null, 21]);
+      return { rows };
+    } }, 21, next);
+    assert.equal(result, rows);
+    assert.equal(calls, 1);
+  }
+});
 
 test("digital fulfillment exposes only an explicitly delivered known asset", () => {
   assert.equal(digitalAssetForFulfillment("fulfilled", "digital:ecopulse/nature-v1"), "nature-v1");

@@ -7,6 +7,7 @@ import kitImage from "./assets/academic-kit.svg";
 import badgeImage from "./assets/academic-badge.svg";
 import landscapeImage from "./assets/academic-landscape.svg";
 import { canRedeemReward, hasRewardInventory } from "./reward-api";
+import { loadAdminFulfillmentHistory, type FulfilledRedemption } from "./reward-api";
 
 const emptyDraft: RewardDraftInput = { title: "", description: "", cost: 1 };
 const fulfillmentReferencePattern = /^[A-Za-z0-9_:/.-]{10,120}$/;
@@ -144,6 +145,12 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
   const [capabilities, setCapabilities] = useState<RewardCapabilities | null>(null);
   const [drafts, setDrafts] = useState<RewardItem[]>([]);
   const [adminRedemptions, setAdminRedemptions] = useState<RedemptionItem[]>([]);
+  const [fulfilled, setFulfilled] = useState<FulfilledRedemption[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const historyRequest = useRef<AbortController | null>(null);
+  const adminReadSequence = useRef(0);
   const [draft, setDraft] = useState<RewardDraftInput>(emptyDraft);
   const [editing, setEditing] = useState<RewardItem | null>(null);
   const [fulfillTarget, setFulfillTarget] = useState<string | null>(null);
@@ -159,25 +166,44 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
   const inFlight = useRef(false);
   const load = useCallback(async (signal: AbortSignal) => {
     if (!userId || role !== "admin") return;
+    const sequence = ++adminReadSequence.current;
+    historyRequest.current?.abort(); setHistoryLoading(false); setHistoryError("");
     setStatus("loading"); setError("");
     try {
       const token = await getToken();
       if (!token) throw new RewardApiError(401, "missing_session_token");
-      const [caps, adminList, redemptions] = await Promise.all([
+      const [caps, adminList, redemptions, history] = await Promise.all([
         loadRewardCapabilities(apiUrl, token, signal),
         loadAdminRewards(apiUrl, token, signal),
         loadAdminRedemptions(apiUrl, token, signal),
+        loadAdminFulfillmentHistory(apiUrl, token, null, signal),
       ]);
-      if (!signal.aborted) { setCapabilities(caps); setDrafts(adminList); setAdminRedemptions(redemptions); setStatus("ready"); }
-    } catch { if (!signal.aborted) setStatus("error"); }
+      if (!signal.aborted && sequence === adminReadSequence.current) { setCapabilities(caps); setDrafts(adminList); setAdminRedemptions(redemptions); setFulfilled(history.items); setHistoryCursor(history.nextCursor); setStatus("ready"); }
+    } catch { if (!signal.aborted && sequence === adminReadSequence.current) setStatus("error"); }
   }, [apiUrl, getToken, role, userId]);
   useEffect(() => {
-    setDrafts([]); setAdminRedemptions([]); setPublishTarget(null); setPublishConfirmed(false); setStatus("loading");
+    setDrafts([]); setAdminRedemptions([]); setFulfilled([]); setHistoryCursor(null); setPublishTarget(null); setPublishConfirmed(false); setStatus("loading");
     const controller = new AbortController();
     void load(controller.signal);
-    return () => controller.abort();
+    return () => { ++adminReadSequence.current; controller.abort(); historyRequest.current?.abort(); };
   }, [load]);
   const refresh = () => void load(new AbortController().signal);
+  const loadMoreFulfilled = async () => {
+    if (!historyCursor || historyLoading || status !== "ready" || role !== "admin" || historyRequest.current && !historyRequest.current.signal.aborted) return;
+    const controller = new AbortController(); historyRequest.current = controller;
+    setHistoryLoading(true); setHistoryError("");
+    try {
+      const token = await getToken();
+      if (controller.signal.aborted) return;
+      if (!token) throw new RewardApiError(401, "missing_session_token");
+      const page = await loadAdminFulfillmentHistory(apiUrl, token, historyCursor, controller.signal);
+      if (!controller.signal.aborted) {
+        setFulfilled(rows => [...new Map([...rows, ...page.items].map(row => [row.id, row])).values()]);
+        setHistoryCursor(page.nextCursor);
+      }
+    } catch { if (!controller.signal.aborted) setHistoryError("No se pudo cargar la siguiente página de cumplimientos. Puedes reintentar."); }
+    finally { if (historyRequest.current === controller) { historyRequest.current = null; setHistoryLoading(false); } }
+  };
   const updateDraft = (next: RewardDraftInput) => { setDraft(next); draftKey.current = null; setError(""); };
   const chooseDraft = (item: RewardItem) => { setEditing(item); updateDraft({ title: item.title, description: item.description, cost: item.cost }); };
   const saveDraft = async (event: FormEvent) => {
@@ -240,7 +266,7 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
   };
   if (role !== "admin") return <p className="rounded-[2rem] border border-[hsl(var(--border))] p-6" role="alert">Esta sección es exclusiva para administradores.</p>;
   return <div className="animate-rise space-y-6" data-testid="rewards-admin-panel">
-    <header><p className="text-xs font-bold uppercase tracking-[.2em] text-[hsl(var(--accent))]">Administración</p><h1 className="mt-2 font-display text-4xl text-[hsl(var(--primary))]">Gestión de recompensas</h1><p className="mt-2 max-w-xl text-sm text-[hsl(var(--muted-foreground))]">Gestiona borradores y recompensas documentadas. Publicar no acredita una entrega; el cumplimiento se registra por separado.</p></header>
+    <header><p className="text-xs font-bold uppercase tracking-[.2em] text-[hsl(var(--accent))]">Administración</p><h1 className="mt-2 font-display text-4xl text-[hsl(var(--primary))]">Gestión de recompensas</h1><p className="mt-2 max-w-xl text-sm text-[hsl(var(--muted-foreground))]">Gestiona borradores y recompensas documentadas. Publicar no acredita una entrega; el cumplimiento se registra por separado.</p><button type="button" disabled={busy || status === "loading"} onClick={refresh} className="mt-3 min-h-11 underline disabled:opacity-50" data-testid="button-refresh-rewards-admin">Actualizar gestión</button></header>
     {status === "loading" && <p aria-busy="true" className="rounded-2xl bg-[hsl(var(--muted))] p-5">Cargando datos administrativos…</p>}
     {status === "error" && <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-5 text-red-800">No se pudo cargar la gestión. <button type="button" onClick={refresh} className="underline">Reintentar</button></div>}
     {message && <p role="status" className="rounded-2xl bg-emerald-50 p-4 text-emerald-900">{message}</p>}
@@ -259,6 +285,13 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
         {capabilities.canFulfill && adminRedemptions.length > 0 && <div className="mt-4 space-y-3">{adminRedemptions.map(item => <article key={item.id} className="rounded-xl border border-[hsl(var(--border))] p-4" data-testid={`admin-redemption-${item.id}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{item.rewardTitle}</p><p className="text-xs text-[hsl(var(--muted-foreground))]">{item.cost} pts · {new Date(item.createdAt).toLocaleDateString("es-CO")} · {item.fulfillmentStatus === "fulfilled" ? "Entregado" : "Reservado"}</p></div>{item.fulfillmentStatus === "reserved" && fulfillTarget !== item.id && <button type="button" disabled={busy || !capabilities.canFulfill} onClick={() => { setFulfillTarget(item.id); setFulfillReference(""); }} className="underline disabled:opacity-50">Registrar entrega</button>}</div>
           {fulfillTarget === item.id && <form onSubmit={event => { event.preventDefault(); void confirmFulfill(item.id); }} className="mt-3 space-y-2 rounded-xl bg-[hsl(var(--muted)/.65)] p-4"><label className="block text-sm font-semibold">Referencia de cumplimiento<input required minLength={10} maxLength={120} pattern="[A-Za-z0-9_:/.\\-]{10,120}" value={fulfillReference} onChange={event => setFulfillReference(event.target.value)} placeholder="Ej: REC-2026-001-A" className="mt-1 min-h-11 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 text-sm" data-testid="input-fulfill-reference" /></label><div className="flex gap-3"><button type="submit" disabled={busy || !fulfillmentReferencePattern.test(fulfillReference.trim())} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-[hsl(var(--primary-foreground))] disabled:opacity-50" data-testid="button-confirm-fulfill">{busy ? "Guardando…" : "Confirmar entrega"}</button><button type="button" onClick={() => { setFulfillTarget(null); setFulfillReference(""); }} className="underline">Cancelar</button></div></form>}
         </article>)}</div>}
+      </section>
+      <section aria-labelledby="fulfilled-history-title" className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6" data-testid="admin-fulfillment-history">
+        <h2 id="fulfilled-history-title" className="font-display text-2xl">Historial de canjes cumplidos</h2>
+        <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">Fecha y referencia de entrega registradas en PostgreSQL. Consultar el historial no descuenta puntos ni inventario.</p>
+        {fulfilled.length === 0 ? <p className="mt-4 text-sm" data-testid="admin-fulfillment-history-empty">No hay cumplimientos registrados.</p> : <ol className="mt-4 divide-y divide-[hsl(var(--border))]">{fulfilled.map(item => <li key={item.id} className="space-y-1 py-3 text-sm" data-testid={`fulfilled-redemption-${item.id}`}><p className="font-semibold">{item.rewardTitle} · {item.cost} EcoPuntos</p><p>Canje: <code>{item.id}</code></p><p>Entregado: {new Date(item.fulfilledAt).toLocaleString("es-CO")}</p><p className="break-all">Referencia: <code>{item.fulfillmentReference}</code></p></li>)}</ol>}
+        {historyError && <p role="alert" className="mt-3 text-sm text-red-800">{historyError}</p>}
+        {historyCursor && <button type="button" onClick={() => void loadMoreFulfilled()} disabled={historyLoading || busy} className="mt-4 min-h-11 underline disabled:opacity-50" data-testid="button-more-fulfillments">{historyLoading ? "Cargando…" : "Cargar más cumplimientos"}</button>}
       </section>
     </>}
   </div>;

@@ -8,6 +8,7 @@ import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, del
 import { DeliveryLifecycleError, receivePhysicalDelivery, updateOwnDeliveryStatus, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
 import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
+import { listFulfilledRedemptions } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { ownedDigitalAsset } from "../lib/digitalAssets";
@@ -773,6 +774,18 @@ router.get("/admin/redemptions", async (_req, res) => {
   const pool = await databasePool();
   if (!await hasRewardFulfillmentSchema(pool)) return res.json([]);
   return res.json(await listReservedRedemptions(pool));
+});
+router.get("/admin/redemptions/history", async (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  const limit = parseDeliveryPageLimit(req.query.limit);
+  const cursor = parseDeliveryCursor(req.query.cursor);
+  if (limit === null || !cursor.ok) return res.status(400).json({ error: "invalid_pagination" });
+  const pool = await databasePool();
+  if (!await hasRewardFulfillmentSchema(pool)) return res.json({ items: [], nextCursor: null });
+  const rows = await listFulfilledRedemptions(pool, limit + 1, cursor.value);
+  const items = rows.slice(0, limit);
+  const last = items.at(-1);
+  return res.json({ items, nextCursor: rows.length > limit && last ? encodeDeliveryCursor(last.fulfilledAt, last.id) : null });
 });
 router.post("/admin/redemptions/:id/fulfill", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
