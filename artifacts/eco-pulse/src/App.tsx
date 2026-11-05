@@ -114,7 +114,7 @@ function getUserEmail(user: ClerkProfile | null | undefined) {
 
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; timestamp: string };
 
-const seedChat: ChatMessage[] = [{ id: "welcome", role: "assistant", content: "Hola, soy tu guía de reciclaje. Pregúntame por una categoría, tus puntos o un punto ecológico cercano.", timestamp: "Ahora" }];
+const seedChat: ChatMessage[] = [{ id: "welcome", role: "assistant", content: "Hola. Doy respuestas rápidas de referencia con la biblioteca local de EcoPulse, sin IA. Para una conversación con IA, abre EcoGuía con tu cuenta.", timestamp: "Ahora" }];
 
 const landingFaq = [
   { q: "¿Un escaneo me da EcoPuntos?", a: "No. Clasificar un residuo no concede EcoPuntos. Se obtienen únicamente tras verificar una entrega según las reglas vigentes." },
@@ -163,6 +163,7 @@ function Landing() {
 function Feature({ icon, number, title, text }: { icon: ReactNode; number: string; title: string; text: string }) { return <article className="group rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-7 transition hover:-translate-y-1 hover:shadow-xl"><div className="flex items-start justify-between"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[hsl(var(--secondary)/.35)] text-[hsl(var(--primary))]">{icon}</span><span className="font-mono text-xs text-[hsl(var(--muted-foreground))]">{number}</span></div><h3 className="mt-9 font-display text-3xl text-[hsl(var(--primary))]">{title}</h3><p className="mt-2 leading-relaxed text-[hsl(var(--muted-foreground))]">{text}</p></article>; }
 
 function LandingChat() {
+  const { isSignedIn } = useAuth();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(seedChat);
@@ -181,8 +182,8 @@ function LandingChat() {
     {open && <div className="mb-3 w-[min(360px,calc(100vw-2.5rem))] overflow-hidden rounded-[1.75rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl animate-rise" data-testid="landing-chat-panel">
       <div className="flex items-center gap-3 bg-[hsl(var(--primary))] p-4 text-[hsl(var(--primary-foreground))]">
         <span className="grid h-10 w-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Bot size={20} /></span>
-        <div className="min-w-0 flex-1"><p className="font-semibold">EcoGuía</p><p className="text-xs text-[hsl(var(--primary-foreground)/.7)]">Tu ayuda rápida para reciclar mejor</p></div>
-        <button onClick={() => setOpen(false)} className="rounded-full p-1 hover:bg-[hsl(var(--primary-foreground)/.12)]" aria-label="Cerrar EcoGuía" data-testid="button-close-landing-chat"><X size={17} /></button>
+        <div className="min-w-0 flex-1"><p className="font-semibold">EcoGuía rápida</p><p className="text-xs text-[hsl(var(--primary-foreground)/.7)]">Respuestas de referencia · sin IA</p></div>
+        <button onClick={() => setOpen(false)} className="rounded-full p-1 hover:bg-[hsl(var(--primary-foreground)/.12)]" aria-label="Cerrar guía rápida" data-testid="button-close-landing-chat"><X size={17} /></button>
       </div>
       <div className="flex max-h-72 min-h-48 flex-col gap-3 overflow-y-auto p-4">
         {messages.map((message) => <div key={message.id} className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${message.role === "user" ? "ml-auto rounded-tr-sm bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "rounded-tl-sm bg-[hsl(var(--muted))]"}`} data-testid={`landing-chat-message-${message.id}`}>{message.content}</div>)}
@@ -191,13 +192,14 @@ function LandingChat() {
         <div className="mb-2 flex gap-1.5 overflow-x-auto">
           {["¿Dónde va el vidrio?", "¿Cómo gano puntos?"].map((question) => <button key={question} onClick={() => send(question)} className="whitespace-nowrap rounded-full bg-[hsl(var(--muted))] px-2.5 py-1.5 text-[11px] font-semibold text-[hsl(var(--primary))]" data-testid={`button-landing-chat-${question.slice(0, 4)}`}>{question}</button>)}
         </div>
+        <Link href={isSignedIn ? "/chat" : "/sign-in"} className="mb-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[hsl(var(--primary))] underline" data-testid="link-landing-real-guide">{isSignedIn ? "Abrir EcoGuía con IA" : "Inicia sesión para EcoGuía con IA"} <ArrowRight size={12} /></Link>
         <form onSubmit={(event) => { event.preventDefault(); send(); }} className="flex gap-2">
           <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Escribe tu duda..." className="min-w-0 flex-1 rounded-full bg-[hsl(var(--muted))] px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/.35)]" data-testid="input-landing-chat" />
           <button type="submit" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" aria-label="Enviar mensaje" data-testid="button-send-landing-chat"><ArrowRight size={16} /></button>
         </form>
       </div>
     </div>}
-    {!open && <button onClick={() => setOpen(true)} className="group flex items-center gap-2 rounded-full bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] shadow-xl transition hover:-translate-y-1" data-testid="button-open-landing-chat"><span className="grid h-8 w-8 place-items-center rounded-full bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Bot size={17} /></span>Habla con EcoGuía</button>}
+    {!open && <button onClick={() => setOpen(true)} className="group flex items-center gap-2 rounded-full bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] shadow-xl transition hover:-translate-y-1" data-testid="button-open-landing-chat"><span className="grid h-8 w-8 place-items-center rounded-full bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Bot size={17} /></span>Guía rápida</button>}
   </div>;
 }
 
