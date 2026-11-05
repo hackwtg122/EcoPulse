@@ -55,6 +55,13 @@ function requireVerifier(role: unknown, actorId: string, deliveryId: string) {
   if (!actorId || !uuidPattern.test(deliveryId)) throw new DeliveryLifecycleError(400, "invalid_delivery");
 }
 
+async function lockCurrentVerifier(client: PoolClient, actorId: string) {
+  // Serialize against role revocation for the full write transaction, not just
+  // the authorization snapshot taken by middleware before it started.
+  const actor = await client.query<{ role: string }>("SELECT role FROM users WHERE clerk_user_id=$1 FOR SHARE", [actorId]);
+  if (!canAccessVerifierQueue(actor.rows[0]?.role)) throw new DeliveryLifecycleError(403, "verifier_required");
+}
+
 async function inTransaction<T>(pool: Pool, task: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   try {
@@ -108,6 +115,7 @@ export async function receivePhysicalDelivery(
 ): Promise<{ deliveryId: string; status: "received"; replayed: boolean }> {
   requireVerifier(role, actorId, deliveryId);
   return inTransaction(pool, async (client) => {
+    await lockCurrentVerifier(client, actorId);
     const delivery = await lockedDelivery(client, deliveryId);
     if (!canVerifyDelivery(role, actorId, delivery.user_id)) {
       throw new DeliveryLifecycleError(403, "self_verification_forbidden");
@@ -156,6 +164,7 @@ export async function verifyPhysicalDelivery(
     throw new DeliveryLifecycleError(400, "rejection_reason_required");
   }
   return inTransaction(pool, async (client) => {
+    await lockCurrentVerifier(client, actorId);
     const delivery = await lockedDelivery(client, deliveryId);
     if (!canVerifyDelivery(role, actorId, delivery.user_id)) {
       throw new DeliveryLifecycleError(403, "self_verification_forbidden");

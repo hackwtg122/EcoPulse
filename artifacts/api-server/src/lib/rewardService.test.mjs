@@ -2,6 +2,70 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { digitalAssetForFulfillment } from "./rewardService.ts";
 import { listFulfilledRedemptions } from "./rewardService.ts";
+import { fulfillRedemption, redeemReward } from "./rewardService.ts";
+
+test("fulfillment rechecks the locked admin role, replays safely and never changes points or inventory", async () => {
+  const id = "00000000-0000-4000-8000-000000000001", reference = "RECEIPT-2026-001";
+  for (const role of [null, "participant", "verifier", "admin"]) {
+    for (const fulfilled of [false, true]) {
+      const queries = [];
+      const pool = { async connect() { return { release() {}, async query(sql) {
+        queries.push(sql);
+        if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [] };
+        if (sql.startsWith("SELECT role")) return { rows: role ? [{ role }] : [] };
+        if (sql.startsWith("SELECT id,fulfillment_status")) return { rows: [{ id, fulfillment_status: fulfilled ? "fulfilled" : "reserved", fulfillment_reference: fulfilled ? reference : null, fulfilled_by: fulfilled ? "user_Admin" : null }] };
+        if (sql.startsWith("UPDATE redemptions")) return { rows: [], rowCount: 1 };
+        throw Error("unexpected_query");
+      } }; } };
+      if (role !== "admin") {
+        await assert.rejects(fulfillRedemption(pool, "user_Admin", id, reference), { status: 403, code: "admin_required" });
+        assert.equal(queries.at(-1), "ROLLBACK");
+        assert.equal(queries.length, 3);
+      } else {
+        assert.equal((await fulfillRedemption(pool, "user_Admin", id, reference)).replayed, fulfilled);
+        assert.equal(queries.at(-1), "COMMIT");
+        assert.match(queries[1], /FOR SHARE/);
+        assert.match(queries[2], /FOR UPDATE/);
+        assert.equal(queries.filter(sql => sql.startsWith("UPDATE")).length, fulfilled ? 0 : 1);
+      }
+      assert.ok(!queries.some(sql => /point_movements|UPDATE rewards/.test(sql)));
+    }
+  }
+});
+
+test("redemption locks spending and inventory and rolls back all writes if debit fails", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  for (const failDebit of [false, true]) {
+    const queries = [];
+    const pool = { async connect() { return { release() {}, async query(sql, params) {
+      queries.push({ sql, params });
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql) || sql.startsWith("SELECT pg_advisory")) return { rows: [] };
+      if (sql.startsWith("SELECT clerk_user_id")) return { rows: [{ clerk_user_id: "user_owner" }] };
+      if (sql.startsWith("SELECT id,reward_id")) return { rows: [] };
+      if (sql.startsWith("SELECT cost,inventory_remaining")) return { rows: [{ cost: 20, inventory_remaining: 1, active: true, fulfillment_reference: "https://example.org/evidence", validated_at: new Date(), validated_by: "user_Admin" }] };
+      if (sql.startsWith("SELECT coalesce(sum(delta)")) return { rows: [{ balance: "20" }] };
+      if (sql.startsWith("INSERT INTO redemptions")) return { rows: [{ id, reward_id: id, cost: 20, fulfillment_status: "reserved" }] };
+      if (sql.startsWith("INSERT INTO point_movements")) {
+        assert.equal(params[2], -20);
+        if (failDebit) throw Object.assign(Error("debit_unavailable"), { code: "XX000" });
+        return { rows: [] };
+      }
+      if (sql.startsWith("UPDATE rewards")) return { rows: [] };
+      throw Error("unexpected_query");
+    } }; } };
+    if (failDebit) {
+      await assert.rejects(redeemReward(pool, "user_owner", id, "redemption_contract_key"), { code: "XX000" });
+      assert.equal(queries.at(-1).sql, "ROLLBACK");
+      assert.ok(!queries.some(q => q.sql.startsWith("UPDATE rewards")));
+    } else {
+      await redeemReward(pool, "user_owner", id, "redemption_contract_key");
+      assert.equal(queries.at(-1).sql, "COMMIT");
+      assert.match(queries.find(q => q.sql.startsWith("UPDATE rewards")).sql, /inventory_remaining=inventory_remaining-1/);
+    }
+    assert.match(queries[1].sql, /pg_advisory_xact_lock/);
+    assert.match(queries.find(q => q.sql.startsWith("SELECT cost,inventory_remaining")).sql, /FOR UPDATE/);
+  }
+});
 
 test("fulfilled redemption history uses stable keyset pagination and never writes", async () => {
   const cursor = { createdAt: new Date("2026-11-04T10:00:00.123Z"), id: "00000000-0000-4000-8000-000000000001" };

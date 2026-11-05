@@ -200,6 +200,8 @@ export async function listFulfilledRedemptions(pool: Pool, limit: number, cursor
 export async function fulfillRedemption(pool: Pool, actorId: string, id: string, reference: string) {
   if (!uuidPattern.test(id) || !/^[A-Za-z0-9_:/.-]{10,120}$/.test(reference)) throw new RewardError(400, "invalid_fulfillment_reference");
   return transaction(pool, async client => {
+    const actor = await client.query("SELECT role FROM users WHERE clerk_user_id=$1 FOR SHARE", [actorId]);
+    if (actor.rows[0]?.role !== "admin") throw new RewardError(403, "admin_required");
     const result = await client.query("SELECT id,fulfillment_status,fulfillment_reference,fulfilled_by FROM redemptions WHERE id=$1 FOR UPDATE", [id]);
     const prior = result.rows[0];
     if (!prior) throw new RewardError(404, "redemption_not_found");
