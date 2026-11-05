@@ -11,7 +11,7 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 
 ## EN PROCESO
 
-- Sin cambio pendiente de despliegue. Continúa pendiente la operación física autorizada descrita en BLOQUEADO; no se crean registros para aparentarla.
+- Implementar reposición administrativa de inventario real: cantidad positiva y evidencia HTTPS con declaración de disponibilidad, asiento inmutable con administrador/fecha/antes/después, transacción e idempotencia, bloqueo concurrente con canjes, formulario e historial existentes. Migración aditiva sin modificar registros operativos. Después revisar únicamente impedimentos de los formularios de alta reales.
 
 ## BLOQUEADO
 

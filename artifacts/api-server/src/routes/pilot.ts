@@ -9,6 +9,7 @@ import { DeliveryLifecycleError, receivePhysicalDelivery, updateOwnDeliveryStatu
 import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { listFulfilledRedemptions } from "../lib/rewardService";
+import { hasRewardInventorySchema, listRewardInventoryMovements, parseRewardRestock, restockReward } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
 import { ownedDigitalAsset } from "../lib/digitalAssets";
@@ -675,6 +676,10 @@ router.post("/deliveries/:id/verify", async (req, res) => {
 router.get("/rewards/capabilities", async (_req, res) => {
   const pool = await databasePool();
   const schemaReady = await hasRewardFulfillmentSchema(pool);
+  const inventorySchemaReady = schemaReady && await hasRewardInventorySchema(pool);
+  const inventoryPrivileges = inventorySchemaReady ? await pool.query<{ ready: boolean }>(`SELECT
+    has_table_privilege(current_user,'public.reward_inventory_movements','SELECT') AND
+    has_table_privilege(current_user,'public.reward_inventory_movements','INSERT') AS ready`) : null;
   const privileges = await pool.query<{ draft_insert: boolean; publication_update: boolean }>(`SELECT has_column_privilege(current_user,'public.rewards','title','INSERT') AS draft_insert,
     ${schemaReady ? "(SELECT bool_and(has_column_privilege(current_user,'public.rewards',c,'UPDATE')) FROM unnest(ARRAY['active','inventory_remaining','fulfillment_reference','validated_by','validated_at','updated_at']) AS cols(c))" : "false"} AS publication_update`);
   return res.json({
@@ -684,6 +689,10 @@ router.get("/rewards/capabilities", async (_req, res) => {
     canPublish: res.locals.role === "admin" && privileges.rows[0]?.publication_update === true && rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED,
       admin: process.env.PILOT_REWARD_ADMIN_ENABLED, rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, schemaReady),
     canFulfill: schemaReady && res.locals.role === "admin" && process.env.PILOT_REWARD_FULFILLMENT_ENABLED === "true" && process.env.PILOT_REWARDS_ENABLED === "true",
+    canRestock: res.locals.role === "admin" && inventoryPrivileges?.rows[0]?.ready === true && privileges.rows[0]?.publication_update === true &&
+      rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED, admin: process.env.PILOT_REWARD_ADMIN_ENABLED,
+        rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, inventorySchemaReady),
+    inventorySchemaReady,
     schemaReady,
   });
 });
@@ -747,6 +756,29 @@ router.post("/admin/rewards/:id/publish", async (req, res) => {
   const result = await publishRewardDraft(pool, res.locals.userId, String(req.params.id), parseRewardPublication(req.body));
   if (result.replayed) res.set("Idempotency-Replayed", "true");
   return res.json(result.reward);
+});
+router.post("/admin/rewards/:id/restock", async (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  const input = parseRewardRestock(req.body);
+  const pool = await databasePool();
+  if (!await hasRewardInventorySchema(pool)) return res.status(503).json({ error: "reward_inventory_migration_required" });
+  if (!rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED, admin: process.env.PILOT_REWARD_ADMIN_ENABLED,
+    rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, await hasRewardFulfillmentSchema(pool))) {
+    return res.status(503).json({ error: "reward_restock_disabled" });
+  }
+  const result = await restockReward(pool, res.locals.userId, String(req.params.id), req.get("Idempotency-Key"), input);
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.status(result.replayed ? 200 : 201).json(result);
+});
+router.get("/admin/rewards/:id/inventory-movements", async (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  const limit = parseDeliveryPageLimit(req.query.limit), cursor = parseDeliveryCursor(req.query.cursor);
+  if (!uuidPattern.test(String(req.params.id)) || limit === null || !cursor.ok) return res.status(400).json({ error: "invalid_pagination" });
+  const pool = await databasePool();
+  if (!await hasRewardInventorySchema(pool)) return res.json({ items: [], nextCursor: null });
+  const rows = await listRewardInventoryMovements(pool, String(req.params.id), limit + 1, cursor.value);
+  const items = rows.slice(0, limit), last = items.at(-1);
+  return res.json({ items, nextCursor: rows.length > limit && last ? encodeDeliveryCursor(last.createdAt, last.id) : null });
 });
 router.get("/redemptions", async (_req, res) => {
   const pool = await databasePool();

@@ -11,6 +11,71 @@ export class RewardError extends Error {
 
 export type RewardDraft = { title: string; description: string; cost: number };
 export type RewardPublication = { expected: RewardDraft; inventoryRemaining: number; fulfillmentReference: string };
+export type RewardRestock = { quantity: number; evidenceReference: string; availabilityConfirmed: true };
+export type InventoryMovement = { id: string; rewardId: string; administratorId: string; quantity: number; inventoryBefore: number; inventoryAfter: number; evidenceReference: string; createdAt: Date };
+
+export function parseRewardRestock(value: unknown): RewardRestock {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new RewardError(400, "invalid_reward_restock");
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).some(key => !["quantity", "evidenceReference", "availabilityConfirmed"].includes(key))) throw new RewardError(400, "unexpected_fields");
+  if (row.availabilityConfirmed !== true) throw new RewardError(400, "inventory_confirmation_required");
+  if (!Number.isSafeInteger(row.quantity) || (row.quantity as number) < 1 || (row.quantity as number) > 100000) throw new RewardError(400, "invalid_reward_inventory");
+  if (!validRewardEvidence(row.evidenceReference)) throw new RewardError(400, "invalid_reward_evidence");
+  return { quantity: row.quantity as number, evidenceReference: row.evidenceReference as string, availabilityConfirmed: true };
+}
+
+export async function hasRewardInventorySchema(pool: Pool): Promise<boolean> {
+  const result = await pool.query<{ ready: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname='reward_inventory_movements' AND obj_description(c.oid,'pg_class')='ecopulse:reward-inventory:v1') AS ready`);
+  return result.rows[0]?.ready === true;
+}
+
+export async function restockReward(pool: Pool, actorId: string, rewardId: string, key: unknown, rawInput: unknown) {
+  if (!uuidPattern.test(rewardId) || !validIdempotencyKey(key)) throw new RewardError(400, "invalid_inventory_request");
+  const input = parseRewardRestock(rawInput);
+  return transaction(pool, async client => {
+    const actor = await client.query("SELECT role FROM users WHERE clerk_user_id=$1 FOR SHARE", [actorId]);
+    if (actor.rows[0]?.role !== "admin") throw new RewardError(403, "admin_required");
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", [JSON.stringify(["reward-inventory", actorId, key])]);
+    const previous = await client.query<InventoryMovement>(`SELECT id,reward_id AS "rewardId",administrator_id AS "administratorId",quantity,
+      inventory_before AS "inventoryBefore",inventory_after AS "inventoryAfter",evidence_reference AS "evidenceReference",created_at AS "createdAt"
+      FROM reward_inventory_movements WHERE administrator_id=$1 AND idempotency_key=$2`, [actorId, key]);
+    const prior = previous.rows[0];
+    if (prior) {
+      if (prior.rewardId !== rewardId || prior.quantity !== input.quantity || prior.evidenceReference !== input.evidenceReference) throw new RewardError(409, "idempotency_key_reused");
+      return { movement: prior, replayed: true };
+    }
+    // Same row lock used by redemption: replenishment cannot overwrite a debit.
+    const result = await client.query<{ active: boolean; inventory_remaining: number | null; fulfillment_reference: string | null; validated_at: Date | null; validated_by: string | null }>(
+      "SELECT active,inventory_remaining,fulfillment_reference,validated_at,validated_by FROM rewards WHERE id=$1 FOR UPDATE", [rewardId]);
+    const reward = result.rows[0];
+    if (!reward || !Number.isSafeInteger(reward.inventory_remaining) || reward.inventory_remaining === null || reward.inventory_remaining < 0 ||
+      (!reward.active && reward.inventory_remaining !== 0) || !hasRewardFulfillmentEvidence(reward.fulfillment_reference, reward.validated_at, reward.validated_by)) {
+      throw new RewardError(409, "reward_not_restockable");
+    }
+    const after = reward.inventory_remaining + input.quantity;
+    if (after > 100000) throw new RewardError(409, "reward_inventory_limit_exceeded");
+    const inserted = await client.query<InventoryMovement>(`INSERT INTO reward_inventory_movements
+      (id,reward_id,administrator_id,idempotency_key,quantity,inventory_before,inventory_after,evidence_reference,availability_confirmed)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true)
+      RETURNING id,reward_id AS "rewardId",administrator_id AS "administratorId",quantity,inventory_before AS "inventoryBefore",
+      inventory_after AS "inventoryAfter",evidence_reference AS "evidenceReference",created_at AS "createdAt"`,
+      [randomUUID(), rewardId, actorId, key, input.quantity, reward.inventory_remaining, after, input.evidenceReference]);
+    if (!inserted.rows[0]) throw new RewardError(500, "inventory_write_unconfirmed");
+    const updated = await client.query("UPDATE rewards SET inventory_remaining=inventory_remaining+$2,active=true,updated_at=now() WHERE id=$1 RETURNING id", [rewardId, input.quantity]);
+    if (!updated.rows[0]) throw new RewardError(409, "reward_changed_or_unavailable");
+    return { movement: inserted.rows[0], replayed: false };
+  });
+}
+
+export async function listRewardInventoryMovements(pool: Pool, rewardId: string, limit: number, cursor: DeliveryCursor | null) {
+  const result = await pool.query<InventoryMovement>(`SELECT id,reward_id AS "rewardId",administrator_id AS "administratorId",quantity,
+    inventory_before AS "inventoryBefore",inventory_after AS "inventoryAfter",evidence_reference AS "evidenceReference",
+    date_trunc('milliseconds',created_at) AS "createdAt" FROM reward_inventory_movements
+    WHERE reward_id=$1 AND ($2::timestamptz IS NULL OR (date_trunc('milliseconds',created_at),id)<($2::timestamptz,$3::uuid))
+    ORDER BY date_trunc('milliseconds',created_at) DESC,id DESC LIMIT $4`, [rewardId, cursor?.createdAt ?? null, cursor?.id ?? null, limit]);
+  return result.rows;
+}
 
 // Audit references are not download URLs; only an explicit known marker grants an asset.
 export function digitalAssetForFulfillment(status: unknown, reference: unknown): "nature-v1" | "badge-v1" | "guide-v1" | null {
@@ -21,8 +86,10 @@ export function digitalAssetForFulfillment(status: unknown, reference: unknown):
   return null;
 }
 export function hasRewardFulfillmentEvidence(reference: unknown, validatedAt: unknown, validatedBy: unknown): boolean {
-  if (typeof reference !== "string" || reference.length < 10 || reference.length > 500 || reference !== reference.trim() ||
-      !validatedAt || typeof validatedBy !== "string" || !validatedBy) return false;
+  return Boolean(validatedAt) && typeof validatedBy === "string" && Boolean(validatedBy) && validRewardEvidence(reference);
+}
+export function validRewardEvidence(reference: unknown): reference is string {
+  if (typeof reference !== "string" || reference.length < 10 || reference.length > 500 || reference !== reference.trim()) return false;
   try {
     const url = new URL(reference);
     return url.protocol === "https:" && !url.username && !url.password && !url.hash && url.hostname.includes(".") &&

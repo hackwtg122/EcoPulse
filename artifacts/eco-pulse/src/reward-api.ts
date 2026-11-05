@@ -1,6 +1,8 @@
 export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean };
 export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled"; digitalAsset?: "nature-v1" | "badge-v1" | "guide-v1" | null };
-export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean };
+export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean; canRestock: boolean; inventorySchemaReady: boolean };
+export type RewardRestockInput = { quantity: number; evidenceReference: string; availabilityConfirmed: true };
+export type InventoryMovement = { id: string; rewardId: string; administratorId: string; quantity: number; inventoryBefore: number; inventoryAfter: number; evidenceReference: string; createdAt: string };
 export type RewardDraftInput = { title: string; description: string; cost: number };
 export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number; fulfillmentReference: string };
 export type PointMovement = { id: string; delta: number; kind: "delivery" | "redemption" | "adjustment"; createdAt: string };
@@ -129,7 +131,49 @@ export async function loadRewardCapabilities(apiUrl: string, token: string, sign
   const row = object(await call(apiUrl, token, "rewards/capabilities", signal, undefined, fetchImpl));
   if (typeof row.canRedeem !== "boolean" || typeof row.canManageDrafts !== "boolean" || typeof row.canFulfill !== "boolean" || typeof row.schemaReady !== "boolean") throw new RewardApiError(502, "invalid_reward_capabilities");
   if (row.canPublish !== undefined && typeof row.canPublish !== "boolean") throw new RewardApiError(502, "invalid_reward_capabilities");
-  return { canRedeem: row.canRedeem, canManageDrafts: row.canManageDrafts, canPublish: row.canPublish === true, canFulfill: row.canFulfill, schemaReady: row.schemaReady };
+  for (const key of ["canRestock", "inventorySchemaReady"]) if (row[key] !== undefined && typeof row[key] !== "boolean") throw new RewardApiError(502, "invalid_reward_capabilities");
+  return { canRedeem: row.canRedeem, canManageDrafts: row.canManageDrafts, canPublish: row.canPublish === true, canFulfill: row.canFulfill, schemaReady: row.schemaReady,
+    canRestock: row.canRestock === true, inventorySchemaReady: row.inventorySchemaReady === true };
+}
+
+export function validInventoryRestock(value: unknown): value is RewardRestockInput {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  if (row.availabilityConfirmed !== true || !Number.isSafeInteger(row.quantity) || (row.quantity as number) < 1 || (row.quantity as number) > 100000 ||
+    typeof row.evidenceReference !== "string" || row.evidenceReference.length < 10 || row.evidenceReference.length > 500) return false;
+  try {
+    const url = new URL(row.evidenceReference);
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash && url.hostname.includes(".") &&
+      !url.hostname.endsWith(".local") && !/^\d+(?:\.\d+){3}$/.test(url.hostname) && !url.hostname.startsWith("[") && url.href === row.evidenceReference;
+  } catch { return false; }
+}
+function inventoryMovement(value: unknown): InventoryMovement {
+  const row = object(value), uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (typeof row.id !== "string" || !uuid.test(row.id) || typeof row.rewardId !== "string" || !uuid.test(row.rewardId) ||
+    typeof row.administratorId !== "string" || !/^user_[A-Za-z0-9]{3,64}$/.test(row.administratorId) ||
+    !validInventoryRestock({ quantity: row.quantity, evidenceReference: row.evidenceReference, availabilityConfirmed: true }) ||
+    !Number.isSafeInteger(row.inventoryBefore) || (row.inventoryBefore as number) < 0 ||
+    !Number.isSafeInteger(row.inventoryAfter) || (row.inventoryAfter as number) > 100000 ||
+    row.inventoryAfter !== (row.inventoryBefore as number) + (row.quantity as number) ||
+    typeof row.createdAt !== "string" || !Number.isFinite(Date.parse(row.createdAt))) throw new RewardApiError(502, "invalid_inventory_response");
+  return { id: row.id, rewardId: row.rewardId, administratorId: row.administratorId, quantity: row.quantity as number,
+    inventoryBefore: row.inventoryBefore as number, inventoryAfter: row.inventoryAfter as number, evidenceReference: row.evidenceReference as string, createdAt: row.createdAt };
+}
+export async function restockRewardInventory(apiUrl: string, token: string, rewardId: string, key: string, input: RewardRestockInput, signal: AbortSignal, fetchImpl?: typeof fetch) {
+  if (!validInventoryRestock(input) || !/^[A-Za-z0-9_-]{8,128}$/.test(key)) throw new RewardApiError(400, "invalid_inventory_request");
+  const row = object(await call(apiUrl, token, `admin/rewards/${encodeURIComponent(rewardId)}/restock`, signal, { method: "POST", body: input, key }, fetchImpl));
+  const movement = inventoryMovement(row.movement);
+  if (typeof row.replayed !== "boolean" || movement.rewardId !== rewardId || movement.quantity !== input.quantity || movement.evidenceReference !== input.evidenceReference) throw new RewardApiError(502, "invalid_inventory_response");
+  return { movement, replayed: row.replayed };
+}
+export async function loadRewardInventoryHistory(apiUrl: string, token: string, rewardId: string, cursor: string | null, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<{ items: InventoryMovement[]; nextCursor: string | null }> {
+  const pattern = /^[A-Za-z0-9_-]{8,1024}$/;
+  if (cursor !== null && !pattern.test(cursor)) throw new RewardApiError(400, "invalid_pagination");
+  const page = object(await call(apiUrl, token, `admin/rewards/${encodeURIComponent(rewardId)}/inventory-movements?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, signal, undefined, fetchImpl));
+  if (!Array.isArray(page.items) || page.items.length > 20 || (page.nextCursor !== null && (typeof page.nextCursor !== "string" || !pattern.test(page.nextCursor)))) throw new RewardApiError(502, "invalid_inventory_response");
+  const rows = page.items.map(inventoryMovement);
+  if (rows.some(row => row.rewardId !== rewardId)) throw new RewardApiError(502, "invalid_inventory_response");
+  return { items: rows, nextCursor: page.nextCursor as string | null };
 }
 export async function createRewardDraft(apiUrl: string, token: string, input: RewardDraftInput, key: string, signal: AbortSignal, fetchImpl?: typeof fetch) {
   return reward(object(await call(apiUrl, token, "admin/rewards", signal, { method: "POST", body: input, key }, fetchImpl)));

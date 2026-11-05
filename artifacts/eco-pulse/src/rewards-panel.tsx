@@ -8,6 +8,8 @@ import badgeImage from "./assets/academic-badge.svg";
 import landscapeImage from "./assets/academic-landscape.svg";
 import { canRedeemReward, hasRewardInventory } from "./reward-api";
 import { loadAdminFulfillmentHistory, type FulfilledRedemption } from "./reward-api";
+import { loadRewardInventoryHistory, restockRewardInventory, validInventoryRestock, type InventoryMovement } from "./reward-api";
+import { readRestockIntent, saveRestockIntent, clearRestockIntent, type RestockIntent } from "./reward-inventory-intent";
 
 const emptyDraft: RewardDraftInput = { title: "", description: "", cost: 1 };
 const fulfillmentReferencePattern = /^[A-Za-z0-9_:/.-]{10,120}$/;
@@ -151,6 +153,18 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
   const [historyError, setHistoryError] = useState("");
   const historyRequest = useRef<AbortController | null>(null);
   const adminReadSequence = useRef(0);
+  const [restockTarget, setRestockTarget] = useState("");
+  const [restockQuantity, setRestockQuantity] = useState("");
+  const [restockEvidence, setRestockEvidence] = useState("");
+  const [restockConfirmed, setRestockConfirmed] = useState(false);
+  const [restockIntent, setRestockIntent] = useState<RestockIntent | null>(null);
+  const restockRequest = useRef<AbortController | null>(null);
+  const inventoryRequest = useRef<AbortController | null>(null);
+  const [inventoryTarget, setInventoryTarget] = useState("");
+  const [inventoryRows, setInventoryRows] = useState<InventoryMovement[]>([]);
+  const [inventoryCursor, setInventoryCursor] = useState<string | null>(null);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState("");
   const [draft, setDraft] = useState<RewardDraftInput>(emptyDraft);
   const [editing, setEditing] = useState<RewardItem | null>(null);
   const [fulfillTarget, setFulfillTarget] = useState<string | null>(null);
@@ -188,6 +202,61 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
     return () => { ++adminReadSequence.current; controller.abort(); historyRequest.current?.abort(); };
   }, [load]);
   const refresh = () => void load(new AbortController().signal);
+  useEffect(() => {
+    const saved = role === "admin" && userId ? readRestockIntent(userId) : null;
+    setRestockIntent(saved); setRestockTarget(saved?.rewardId ?? ""); setRestockQuantity(saved ? String(saved.input.quantity) : "");
+    setRestockEvidence(saved?.input.evidenceReference ?? ""); setRestockConfirmed(false);
+    setInventoryTarget(""); setInventoryRows([]); setInventoryCursor(null); setInventoryError(""); setInventoryLoading(false);
+    return () => {
+      inventoryRequest.current?.abort(); restockRequest.current?.abort();
+      if (restockRequest.current) { restockRequest.current = null; inFlight.current = false; setBusy(false); }
+    };
+  }, [role, userId]);
+  const loadInventoryHistory = async (id: string, cursor: string | null = null) => {
+    if (role !== "admin") return;
+    inventoryRequest.current?.abort(); const controller = new AbortController(); inventoryRequest.current = controller;
+    setInventoryTarget(id); setInventoryLoading(true); setInventoryError("");
+    if (!cursor) { setInventoryRows([]); setInventoryCursor(null); }
+    try {
+      const token = await getToken();
+      if (controller.signal.aborted) return;
+      if (!token) throw new RewardApiError(401, "missing_session_token");
+      const page = await loadRewardInventoryHistory(apiUrl, token, id, cursor, controller.signal);
+      if (!controller.signal.aborted) { setInventoryRows(rows => cursor ? [...new Map([...rows, ...page.items].map(row => [row.id, row])).values()] : page.items); setInventoryCursor(page.nextCursor); }
+    } catch { if (!controller.signal.aborted) setInventoryError("No se pudo consultar el registro de inventario. Reintenta la lectura; no vuelvas a registrar una reposición ya confirmada."); }
+    finally { if (inventoryRequest.current === controller) setInventoryLoading(false); }
+  };
+  const submitRestock = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!userId || role !== "admin" || !capabilities?.canRestock || !restockTarget || !restockConfirmed || inFlight.current) return;
+    const input = restockIntent?.input ?? { quantity: Number(restockQuantity), evidenceReference: restockEvidence, availabilityConfirmed: true as const };
+    if (!validInventoryRestock(input)) { setError("Introduce una cantidad entera positiva y una URL HTTPS pública de evidencia, sin credenciales ni fragmentos."); return; }
+    const intent = restockIntent ?? { rewardId: restockTarget, key: `restock_${crypto.randomUUID()}`, input };
+    setRestockIntent(intent); saveRestockIntent(userId, intent);
+    inFlight.current = true; setBusy(true); setError(""); setMessage("");
+    const controller = new AbortController(); restockRequest.current = controller;
+    try {
+      const token = await getToken();
+      if (controller.signal.aborted) return;
+      if (!token) throw new RewardApiError(401, "missing_session_token");
+      const result = await restockRewardInventory(apiUrl, token, intent.rewardId, intent.key, intent.input, controller.signal);
+      if (controller.signal.aborted) return;
+      clearRestockIntent(userId); setRestockIntent(null); setRestockQuantity(""); setRestockEvidence(""); setRestockConfirmed(false);
+      setMessage(result.replayed ? "Recuperamos la reposición registrada; no se añadieron unidades otra vez." : "Reposición registrada con su evidencia y administrador responsable. No se modificaron puntos ni canjes.");
+      refresh(); await loadInventoryHistory(intent.rewardId);
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      const code = cause instanceof RewardApiError ? cause.code : "request_failed";
+      const rejected = cause instanceof RewardApiError && ([400, 403, 404].includes(cause.status) || ["reward_not_restockable", "reward_inventory_limit_exceeded", "reward_changed_or_unavailable"].includes(code));
+      if (rejected) { clearRestockIntent(userId); setRestockIntent(null); }
+      setError(code === "reward_not_restockable" ? "Solo se pueden reponer recompensas documentadas publicadas o agotadas. Un borrador requiere publicación inicial." :
+        code === "reward_inventory_limit_exceeded" ? "La reposición superaría 100000 unidades disponibles. Revisa el inventario actual y la cantidad adicional." :
+        code === "admin_required" ? "Tu cuenta ya no tiene permisos de administrador." :
+        code === "idempotency_key_reused" ? "La clave pertenece a otra reposición. Consulta los movimientos antes de continuar; no se creó otra operación." :
+        rejected ? "El servidor rechazó la reposición. Revisa los datos y los permisos antes de enviarla de nuevo." :
+        "El resultado no está confirmado. Recupera la misma reposición con su clave original para evitar duplicados.");
+    } finally { if (restockRequest.current === controller) { restockRequest.current = null; inFlight.current = false; setBusy(false); } }
+  };
   const loadMoreFulfilled = async () => {
     if (!historyCursor || historyLoading || status !== "ready" || role !== "admin" || historyRequest.current && !historyRequest.current.signal.aborted) return;
     const controller = new AbortController(); historyRequest.current = controller;
@@ -264,6 +333,9 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
         "No se pudo registrar el cumplimiento. Verifica la referencia (10–120 caracteres alfanuméricos).");
     } finally { setBusy(false); inFlight.current = false; }
   };
+  const restockItem = drafts.find(item => item.id === restockTarget);
+  const restockable = Boolean(restockItem?.validationRecorded && restockItem.fulfillmentDocumented && Number.isSafeInteger(restockItem.inventoryRemaining) &&
+    (restockItem.inventoryRemaining as number) >= 0 && (restockItem.active || restockItem.inventoryRemaining === 0));
   if (role !== "admin") return <p className="rounded-[2rem] border border-[hsl(var(--border))] p-6" role="alert">Esta sección es exclusiva para administradores.</p>;
   return <div className="animate-rise space-y-6" data-testid="rewards-admin-panel">
     <header><p className="text-xs font-bold uppercase tracking-[.2em] text-[hsl(var(--accent))]">Administración</p><h1 className="mt-2 font-display text-4xl text-[hsl(var(--primary))]">Gestión de recompensas</h1><p className="mt-2 max-w-xl text-sm text-[hsl(var(--muted-foreground))]">Gestiona borradores y recompensas documentadas. Publicar no acredita una entrega; el cumplimiento se registra por separado.</p><button type="button" disabled={busy || status === "loading"} onClick={refresh} className="mt-3 min-h-11 underline disabled:opacity-50" data-testid="button-refresh-rewards-admin">Actualizar gestión</button></header>
@@ -285,6 +357,30 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
         {capabilities.canFulfill && adminRedemptions.length > 0 && <div className="mt-4 space-y-3">{adminRedemptions.map(item => <article key={item.id} className="rounded-xl border border-[hsl(var(--border))] p-4" data-testid={`admin-redemption-${item.id}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{item.rewardTitle}</p><p className="text-xs text-[hsl(var(--muted-foreground))]">{item.cost} pts · {new Date(item.createdAt).toLocaleDateString("es-CO")} · {item.fulfillmentStatus === "fulfilled" ? "Entregado" : "Reservado"}</p></div>{item.fulfillmentStatus === "reserved" && fulfillTarget !== item.id && <button type="button" disabled={busy || !capabilities.canFulfill} onClick={() => { setFulfillTarget(item.id); setFulfillReference(""); }} className="underline disabled:opacity-50">Registrar entrega</button>}</div>
           {fulfillTarget === item.id && <form onSubmit={event => { event.preventDefault(); void confirmFulfill(item.id); }} className="mt-3 space-y-2 rounded-xl bg-[hsl(var(--muted)/.65)] p-4"><label className="block text-sm font-semibold">Referencia de cumplimiento<input required minLength={10} maxLength={120} pattern="[A-Za-z0-9_:/.\\-]{10,120}" value={fulfillReference} onChange={event => setFulfillReference(event.target.value)} placeholder="Ej: REC-2026-001-A" className="mt-1 min-h-11 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 text-sm" data-testid="input-fulfill-reference" /></label><div className="flex gap-3"><button type="submit" disabled={busy || !fulfillmentReferencePattern.test(fulfillReference.trim())} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-[hsl(var(--primary-foreground))] disabled:opacity-50" data-testid="button-confirm-fulfill">{busy ? "Guardando…" : "Confirmar entrega"}</button><button type="button" onClick={() => { setFulfillTarget(null); setFulfillReference(""); }} className="underline">Cancelar</button></div></form>}
         </article>)}</div>}
+      </section>
+      <section aria-labelledby="inventory-management-title" className="space-y-4 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6" data-testid="admin-reward-inventory">
+        <h2 id="inventory-management-title" className="font-display text-2xl">Reposición de inventario real</h2>
+        <p className="text-sm">Añade únicamente unidades adicionales cuya disponibilidad esté autorizada y documentada. Una recompensa agotada se vuelve a publicar con estas unidades; no se cambian precios, canjes, puntos ni cumplimientos previos.</p>
+        {!capabilities.canRestock && <p role="status" data-testid="reward-restock-disabled">La reposición requiere el registro de inventario, permisos administrativos y la política de publicación habilitada.</p>}
+        <label className="block text-sm">Recompensa<select value={restockTarget} disabled={busy || Boolean(restockIntent)} onChange={event => { setRestockTarget(event.target.value); setRestockQuantity(""); setRestockEvidence(""); setRestockConfirmed(false); }} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="select-restock-reward"><option value="">Selecciona una recompensa registrada</option>{drafts.map(item => <option key={item.id} value={item.id}>{item.title} · {item.inventoryRemaining == null ? "sin inventario documentado" : `${item.inventoryRemaining} disponibles`}</option>)}{restockIntent && !restockItem && <option value={restockIntent.rewardId}>Reposición pendiente · {restockIntent.rewardId}</option>}</select></label>
+        {restockTarget && <button type="button" disabled={inventoryLoading || busy} onClick={() => void loadInventoryHistory(restockTarget)} className="min-h-11 underline" data-testid="button-inventory-history">Consultar movimientos de esta recompensa</button>}
+        {restockTarget && capabilities.canRestock && <form onSubmit={submitRestock} className="space-y-3 rounded-xl border p-4" data-testid="reward-restock-form">
+          {!restockIntent && !restockable && <p role="status">Este registro no admite reposición: publica primero su inventario inicial y evidencia, o selecciona una recompensa publicada o agotada.</p>}
+          {restockIntent && <p role="status" data-testid="restock-pending-notice">Hay una reposición sin confirmar. Se conservan cantidad, evidencia y clave originales: recupérala antes de iniciar otra.</p>}
+          <fieldset disabled={busy || Boolean(restockIntent) || !restockable} className="space-y-3">
+            <label className="block text-sm">Cantidad adicional (no inventario total)<input type="number" required min={1} max={100000} step={1} value={restockQuantity} onChange={event => setRestockQuantity(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="input-restock-quantity" /></label>
+            <label className="block text-sm">Evidencia autorizada de disponibilidad (HTTPS)<input type="url" required minLength={10} maxLength={500} value={restockEvidence} onChange={event => setRestockEvidence(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="input-restock-evidence" /></label>
+          </fieldset>
+          <label className="flex gap-2 text-sm"><input type="checkbox" checked={restockConfirmed} disabled={busy} onChange={event => setRestockConfirmed(event.target.checked)} data-testid="checkbox-restock-confirmed" />Confirmo que estas unidades existen y su disponibilidad está autorizada y respaldada por la evidencia indicada. La operación quedará registrada con mi cuenta.</label>
+          <button type="submit" disabled={busy || !restockConfirmed || (!restockIntent && !restockable)} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-[hsl(var(--primary-foreground))] disabled:opacity-50" data-testid="button-confirm-restock">{busy ? "Registrando…" : restockIntent ? "Recuperar la misma reposición" : "Confirmar reposición real"}</button>
+        </form>}
+        {inventoryTarget && <div data-testid="reward-inventory-history"><h3 className="font-semibold">Movimientos de {drafts.find(item => item.id === inventoryTarget)?.title ?? inventoryTarget}</h3>
+          {inventoryLoading && <p role="status">Consultando el registro de PostgreSQL…</p>}
+          {inventoryError && <p role="alert">{inventoryError} <button type="button" onClick={() => void loadInventoryHistory(inventoryTarget, inventoryCursor)} className="underline">Reintentar lectura</button></p>}
+          {!inventoryLoading && !inventoryError && inventoryRows.length === 0 && <p>No hay reposiciones registradas para esta recompensa. El inventario inicial se documenta en su publicación.</p>}
+          <ol className="divide-y">{inventoryRows.map(item => <li key={item.id} className="space-y-1 py-3 text-sm"><p>+{item.quantity} unidades · {item.inventoryBefore} → {item.inventoryAfter} disponibles en ese momento</p><p>{new Date(item.createdAt).toLocaleString("es-CO")} · Administrador: <code>{item.administratorId}</code></p><a href={item.evidenceReference} target="_blank" rel="noopener noreferrer" className="break-all underline">{item.evidenceReference}</a></li>)}</ol>
+          {inventoryCursor && <button type="button" disabled={inventoryLoading || busy} onClick={() => void loadInventoryHistory(inventoryTarget, inventoryCursor)} className="min-h-11 underline" data-testid="button-more-inventory">Cargar más movimientos</button>}
+        </div>}
       </section>
       <section aria-labelledby="fulfilled-history-title" className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6" data-testid="admin-fulfillment-history">
         <h2 id="fulfilled-history-title" className="font-display text-2xl">Historial de canjes cumplidos</h2>

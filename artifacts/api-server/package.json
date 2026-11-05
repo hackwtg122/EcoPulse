@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node ./dev.mjs",
-    "build": "node --experimental-strip-types --test src/lib/rewardService.test.mjs src/lib/digitalAssets.test.mjs src/lib/deliveryCatalog.test.mjs src/lib/deliveryDetails.test.mjs src/lib/deliveryLifecycle.test.mjs src/lib/pointPresentation.test.mjs src/lib/aiGuide.test.mjs src/lib/guideStorage.test.mjs ../../scripts/neon/seed-safety.test.mjs && node ./build.mjs",
+    "build": "node --experimental-strip-types --test src/lib/rewardService.test.mjs src/lib/rewardInventory.test.mjs src/lib/digitalAssets.test.mjs src/lib/deliveryCatalog.test.mjs src/lib/deliveryDetails.test.mjs src/lib/deliveryLifecycle.test.mjs src/lib/pointPresentation.test.mjs src/lib/aiGuide.test.mjs src/lib/guideStorage.test.mjs ../../scripts/neon/seed-safety.test.mjs && node ./build.mjs",
     "start": "node --enable-source-maps ./start.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:policy": "node --experimental-strip-types src/lib/pilotPolicy.test.mjs",
