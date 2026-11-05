@@ -26,6 +26,8 @@ try {
     const errors = [];
     page.on("pageerror", () => errors.push("browser_script_error"));
     page.on("requestfailed", request => {
+      // Navigation routinely cancels in-flight assets; those are not server failures.
+      if (request.failure()?.errorText === "net::ERR_ABORTED") return;
       const url = new URL(request.url());
       if (url.origin === frontend || url.origin === api) errors.push(`failed_${url.origin === api ? "api" : "asset"}:${url.pathname}`);
     });
