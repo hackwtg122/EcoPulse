@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/react";
 import { Link } from "wouter";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, CheckCircle2, CircleAlert, RefreshCw } from "lucide-react";
 
 const apiUrl = import.meta.env.VITE_PILOT_API_URL?.trim() || "http://127.0.0.1:5001";
@@ -49,6 +49,7 @@ export function OperationalReadinessPanel() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [initializing, setInitializing] = useState(false);
+  const autoPreparedAccount = useRef<string | null>(null);
   const [initializationMessage, setInitializationMessage] = useState("");
 
   useEffect(() => {
@@ -117,6 +118,14 @@ export function OperationalReadinessPanel() {
     }
   };
 
+  // The owner requested automatic initial drafts. Run after the first successful
+  // authorized dashboard read, once per mounted account. The server is idempotent.
+  useEffect(() => {
+    if (!userId || status !== "ready" || autoPreparedAccount.current === userId) return;
+    autoPreparedAccount.current = userId;
+    void prepareCatalog();
+  }, [userId, status]);
+
   const steps = snapshot ? [
     {
       key: "centers",
@@ -173,7 +182,7 @@ export function OperationalReadinessPanel() {
       <button type="button" onClick={() => void prepareCatalog()} disabled={initializing || status === "loading"}
         className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-sm font-semibold text-[hsl(var(--primary-foreground))] disabled:opacity-50"
         data-testid="button-initialize-admin-catalog">{initializing ? "Preparando..." : "Preparar centros, horarios y premios"}</button>
-      <p className="max-w-xl text-xs text-[hsl(var(--muted-foreground))]">Genera registros iniciales editables cuando no existan. No reemplaza registros existentes ni publica disponibilidad.</p>
+      <p className="max-w-xl text-xs text-[hsl(var(--muted-foreground))]">La primera preparación es automática. Este botón permite reintentar; no reemplaza registros existentes ni publica disponibilidad.</p>
     </div>
     {initializationMessage && <p role="status" className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm">{initializationMessage}</p>}
     {status === "loading" && <p role="status" className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm">Consultando centros, usuarios y recompensas…</p>}
