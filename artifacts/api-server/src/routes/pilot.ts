@@ -6,6 +6,7 @@ import { canAccessVerifierQueue, encodeDeliveryCursor, hasOnlyFields, parseDeliv
 import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } from "../lib/pilotRoles";
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, loadPublishedDeliveryPoints, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, updateOwnDeliveryStatus, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
+import { initializeAdminCatalog } from "../lib/adminInitialCatalog";
 import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { listFulfilledRedemptions } from "../lib/rewardService";
@@ -371,6 +372,22 @@ router.get("/admin/catalog", async (_req, res) => {
   const capabilities = await catalogDetailsCapabilities(pool);
   const materials = capabilities.canReadMaterials ? (await pool.query('SELECT delivery_point_id AS "pointId",category_code AS code FROM delivery_point_materials ORDER BY category_code')).rows : [];
   return res.json({ ...await listCatalog(pool, validationReady), materials, ...capabilities, editingEnabled: process.env.PILOT_CATALOG_ADMIN_ENABLED === "true", validationReady, publishingEnabled: validationReady && process.env.PILOT_CATALOG_PUBLICATION_ENABLED === "true" });
+});
+
+// Prepare editable initial records exactly once. Records remain inactive until
+// the administrator validates real locations, times and fulfillment availability.
+router.post("/admin/catalog/initialize", async (req, res) => {
+  if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
+  if (!hasOnlyFields(req.body ?? {}, [])) return res.status(400).json({ error: "unexpected_fields" });
+  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true" || process.env.PILOT_REWARD_ADMIN_ENABLED !== "true") {
+    return res.status(503).json({ error: "catalog_initialization_disabled" });
+  }
+  const pool = await databasePool();
+  if (!await hasDeliveryDetailsSchema(pool) || !await hasCatalogValidationSchema(pool)
+      || !await hasRewardFulfillmentSchema(pool) || !(await catalogDetailsCapabilities(pool)).canEditMaterials) {
+    return res.status(503).json({ error: "catalog_initialization_unavailable" });
+  }
+  return res.json(await initializeAdminCatalog(pool, res.locals.userId));
 });
 
 // Aggregated operational counts for administrators. Read-only: no personal
