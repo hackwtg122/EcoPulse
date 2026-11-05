@@ -14,15 +14,13 @@ import {
   PilotApiError,
   type PilotDeliveryEvent,
   type VerifierCapabilities,
-  type DetailedDeliveryRequest,
   type PilotDelivery,
   type PilotDeliveryOptions,
 } from "./pilot-api";
 import type { ManualScanCategory } from "./scan-catalog";
+import { DeliverySubmission, deliveryRequestRejected } from "./delivery-submission";
 
 const pilotApiUrl = import.meta.env.VITE_PILOT_API_URL?.trim() || "http://127.0.0.1:5001";
-const pendingOperationStorageKey = (userId: string | null | undefined) => `ecopulse:pending-delivery-operation-v2:${userId ?? "signed-out"}`;
-const idempotencyPattern = /^[A-Za-z0-9_-]{8,128}$/;
 
 const deliveryLabels: Record<PilotDelivery["status"], string> = {
   pending: "Pendiente",
@@ -267,6 +265,9 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
   const historyInFlight = useRef(false);
   const inFlight = useRef(false);
   const controller = useRef<AbortController | null>(null);
+  const submission = useRef(new DeliverySubmission(() => sessionStorage));
+  const submissionController = useRef<AbortController | null>(null);
+  const [retryPending, setRetryPending] = useState(false);
 
   const loadOptions = useCallback(async () => {
     controller.current?.abort();
@@ -280,7 +281,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
        const params = new URLSearchParams(window.location.search);
        const requestedPoint = params.get("point");
        const available = loaded.points.find(point => point.id === requestedPoint);
-       if (available) {
+        if (available && !submission.current.current) {
          setSelectedPointId(available.id);
          const requestedSlot = params.get("slot");
          setSelectedSlotId(available.slots.some(slot => slot.id === requestedSlot) ? requestedSlot! : "");
@@ -298,8 +299,12 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
   }, [loadOptions]);
 
   useEffect(() => {
+    submissionController.current?.abort(); submissionController.current = null;
+    inFlight.current = false;
+    submission.current.reset(); setRetryPending(false);
     setOptions(null); setSelectedPointId(""); setSelectedSlotId(""); setMaterialKg({});
     setConfirmed(false); setMessage(""); setStatus("idle");
+    return () => submissionController.current?.abort();
   }, [userId]);
 
   const selectedPoint = options?.points.find((point) => point.id === selectedPointId) ?? null;
@@ -313,18 +318,6 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
   const detailedValid = options?.mode === "detailed" && options.enabled && selectedMaterials.length > 0 && estimatedTotal <= 100_000 && Boolean(selectedPoint) &&
     Boolean(selectedPoint?.materials && selectedMaterials.every(material => selectedPoint.materials?.includes(material.categoryCode))) &&
     (!selectedPoint?.appointmentRequired || Boolean(selectedSlotId));
-
-  const operationKey = (signature: string) => {
-    try {
-       const stored = JSON.parse(sessionStorage.getItem(pendingOperationStorageKey(userId)) ?? "null") as { key?: unknown; signature?: unknown } | null;
-      if (stored && typeof stored.key === "string" && idempotencyPattern.test(stored.key) && stored.signature === signature) return stored.key;
-    } catch {
-      // Replace malformed or unavailable session state with a new operation.
-    }
-    const key = `delivery_${crypto.randomUUID().replaceAll("-", "")}`;
-    try { sessionStorage.setItem(pendingOperationStorageKey(userId), JSON.stringify({ key, signature })); } catch { /* Server idempotency remains authoritative. */ }
-    return key;
-  };
 
   const updateHistory = async (id: string, action: "schedule" | "cancel") => {
     if (historyInFlight.current) return;
@@ -342,28 +335,28 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
     } finally { historyInFlight.current = false; setHistoryBusy(false); }
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!confirmed || inFlight.current || !options) return;
-    if (options.mode === "detailed" && !detailedValid) return;
+  const submit = async (event?: FormEvent) => {
+    event?.preventDefault();
+    if (!confirmed || inFlight.current || !userId || !options) return;
+    if (!submission.current.current && options.mode === "detailed" && !detailedValid) return;
+    const attempt = submission.current.begin(userId, options.mode === "detailed" ? {
+      materials: selectedMaterials, deliveryPointId: selectedPointId, slotId: selectedSlotId || null,
+    } : null);
     inFlight.current = true;
+    setRetryPending(true);
     setStatus("submitting");
     setMessage("Registrando una solicitud pendiente…");
     const requestController = new AbortController();
-    controller.current = requestController;
+    submissionController.current = requestController;
     try {
       const token = await getToken();
       if (!token) throw new PilotApiError(401, "missing_session_token");
-      const payload: DetailedDeliveryRequest | null = options.mode === "detailed" ? {
-        materials: selectedMaterials,
-        deliveryPointId: selectedPointId,
-        slotId: selectedSlotId || null,
-      } : null;
-      const signature = JSON.stringify(payload ?? {});
-      const result = payload
-        ? await createDetailedPilotDelivery(pilotApiUrl, token, operationKey(signature), payload, requestController.signal)
-        : await createPilotDelivery(pilotApiUrl, token, operationKey(signature), requestController.signal);
-       try { sessionStorage.removeItem(pendingOperationStorageKey(userId)); } catch { /* No persistent secret is stored. */ }
+      if (requestController.signal.aborted || submission.current.current !== attempt) return;
+      const result = attempt.payload
+        ? await createDetailedPilotDelivery(pilotApiUrl, token, attempt.key, attempt.payload, requestController.signal)
+        : await createPilotDelivery(pilotApiUrl, token, attempt.key, requestController.signal);
+      if (requestController.signal.aborted || submission.current.current !== attempt) return;
+      submission.current.complete(); setRetryPending(false);
       setConfirmed(false);
       setMaterialKg({});
       setSelectedPointId("");
@@ -375,12 +368,16 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
       onRefresh();
       void loadOptions();
     } catch (error) {
+      if (submission.current.current !== attempt) return;
+      if (error instanceof PilotApiError && deliveryRequestRejected(error.status, error.code)) {
+        submission.current.complete(); setRetryPending(false);
+      }
       if (!requestController.signal.aborted) {
         setStatus("error");
         setMessage(submissionMessage(error));
       }
     } finally {
-      inFlight.current = false;
+      if (submissionController.current === requestController) inFlight.current = false;
     }
   };
 
@@ -402,6 +399,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
       </div>}
 
       {optionsStatus === "ready" && options && !detailsUnavailable && <form onSubmit={submit} className="mt-6 space-y-5">
+        <fieldset disabled={retryPending || status === "submitting"} className="space-y-5">
         {legacyMode && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
           <p className="font-semibold">Solicitud básica compatible</p>
           <p className="mt-1">Vuelve a consultar la disponibilidad más tarde.</p>
@@ -441,8 +439,15 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
           <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={status === "submitting"} className="mt-0.5 h-5 w-5 accent-[hsl(var(--primary))]" data-testid="checkbox-confirm-delivery-request" />
            <span><strong className="block text-[hsl(var(--foreground))]">Entiendo el estado pendiente</strong><span className="mt-1 block text-[hsl(var(--muted-foreground))]">Las cantidades son estimadas y un operador autorizado deberá verificar la solicitud posteriormente.</span></span>
         </label>
+        </fieldset>
+        {!retryPending &&
         <button type="submit" disabled={!confirmed || status === "submitting" || (options.mode === "detailed" && !detailedValid)} className="min-h-12 w-full rounded-full bg-[hsl(var(--primary))] px-5 py-3 font-semibold text-[hsl(var(--primary-foreground))] disabled:cursor-not-allowed disabled:opacity-55" data-testid="button-request-delivery">{status === "submitting" ? "Registrando…" : status === "error" ? "Reintentar solicitud" : "Registrar solicitud pendiente"}</button>
+        }
       </form>}
+      {retryPending && <div className="mt-4 space-y-3" data-testid="delivery-pending-retry">
+        <p className="text-sm">El resultado de esta solicitud aún no está confirmado. Conservamos el centro, los materiales y la misma clave para recuperarla sin duplicarla.</p>
+        <button type="button" disabled={status === "submitting"} onClick={() => void submit()} className="min-h-12 rounded-full bg-[hsl(var(--primary))] px-5 py-3 font-semibold text-[hsl(var(--primary-foreground))] disabled:opacity-55" data-testid="button-retry-pending-delivery">{status === "submitting" ? "Registrando…" : "Recuperar la misma solicitud"}</button>
+      </div>}
       <p className={`mt-4 min-h-6 text-sm ${status === "error" ? "text-red-800" : status === "success" ? "text-emerald-800" : "text-[hsl(var(--muted-foreground))]"}`} role={status === "error" ? "alert" : "status"} aria-live="polite" data-testid="delivery-request-status">{message}</p>
     </section>
 

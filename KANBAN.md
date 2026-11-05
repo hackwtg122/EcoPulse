@@ -11,7 +11,7 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 
 ## EN PROCESO
 
-- Sin tarea activa; la siguiente corrección se seleccionará de POR HACER. La comprobación autenticada continúa en BLOQUEADO.
+- Impedir solicitudes de entrega duplicadas tras una respuesta no confirmada: conservar en memoria la clave y el cuerpo originales aunque el navegador bloquee sessionStorage, bloquear cambios del intento pendiente y permitir recuperar ese mismo intento aunque cambie la disponibilidad. Liberar el formulario únicamente tras confirmación o rechazo definitivo del servidor. No se crean entregas de prueba en producción.
 
 ## BLOQUEADO
 
