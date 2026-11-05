@@ -17,10 +17,8 @@ export async function initializeAdminCatalog(pool: Pool, actorId: string, now = 
       throw error;
     }
 
-    const [centerRows, rewardRows] = await Promise.all([
-      client.query<{ count: string }>("SELECT count(*)::text AS count FROM delivery_points"),
-      client.query<{ count: string }>("SELECT count(*)::text AS count FROM rewards"),
-    ]);
+    const centerRows = await client.query<{ count: string }>("SELECT count(*)::text AS count FROM delivery_points");
+    const rewardRows = await client.query<{ count: string }>("SELECT count(*)::text AS count FROM rewards");
     let centersCreated = 0;
     let slotsCreated = 0;
     let rewardsCreated = 0;
@@ -30,12 +28,12 @@ export async function initializeAdminCatalog(pool: Pool, actorId: string, now = 
         { code: "ecopulse-centro-01", name: "Centro EcoPulse 01", materials: ["paper", "plastic", "metal"] },
         { code: "ecopulse-centro-02", name: "Centro EcoPulse 02", materials: ["paper", "glass", "organic"] },
       ];
-      const nextWeek = new Date(now.valueOf() + 7 * 86400000);
-      const date = nextWeek.toISOString().slice(0, 10);
-      const windows = [
-        [date + "T14:00:00.000Z", date + "T16:00:00.000Z"],
-        [date + "T18:00:00.000Z", date + "T20:00:00.000Z"],
-      ];
+      const first = new Date(now.valueOf() + 8 * 86400000);
+      first.setUTCHours(14, 0, 0, 0);
+      const windows = [0, 1].map((index) => {
+        const start = new Date(first.valueOf() + index * 4 * 3600000);
+        return [start.toISOString(), new Date(start.valueOf() + 2 * 3600000).toISOString()];
+      });
       for (const [index, center] of centers.entries()) {
         const id = randomUUID();
         const result = await client.query<{ id: string }>(`INSERT INTO delivery_points
@@ -65,8 +63,8 @@ export async function initializeAdminCatalog(pool: Pool, actorId: string, now = 
     if (Number(rewardRows.rows[0]?.count ?? 0) === 0) {
       const rewards = [
         ["Insignia Huella Verde", "Insignia digital coleccionable para celebrar tu compromiso con el reciclaje.", 20],
-        ["Fondo Naturaleza EcoPulse", "Ilustración de naturaleza para personalizar tus dispositivos.", 40],
-        ["Guía Verde EcoPulse", "Guía descargable de separación y aprovechamiento de residuos.", 60],
+        ["Fondo virtual de naturaleza", "Ilustración de naturaleza para personalizar tus dispositivos.", 40],
+        ["Kit digital de reciclaje", "Guía descargable de separación y aprovechamiento de residuos.", 60],
       ] as const;
       for (const [title, description, cost] of rewards) {
         const inserted = await client.query(`INSERT INTO rewards
