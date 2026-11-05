@@ -14,6 +14,7 @@ const DeliveryPanel = lazy(() => import("@/delivery-panel").then(module => ({ de
 const VerifierQueue = lazy(() => import("@/delivery-panel").then(module => ({ default: module.VerifierQueue })));
 const CatalogAdminPanel = lazy(() => import("@/catalog-admin-panel").then(module => ({ default: module.CatalogAdminPanel })));
 const AdminUsersPanel = lazy(() => import("@/admin-users-panel").then(module => ({ default: module.AdminUsersPanel })));
+const OperationalReadinessPanel = lazy(() => import("@/operational-readiness-panel").then(module => ({ default: module.OperationalReadinessPanel })));
 const RewardsPanel = lazy(() => import("@/rewards-panel").then(module => ({ default: module.RewardsPanel })));
 const RewardsAdminPanel = lazy(() => import("@/rewards-panel").then(module => ({ default: module.RewardsAdminPanel })));
 const AiScanPanel = lazy(() => import("@/ai-scan-panel").then(module => ({ default: module.AiScanPanel })));
@@ -326,6 +327,7 @@ function AdminHomePage() {
   return <div className="animate-rise">
     <PageTitle eyebrow="Operación" title="Administración" copy="Recepción y verificación física de entregas, catálogo de centros y gestión de recompensas. Toda decisión debe respaldar un acto físico real." />
     {role === "admin" && <div className="grid gap-4 sm:grid-cols-3"><Link href="/admin/centers" className="flex items-center gap-3 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 font-semibold transition hover:border-[hsl(var(--primary))]" data-testid="link-admin-centers"><MapPin size={20} className="text-[hsl(var(--primary))]" />Catálogo de centros</Link><Link href="/admin/rewards" className="flex items-center gap-3 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 font-semibold transition hover:border-[hsl(var(--primary))]" data-testid="link-admin-rewards"><Gift size={20} className="text-[hsl(var(--primary))]" />Gestión de recompensas</Link><Link href="/admin/users" className="flex items-center gap-3 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 font-semibold transition hover:border-[hsl(var(--primary))]" data-testid="link-admin-users"><UserRound size={20} className="text-[hsl(var(--primary))]" />Usuarios y roles</Link></div>}
+    {role === "admin" && <Suspense fallback={<p role="status">Consultando estado operativo…</p>}><OperationalReadinessPanel /></Suspense>}
     <div className="mt-5"><Suspense fallback={<p role="status">Cargando cola de verificación…</p>}><VerifierQueue role={role} onRefresh={retry} /></Suspense></div>
   </div>;
 }
