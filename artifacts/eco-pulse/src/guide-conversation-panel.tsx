@@ -65,10 +65,8 @@ const errors: Record<string, string> = {
     "La solicitud anterior tenía otra pregunta. Recarga el historial antes de continuar.",
   guide_storage_consent_required:
     "Debes autorizar el almacenamiento antes de continuar esta conversación.",
-  ai_consent_required:
-    "Debes autorizar el envío a la IA antes de preguntar.",
-  invalid_guide_question:
-    "La pregunta debe tener entre 1 y 500 caracteres.",
+  ai_consent_required: "Debes autorizar el envío a la IA antes de preguntar.",
+  invalid_guide_question: "La pregunta debe tener entre 1 y 500 caracteres.",
   invalid_guide_history:
     "El historial enviado no es válido. Limpia la vista e inténtalo de nuevo.",
   sensitive_guide_content:
@@ -124,6 +122,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
   const [retryReason, setRetryReason] = useState<"pending" | "failed" | null>(
     null,
   );
+  const [capabilityFailed, setCapabilityFailed] = useState(false);
   const [reload, setReload] = useState(0);
   const request = useRef<AbortController | null>(null);
   const gate = useRef(false);
@@ -179,6 +178,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
     setRetryReason(null);
     setError("");
     setAiEnabled(false);
+    setCapabilityFailed(false);
     setStorageReady(false);
     setLoading(true);
     creationKey.current = crypto.randomUUID();
@@ -196,10 +196,12 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
             if (!controller.signal.aborted) setAiEnabled(enabled);
           })
           .catch(() => {
-            if (!controller.signal.aborted)
+            if (!controller.signal.aborted) {
+              setCapabilityFailed(true);
               setError(
-                "No pudimos comprobar el proveedor de IA. Recarga para reintentar.",
+                "No pudimos comprobar el proveedor de IA. Reintenta la conexión.",
               );
+            }
           });
         try {
           const rows = await listConversations(
@@ -513,6 +515,16 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
                 ? "IA remota disponible con tu permiso"
                 : "IA remota no disponible"}
             </p>
+            {capabilityFailed && !loading && (
+              <button
+                type="button"
+                onClick={() => setReload((value) => value + 1)}
+                className="mt-1 text-xs font-semibold underline"
+                data-testid="button-retry-guide-capabilities"
+              >
+                Reintentar conexión
+              </button>
+            )}
           </div>
           <button
             disabled={pending || loading}
