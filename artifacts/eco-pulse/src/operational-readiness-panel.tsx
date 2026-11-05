@@ -18,12 +18,13 @@ type RewardCapabilities = {
   canManageDrafts: boolean;
   canPublish: boolean;
 };
-type User = { role: string };
-type UserPage = { users: User[]; nextCursor: string | null };
+type VerificationCapabilities = { receiptEnabled: boolean; decisionEnabled: boolean; pointsEnabled: boolean };
 type Snapshot = {
   activeCenters: number;
   availableDestinations: number;
-  verifiers: number;
+  receiptEnabled: boolean;
+  verificationEnabled: boolean;
+  pointsEnabled: boolean;
   publishedRewards: number;
   catalogEditing: boolean;
   catalogPublication: boolean;
@@ -58,27 +59,20 @@ export function OperationalReadinessPanel() {
       try {
         const token = await getToken();
         if (!token || controller.signal.aborted) throw new Error("session_required");
-        const [catalog, options, rewards, capabilities, firstPage] = await Promise.all([
+        const [catalog, options, rewards, capabilities, verification] = await Promise.all([
           readPrivate<Catalog>("admin/catalog", token, controller.signal),
           readPrivate<DeliveryOptions>("delivery-options", token, controller.signal),
           readPrivate<PublishedReward[]>("rewards", token, controller.signal),
           readPrivate<RewardCapabilities>("rewards/capabilities", token, controller.signal),
-          readPrivate<UserPage>("admin/users", token, controller.signal),
+          readPrivate<VerificationCapabilities>("verifier/capabilities", token, controller.signal),
         ]);
-        const users = [...firstPage.users];
-        let nextCursor = firstPage.nextCursor;
-        // Follow the server's pagination instead of assuming the first page includes the verifiers.
-        while (nextCursor && !controller.signal.aborted) {
-          const page = await readPrivate<UserPage>("admin/users?after=" + encodeURIComponent(nextCursor), token, controller.signal);
-          users.push(...page.users);
-          if (page.nextCursor === nextCursor) throw new Error("invalid_users_pagination");
-          nextCursor = page.nextCursor;
-        }
         if (controller.signal.aborted) return;
         setSnapshot({
           activeCenters: catalog.points.filter(point => point.active).length,
           availableDestinations: options.enabled ? options.points.length : 0,
-          verifiers: users.filter(account => account.role === "verifier").length,
+          receiptEnabled: verification.receiptEnabled,
+          verificationEnabled: verification.decisionEnabled,
+          pointsEnabled: verification.pointsEnabled,
           publishedRewards: rewards.length,
           catalogEditing: catalog.editingEnabled,
           catalogPublication: catalog.publishingEnabled,
@@ -108,14 +102,14 @@ export function OperationalReadinessPanel() {
       action: "Gestionar centros",
     },
     {
-      key: "verifiers",
-      title: "Operadores verificadores",
-      ready: snapshot.verifiers > 0,
-      description: snapshot.verifiers > 0
-        ? String(snapshot.verifiers) + " cuenta(s) con rol de verificador."
-        : "Asigna el rol verificador a una cuenta autorizada para recibir entregas.",
-      href: "/admin/users",
-      action: "Gestionar roles",
+      key: "verification",
+      title: "Recepción y verificación",
+      ready: snapshot.receiptEnabled && snapshot.verificationEnabled && snapshot.pointsEnabled,
+      description: snapshot.receiptEnabled && snapshot.verificationEnabled && snapshot.pointsEnabled
+        ? "El administrador puede recibir y verificar entregas de otros participantes, y acreditar sus EcoPuntos."
+        : "El administrador ya tiene permiso para operar; falta habilitar alguna función de recepción, verificación o acreditación en el servidor.",
+      href: "/admin",
+      action: "Abrir bandeja de entregas",
     },
     {
       key: "rewards",
