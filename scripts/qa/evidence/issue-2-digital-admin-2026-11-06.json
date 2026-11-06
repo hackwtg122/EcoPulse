@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-06",
+  "sourceCommit": "22d0c7902e24747ce8cb3402ce83e9a64f84beab",
+  "browser": "Owner's installed Mozilla Firefox, original profile",
+  "authorization": "Owner explicitly approved audited recovery and publication of the three existing rewards with one digital capacity each and unchanged prices",
+  "authenticatedAdministrator": true,
+  "checks": {
+    "configurationAndRewardPagesLoadedThroughRealApi": true,
+    "existingCenterDraftSelectableAndEditable": true,
+    "prepareRepeatedTwice": { "createdCenters": 0, "createdSlots": 0, "createdRewards": 0 },
+    "activationRecognizedPublishedDigitalRewards": true,
+    "activationKeptUnvalidatedDestinationsBlocked": true,
+    "activationPersistedAfterReload": true,
+    "publicationPersistedAfterReloadAndNeonReadback": true,
+    "recoveryOriginalSnapshotsRetained": true,
+    "recordIdsAndPricesPreserved": true,
+    "adminDownloads": [
+      { "assetKey": "guide-v1", "bytes": 1036, "sha256MatchedRegistry": true },
+      { "assetKey": "nature-v1", "bytes": 399, "sha256MatchedRegistry": true },
+      { "assetKey": "badge-v1", "bytes": 437, "sha256MatchedRegistry": true }
+    ],
+    "publishedDigitalCapacities": [
+      { "title": "Kit digital de reciclaje", "assetKey": "guide-v1", "capacity": 1 },
+      { "title": "Insignia Huella Verde", "assetKey": "badge-v1", "capacity": 1 },
+      { "title": "Fondo virtual de naturaleza", "assetKey": "nature-v1", "capacity": 1 }
+    ]
+  },
+  "databaseVerification": "BEGIN READ ONLY; matched the three published rows with their immutable original recovery snapshots and server registry evidence; no verification writes",
+  "pointMovementsAtReadback": 0,
+  "redemptionsAtReadback": 0,
+  "physicalReceiptsOrVerificationsCreatedByTest": 0,
+  "credentialsOrSessionTokensIncluded": false,
+  "notTested": [
+    "participant registration or authentication, pending owner action",
+    "publication of a physically authorized center and slot",
+    "physical delivery, administrative receipt and verified points",
+    "participant redemption and download of an owned fulfilled reward"
+  ]
+}

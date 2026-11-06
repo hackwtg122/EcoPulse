@@ -110,6 +110,7 @@ export function CatalogAdminPanel({ role }: { role: string | undefined }) {
     setLongitude(selected?.longitude == null ? "" : String(selected.longitude));
     setMaterials(catalog?.materials?.filter(item => item.pointId === id).map(item => item.code) ?? []);
   }
+  if (role === undefined) return <div><p role="status">Consultando conexión y permisos administrativos…</p><button type="button" onClick={() => window.location.reload()} className="min-h-11 underline">Reintentar conexión</button></div>;
   if (role !== "admin") return <div role="alert">Acceso restringido a administradores.</div>;
   return <div className="space-y-6">
     <header><p className="text-xs font-bold uppercase tracking-[.18em] text-[hsl(var(--accent))]">Administración</p><h1 className="mt-2 font-display text-4xl text-[hsl(var(--primary))]">Centros y horarios</h1><p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">Los borradores no aparecen a los participantes. Publicar exige evidencia verificable y un horario con capacidad confirmada. El horario de atención de una sede no equivale a disponibilidad de EcoPulse.</p></header>

@@ -325,6 +325,7 @@ function AdminHomePage() {
   const [location] = useLocation();
   const search = useSearch();
   const generalSettings = new URLSearchParams(search).get("section") === "settings";
+  if (!state.data) return <div><p role={state.status === "error" ? "alert" : "status"}>{state.status === "error" ? "No se pudo comprobar la conexión y los permisos de tu cuenta." : "Consultando permisos administrativos…"}</p>{state.status === "error" && <button type="button" onClick={retry} className="min-h-11 underline">Reintentar conexión</button>}</div>;
   const role = state.data?.role ?? "";
   const authorized = role === "admin" || role === "verifier";
   if (!authorized) return <div className="animate-rise"><PageTitle eyebrow="Acceso restringido" title="Administración" copy="Esta sección requiere una cuenta con rol de administrador o verificador verificado en EcoPulse." /><p className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 text-sm" role="alert" data-testid="admin-restricted">No tienes permisos para ver el panel de administración.</p></div>;
@@ -463,7 +464,8 @@ function RewardsPage() {
   return <Suspense fallback={<p role="status">Cargando recompensas…</p>}><RewardsPanel apiUrl={pilotApiUrl} /></Suspense>;
 }
 function RewardsAdminPage() {
-  const { state } = useContext(PilotDashboardContext);
+  const { state, retry } = useContext(PilotDashboardContext);
+  if (!state.data) return <div><p role={state.status === "error" ? "alert" : "status"}>{state.status === "error" ? "No se pudo comprobar la conexión y los permisos de tu cuenta." : "Consultando permisos de recompensas…"}</p>{state.status === "error" && <button type="button" onClick={retry} className="min-h-11 underline">Reintentar conexión</button>}</div>;
   return <Suspense fallback={<p role="status">Cargando gestión de recompensas…</p>}><RewardsAdminPanel apiUrl={pilotApiUrl} role={state.data?.role ?? ""} /></Suspense>;
 }
 

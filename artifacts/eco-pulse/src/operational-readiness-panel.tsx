@@ -5,7 +5,7 @@ import { ArrowRight, CheckCircle2, CircleAlert, RefreshCw } from "lucide-react";
 
 const apiUrl = import.meta.env.VITE_PILOT_API_URL?.trim() || "http://127.0.0.1:5001";
 
-type Center = { id: string; active: boolean };
+type Center = { id: string; active: boolean; operationallyValidated?: boolean };
 type Catalog = {
   points: Center[];
   editingEnabled: boolean;
@@ -76,7 +76,7 @@ export function OperationalReadinessPanel() {
         ]);
         if (controller.signal.aborted) return;
         setSnapshot({
-          activeCenters: catalog.points.filter(point => point.active).length,
+          activeCenters: catalog.points.filter(point => point.active && point.operationallyValidated === true).length,
           availableDestinations: options.enabled ? options.points.length : 0,
           receiptEnabled: verification.receiptEnabled,
           verificationEnabled: verification.decisionEnabled,
