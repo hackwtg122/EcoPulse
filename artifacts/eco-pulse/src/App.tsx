@@ -483,7 +483,14 @@ function ProfilePage() {
   if (!isLoaded) return <div className="animate-rise" aria-busy="true"><PageTitle eyebrow="Tu cuenta" title="Mi perfil." copy="Cargando datos de tu cuenta…" /><div className="h-64 animate-pulse rounded-[2rem] bg-[hsl(var(--muted))]" /></div>;
   if (!user) return <div className="animate-rise"><PageTitle eyebrow="Tu cuenta" title="Mi perfil." copy="No se pudo cargar la información de tu cuenta." /></div>;
   const created = user.createdAt ? new Date(user.createdAt) : null;
-  const startEdit = () => { setFirstName(user.firstName ?? ""); setLastName(user.lastName ?? ""); setSaveStatus("idle"); setSaveMessage(""); setEditing(true); };
+  const startEdit = () => {
+    // Las cuentas creadas desde el registro guardan el nombre en unsafeMetadata.
+    // Precargar ese valor evita que el formulario aparezca vacío.
+    const metadata = user.unsafeMetadata as { firstName?: string | null; lastName?: string | null } | null | undefined;
+    setFirstName(user.firstName?.trim() || metadata?.firstName?.trim() || "");
+    setLastName(user.lastName?.trim() || metadata?.lastName?.trim() || "");
+    setSaveStatus("idle"); setSaveMessage(""); setEditing(true);
+  };
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
     if (saveStatus === "saving") return;
@@ -528,7 +535,7 @@ function ProfilePage() {
         </form>}
         {saveMessage && <p className={`mt-4 rounded-2xl p-4 text-sm ${saveStatus === "error" ? "bg-[hsl(13_58%_65%/.15)] text-[hsl(13_55%_38%)]" : "bg-[hsl(var(--secondary)/.22)] text-[hsl(var(--primary))]"}`} role={saveStatus === "error" ? "alert" : "status"} data-testid="profile-save-status">{saveMessage}</p>}
         <dl className="mt-8 space-y-4 border-t border-[hsl(var(--border))] pt-6 text-sm">
-          <div className="flex items-center justify-between"><dt className="text-[hsl(var(--muted-foreground))]">Nombre completo</dt><dd className="font-semibold">{user.fullName || "—"}</dd></div>
+          <div className="flex items-center justify-between"><dt className="text-[hsl(var(--muted-foreground))]">Nombre completo</dt><dd className="font-semibold">{getDisplayName(user)}</dd></div>
           <div className="flex items-center justify-between"><dt className="text-[hsl(var(--muted-foreground))]">Correo principal</dt><dd className="font-semibold">{user.primaryEmailAddress?.emailAddress || "—"}</dd></div>
           <div className="flex items-center justify-between"><dt className="text-[hsl(var(--muted-foreground))]">Nombre de usuario</dt><dd className="font-semibold">{user.username || "Sin asignar"}</dd></div>
           <div className="flex items-center justify-between"><dt className="text-[hsl(var(--muted-foreground))]">Email verificado</dt><dd>{user.hasVerifiedEmailAddress ? <Check size={17} className="text-[hsl(var(--primary))]" /> : <span className="text-[hsl(var(--muted-foreground))]">Pendiente</span>}</dd></div>
