@@ -1,0 +1,180 @@
+{
+  "date": "2026-11-06",
+  "sourceCommit": "04587d5ade32a437ca8a84b8d0f0409103685400",
+  "browser": "Owner's installed Mozilla Firefox; original administrator window plus a separate private participant window",
+  "credentialsHandling": "Owner started both sessions; the agent did not read, export or store passwords, cookies or session tokens",
+  "deployments": {
+    "netlify": {
+      "state": "ready",
+      "deployId": "6aee08a147b2319bba8a1722",
+      "commit": "04587d5ade32a437ca8a84b8d0f0409103685400",
+      "publishedIndexBundle": "index-GrH7mMAb.js"
+    },
+    "render": {
+      "apiVersionCommit": "04587d5ade32a437ca8a84b8d0f0409103685400"
+    },
+    "productionQaRun": "https://github.com/hackwtg122/EcoPulse/actions/runs/42258252995"
+  },
+  "build": {
+    "frontendTests": 41,
+    "apiTests": 135,
+    "typecheckAndBuild": "passed"
+  },
+  "administratorAuthenticatedChecks": {
+    "dashboardAndProgressMatchOwnApi": true,
+    "notificationsPanel": true,
+    "routeSweep": true,
+    "materialsSearchCategoryResetAndDetail": true,
+    "mapDirectAndSpaLoad": true,
+    "ecoscan": {
+      "realAiProvider": true,
+      "classification": "plastic",
+      "savedAndPersistedAfterReload": true,
+      "consentWithoutHeaderStatus": 403,
+      "invalidFileGuard": true
+    },
+    "ecoguide": {
+      "realAiAnswer": true,
+      "twoTurnContinuity": true,
+      "historyReload": true,
+      "deletion": true,
+      "deletedConversationStatus": 404
+    },
+    "adminUsersReadOnly": "list, roles and self-lock protection reviewed without role mutation",
+    "adminCentersReadOnly": "9 drafts reviewed, absent stats handled gracefully, evidence form opened and cancelled without mutation",
+    "adminRewardsReadOnly": "three published rewards at 80/40/20 points, digital capacity 1 each, publish disabled",
+    "adminSettingsReadOnly": "modules, digital assets and operational status reviewed",
+    "adminVerificationQueue": "empty; no physical delivery exists",
+    "profileAndSecurityReadOnly": "edit form opened and cancelled; security state reviewed"
+  },
+  "participantAuthenticatedChecks": {
+    "identity": {
+      "displayName": "Luisa Castro",
+      "roleFromRealApi": "participant"
+    },
+    "dashboard": {
+      "balance": 0,
+      "scans": 0,
+      "deliveries": 0,
+      "missions": 3,
+      "emptyActivityAndNotifications": true,
+      "noAdminSidebarLink": true
+    },
+    "progress": {
+      "level": 1,
+      "ecoXpBefore": 0,
+      "streakBefore": 0,
+      "missions": 5,
+      "badges": 6
+    },
+    "deliveries": {
+      "validatedDestinations": 0,
+      "requestFormNotShown": true,
+      "ownEmptyHistory": true,
+      "noConnectionErrors": true
+    },
+    "rewards": {
+      "visibleRewards": 3,
+      "prices": [80, 40, 20],
+      "balance": 0,
+      "purchaseButtonsDisabledWithoutBalance": true,
+      "ownEmptyHistory": true
+    },
+    "map": {
+      "publishedReferenceCenters": 8,
+      "leafletAndOpenStreetMap": true,
+      "searchNarrowedTo1AndClearedTo8": true,
+      "detailOpenAndClose": true,
+      "favoriteSavedInApi": true,
+      "favoritePersistedAfterReload": true,
+      "favoriteRemovedInApi": true
+    },
+    "ecoscan": {
+      "realAiClassification": "plastic",
+      "savedAndPersistedAfterReload": true,
+      "scansBefore": 0,
+      "scansAfter": 1,
+      "classificationsBefore": 0,
+      "classificationsAfter": 1,
+      "ecoXpAfter": 10,
+      "ecoPointsBalanceAfter": 0
+    },
+    "ecoguide": {
+      "consentWithoutHeaderStatus": 403,
+      "realAiAnswer": true,
+      "conversationStored": true,
+      "reloadReopenedConversation": true,
+      "deletionReturnedApiListToZero": true
+    },
+    "profile": {
+      "validationErrorShown": true,
+      "saveSucceeded": true,
+      "clerkFirstName": "Luisa",
+      "clerkLastName": "Castro",
+      "persistedAfterReload": true
+    },
+    "security": {
+      "totpActive": false,
+      "emailVerified": true,
+      "activeSecondFactor": false,
+      "logoutRedirectedToSignIn": true,
+      "adminSessionRemainedAuthenticated": true
+    },
+    "adminDenials": {
+      "apiReads": [
+        "/api/pilot/admin/platform 403 admin_required",
+        "/api/pilot/admin/catalog 403 admin_required",
+        "/api/pilot/admin/stats 403 admin_required",
+        "/api/pilot/admin/rewards 403 admin_required",
+        "/api/pilot/admin/users 403 admin_required",
+        "/api/pilot/admin/redemptions 403 admin_required",
+        "/api/pilot/admin/digital-assets 403 admin_required"
+      ],
+      "uiRoutesRestricted": [
+        "/admin",
+        "/admin/users",
+        "/admin/centers",
+        "/admin/rewards",
+        "/admin?section=settings"
+      ]
+    }
+  },
+  "defectCorrected": {
+    "description": "EcoPulse signup stored the visible name only in Clerk unsafeMetadata. The profile edit form read firstName/lastName and the summary read fullName, so those accounts saw an empty form and an em dash.",
+    "fix": "Prefill the edit form from unsafeMetadata when Clerk names are absent and render the summary with the same getDisplayName helper used by the header.",
+    "regressionTest": "artifacts/eco-pulse/src/profile-name.test.mjs",
+    "verifiedInDeployedParticipantSession": {
+      "profileSummary": "Luisa Castro",
+      "editPrefill": ["Luisa", "Castro"],
+      "persistedAfterReload": true
+    }
+  },
+  "dataIntegrity": {
+    "physicalDeliveriesCreated": 0,
+    "weightsReceiptsOrInventoryCreated": 0,
+    "ecoPointsBalanceChanges": 0,
+    "rolesOrPrincipalAdministratorCredentialsChanged": 0,
+    "publishedRewardsModified": 0,
+    "realDigitalActivityCreated": [
+      "EcoScan classifications for administrator and participant",
+      "EcoGuide conversation created, reloaded and deleted by the participant",
+      "Map favorite saved and removed by the participant",
+      "Participant visible name saved in Clerk from prefilled fields"
+    ]
+  },
+  "notTestedOrBlocked": [
+    "request at a physically authorized destination with confirmed materials and availability",
+    "real physical receipt, weight verification and EcoPoints credit",
+    "participant redemption with legitimately earned points",
+    "download from an owned fulfilled redemption",
+    "physical reward inventory and fulfillment",
+    "technical Render credential hardening (runtimeUsesDedicatedRole remains false)"
+  ],
+  "externalBlocker": "Owner explicitly confirmed that there is no real physical delivery yet; no physical evidence, weights, receipts, inventory or points were fabricated",
+  "cleanup": {
+    "participantPrivateWindowLoggedOut": true,
+    "temporaryLocalBridgeClosed": true,
+    "port9335Closed": true,
+    "firefoxAndOriginalProfileLeftRunning": true
+  }
+}
