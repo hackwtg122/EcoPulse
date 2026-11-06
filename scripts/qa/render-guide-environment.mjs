@@ -1,5 +1,5 @@
 // Narrow access to the existing official service. Never print configuration.
-export async function renderGuideEnvironment() {
+export async function renderGuideEnvironment({ includePlatformConfiguration = false } = {}) {
   if (
     process.env.GITHUB_ACTIONS !== "true" ||
     process.env.GITHUB_REPOSITORY !== "hackwtg122/EcoPulse" ||
@@ -59,7 +59,11 @@ export async function renderGuideEnvironment() {
         "EVALUATION_DATABASE_URL",
         "EVALUATION_MODE_ENABLED",
         "GUIDE_DATABASE_URL",
-      ].includes(row.envVar?.key)
+      ].includes(row.envVar?.key) || (includePlatformConfiguration && [
+        "PILOT_CATALOG_ADMIN_ENABLED", "PILOT_CATALOG_PUBLICATION_ENABLED", "PILOT_REWARD_ADMIN_ENABLED", "PILOT_REWARD_PUBLICATION_ENABLED",
+        "PILOT_DELIVERY_DETAILS_ENABLED", "PILOT_RECEIPT_ENABLED", "PILOT_VERIFICATION_ENABLED", "PILOT_POINTS_ENABLED",
+        "PILOT_REWARDS_ENABLED", "PILOT_REWARD_FULFILLMENT_ENABLED", "POINTS_PER_KG", "POINTS_MAX_PER_DELIVERY", "REWARD_POLICY_REFERENCE",
+      ].includes(row.envVar?.key))
     )
       env[row.envVar.key] = row.envVar.value;
   return {

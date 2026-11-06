@@ -6,9 +6,11 @@ import { verifyRewardDraftRecovery } from "../neon/verify-reward-draft-recovery.
 import { platformStatus, readPlatformEnvironment } from "../../artifacts/api-server/src/lib/platformActivation.ts";
 
 let client;
+let stage = "runtime_environment";
+let activationDiagnostics;
 try {
   if (process.env.GITHUB_ACTIONS !== "true" || process.env.GITHUB_REPOSITORY !== "hackwtg122/EcoPulse" || process.env.GITHUB_REF !== "refs/heads/main") throw Error("official_runner_required");
-  const { env } = await renderGuideEnvironment();
+  const { env } = await renderGuideEnvironment({ includePlatformConfiguration: true });
   if (env.EVALUATION_MODE_ENABLED === "true") throw Error("production_database_required");
   const url = new URL(resolveDatabaseUrl(env));
   if (!url.hostname.endsWith(".neon.tech") || url.pathname !== "/neondb") throw Error("production_database_required");
@@ -27,13 +29,18 @@ try {
   const { rows: [recoveryPermissions] } = await client.query(`SELECT has_table_privilege(current_user,'public.reward_draft_recoveries','SELECT') AND
     has_table_privilege(current_user,'public.reward_draft_recoveries','INSERT') AS ready`);
   if (!recoveryPermissions.ready) throw Error("runtime_recovery_permissions_missing");
+  stage = "platform_activation_permissions";
   const { rows: [activationPermissions] } = await client.query(`SELECT
+    current_user='ecopulse_app' AS dedicated_role,
+    has_table_privilege(current_user,'public.platform_activation_events','UPDATE,DELETE,TRUNCATE') AS mutable_audit,
     obj_description('public.platform_activation_events'::regclass,'pg_class')='ecopulse:platform-activation:v1' AND
     has_table_privilege(current_user,'public.platform_activation_events','SELECT') AND
     has_table_privilege(current_user,'public.platform_activation_events','INSERT') AND
     has_sequence_privilege(current_user,'public.platform_activation_events_revision_seq','USAGE') AND
     NOT has_table_privilege(current_user,'public.platform_activation_events','UPDATE,DELETE,TRUNCATE') AS ready`);
+  activationDiagnostics = { dedicatedRole: activationPermissions.dedicated_role, mutableAudit: activationPermissions.mutable_audit, permissionsReady: activationPermissions.ready };
   if (!activationPermissions.ready) throw Error("runtime_platform_activation_permissions_missing");
+  stage = "platform_readiness";
   const queryPool = { query: client.query.bind(client) };
   const effectiveEnvironment = await readPlatformEnvironment(queryPool, env);
   const platform = await platformStatus(queryPool, effectiveEnvironment);
@@ -44,6 +51,7 @@ try {
     scope: "actual_render_database_not_admin_operation" }));
 } catch (error) {
   await client?.query("ROLLBACK").catch(() => {});
-  console.log(JSON.stringify({ check: "production_reward_inventory_schema", status: "BLOCKED", code: /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : "schema_or_runtime_verification_failed" }));
+  console.log(JSON.stringify({ check: "production_reward_inventory_schema", status: "BLOCKED", stage, activationDiagnostics,
+    code: /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : "schema_or_runtime_verification_failed" }));
   process.exitCode = 1;
 } finally { await client?.end().catch(() => {}); }
