@@ -15,6 +15,24 @@ import {
 
 const pointId = "00000000-0000-5000-8000-000000000010";
 const slotId = "00000000-0000-5000-8000-000000000011";
+test("operational selection exposes only usable destinations and preserves the administrator's validated text", async () => {
+  const evidence = { validation_reference: "https://example.org/authorization", validated_by: "user_Admin", validated_at: new Date() };
+  const base = { code: "eval-01", name: "Centro Universitario autorizado", address: "Dirección exacta autorizada", municipality: "Montería", time_zone: "America/Bogota", appointment_required: false, ...evidence };
+  const database = { async query(sql) {
+    if (sql.includes("to_regclass") || sql.includes("information_schema.columns")) return { rows: [{ ready: true, present: true }] };
+    if (sql.includes("FROM material_categories")) return { rows: [{ code: "paper" }] };
+    if (sql.includes("FROM delivery_point_materials")) return { rows: [{ delivery_point_id: "walkin", category_code: "paper" }, { delivery_point_id: "no-slot", category_code: "paper" }] };
+    if (sql.includes("FROM delivery_points")) return { rows: [{ ...base, id: "walkin" }, { ...base, id: "no-materials" }, { ...base, id: "no-slot", appointment_required: true }] };
+    if (sql.includes("FROM delivery_slots")) return { rows: [] };
+    throw Error("Unexpected SQL " + sql);
+  } };
+  const options = await loadDeliveryOptions(database, true, true);
+  assert.equal(options.enabled, true);
+  assert.deepEqual(options.points.map(point => point.id), ["walkin"]);
+  assert.equal(options.points[0].name, base.name);
+  assert.equal(options.points[0].address, base.address);
+  assert.equal(options.points[0].latitude, null);
+});
 
 test("operational evidence excludes reference-only and unvalidated records", () => {
   const row = { validation_reference: "https://example.org/center", validated_by: "user_Admin", validated_at: new Date() };
@@ -131,7 +149,7 @@ test("a center without configured materials cannot enable deliveries", async () 
   } };
   const options = await loadDeliveryOptions(database, true, true);
   assert.equal(options.enabled, false);
-  assert.deepEqual(options.points[0].materials, []);
+  assert.deepEqual(options.points, [], "a center without accepted materials must not appear as a selectable destination");
 });
 
 test("creation rejects unconfigured center materials and rolls back", async () => {

@@ -26,7 +26,6 @@ export function PlatformActivationPanel() {
     const controller = new AbortController();
     setStatus(null);
     setError("");
-    setMessage("");
     void (async () => {
       try {
         const token = await getToken();
@@ -40,9 +39,16 @@ export function PlatformActivationPanel() {
     })();
     return () => controller.abort();
   }, [userId, getToken, revision]);
+  useEffect(() => {
+    const refresh = () => setRevision(value => value + 1);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("ecopulse-operational-resources-changed", refresh);
+    return () => { window.removeEventListener("focus", refresh); window.removeEventListener("ecopulse-operational-resources-changed", refresh); };
+  }, []);
 
   useEffect(() => {
     currentUser.current = userId;
+    setMessage("");
     setBusy(inFlight.current);
     return () => { currentUser.current = undefined; };
   }, [userId]);
@@ -73,6 +79,7 @@ export function PlatformActivationPanel() {
       pending.current = null;
       setStatus(previous => previous ? { ...previous, modules: body.modules } : null);
       setMessage("Activación guardada. Revisa los requisitos pendientes abajo. No se han publicado recursos ni creado entregas, inventario o EcoPuntos.");
+      setRevision(value => value + 1);
     } catch {
       if (currentUser.current === account) setError("La activación no quedó confirmada. Reintenta: se conserva la misma solicitud para evitar duplicados.");
     } finally {

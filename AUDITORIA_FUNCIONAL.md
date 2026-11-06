@@ -1,5 +1,7 @@
 # Matriz de aceptación EcoPulse
 
+Actualización de implementación de la incidencia #2 (2026-11-06): publicación de los tres premios existentes desde el registro real de archivos con cupos digitales declarados; vinculación estricta entre título/archivo/huella y cumplimiento/descarga; estados e instrucciones de centros y horarios; activación con requisitos actuales y recarga de estado. Los registros heredados no se han publicado ni convertido automáticamente. Guía administrativa: `OPERACION_ENTREGAS_RECOMPENSAS.md`. La aceptación autenticada de estos cambios sigue pendiente y se mantiene la matriz de alcance siguiente.
+
 Esta matriz no declara terminada la auditoría de todos los controles. Una ruta protegida, un build correcto o una consulta SQL preparada no demuestran su recorrido autenticado. La revisión de cada botón/formulario y las pruebas de persistencia con administrador y participante siguen pendientes cuando así se indica.
 
 El propietario confirmó inicio de sesión en su Mozilla Firefox instalado. No se han leído cookies, contraseñas ni tokens de su perfil. Las herramientas actuales no están conectadas a esa sesión; no se atribuyen a ella operaciones que no se observaron.

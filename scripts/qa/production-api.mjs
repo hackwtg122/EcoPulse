@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
+import { digitalAssetCatalog } from "../../artifacts/api-server/src/lib/digitalAssetRegistry.ts";
 
 const api = "https://ecopulse-3xb4.onrender.com";
 const frontend = "https://ecopulseef.netlify.app";
@@ -58,3 +59,14 @@ assert.equal((await missing.json()).error, "api_route_not_found");
 const hostile = await get("/api/healthz", { Origin: "https://example.invalid" });
 assert.notEqual(hostile.headers.get("access-control-allow-origin"), "https://example.invalid");
 console.log(JSON.stringify({ check: "health_cors_json404", status: "PASS" }));
+for (const asset of digitalAssetCatalog()) {
+  const response = await fetch(asset.evidenceReference, { redirect: "error", signal: AbortSignal.timeout(45000) });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.key, asset.key); assert.equal(body.sha256, asset.sha256); assert.equal(body.bytes, asset.bytes);
+  assert.equal(body.rewardTitle, asset.rewardTitle); assert.equal(body.contentType, asset.contentType);
+  assert.equal(Object.hasOwn(body, "content"), false);
+  const invalid = await get(`/api/resources/digital/${asset.key}/${"0".repeat(64)}`);
+  assert.equal(invalid.status, 404);
+  console.log(JSON.stringify({ check: "digital_resource_evidence", key: asset.key, status: "PASS", bytes: asset.bytes, scope: "public_metadata_not_authenticated_download" }));
+}

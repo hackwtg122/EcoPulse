@@ -17,6 +17,13 @@ test("activation reports missing physical availability without inventing it", ()
   }
   assert.equal(modules.find(module => module.key === "catalog").ready, true);
 });
+test("legacy enabled flags do not label unavailable deliveries or redemptions as operational", () => {
+  const modules = platformModules({ ...complete, destinations: false, availableRewards: false }, {
+    PILOT_DELIVERY_DETAILS_ENABLED: "true", PILOT_REWARDS_ENABLED: "true", PILOT_REWARD_FULFILLMENT_ENABLED: "true", PILOT_POINTS_ENABLED: "true",
+  });
+  assert.equal(modules.find(module => module.key === "deliveries").enabled, false);
+  assert.equal(modules.find(module => module.key === "redemptions").enabled, false);
+});
 test("missing policy blocks value creation and redemption even with resources", () => {
   const modules = platformModules({ ...complete, pointsPolicy: false, rewardPolicy: false }, {});
   for (const key of ["points", "rewards", "redemptions"]) assert.equal(modules.find(module => module.key === key).ready, false);

@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import { uuidPattern, validIdempotencyKey } from "./pilotPolicy.ts";
 import type { DeliveryCursor } from "./pilotPolicy.ts";
 import { lockCurrentAdministrator } from "./adminMutation.ts";
+import { digitalAssetCatalog, digitalAssetEvidence, digitalEvidenceNamespace } from "./digitalAssetRegistry.ts";
 
 export class RewardError extends Error {
   readonly status: number;
@@ -27,7 +28,7 @@ export function adminRewardView<T extends { fulfillment_reference: unknown; vali
   const operationallyValidated = hasRewardFulfillmentEvidence(fulfillment_reference, validated_at, validated_by);
   // Preserve stored title/description/cost exactly. They are optimistic-lock
   // snapshots for editing/publication, not a place for editorial substitutions.
-  return { ...row, operationallyValidated, draftRecoveryAvailable: !operationallyValidated && !hasOperations &&
+  return { ...row, operationallyValidated, digitalAssetKey: digitalAssetEvidence(fulfillment_reference)?.key ?? null, draftRecoveryAvailable: !operationallyValidated && !hasOperations &&
     Boolean(row.active || row.validationRecorded || row.fulfillmentDocumented || row.inventoryRemaining !== null) };
 }
 
@@ -138,6 +139,7 @@ export function hasRewardFulfillmentEvidence(reference: unknown, validatedAt: un
 }
 export function validRewardEvidence(reference: unknown): reference is string {
   if (typeof reference !== "string" || reference.length < 10 || reference.length > 500 || reference !== reference.trim()) return false;
+  if (reference.startsWith(digitalEvidenceNamespace)) return digitalAssetEvidence(reference) !== null;
   try {
     const url = new URL(reference);
     return url.protocol === "https:" && !url.username && !url.password && !url.hash && url.hostname.includes(".") &&
@@ -147,14 +149,25 @@ export function validRewardEvidence(reference: unknown): reference is string {
 export function parseRewardPublication(value: unknown): RewardPublication {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new RewardError(400, "invalid_reward_publication");
   const row = value as Record<string, unknown>;
-  if (Object.keys(row).some(key => !["expected", "inventoryRemaining", "fulfillmentReference"].includes(key))) throw new RewardError(400, "unexpected_fields");
+  if (Object.keys(row).some(key => !["expected", "inventoryRemaining", "fulfillmentReference", "digitalAssetKey", "availabilityConfirmed"].includes(key))) throw new RewardError(400, "unexpected_fields");
   const expected = parseRewardDraft(row.expected);
+  if (row.digitalAssetKey === undefined && digitalAssetCatalog().some(asset => asset.rewardTitle === expected.title)) throw new RewardError(400, "digital_asset_required");
   if (!Number.isSafeInteger(row.inventoryRemaining) || (row.inventoryRemaining as number) < 1 || (row.inventoryRemaining as number) > 100000) throw new RewardError(400, "invalid_reward_inventory");
-  const reference = row.fulfillmentReference;
+  let reference = row.fulfillmentReference;
+  if (row.digitalAssetKey !== undefined) {
+    if (row.fulfillmentReference !== undefined) throw new RewardError(400, "unexpected_fields");
+    if (row.availabilityConfirmed !== true) throw new RewardError(400, "digital_capacity_confirmation_required");
+    const asset = digitalAssetCatalog().find(item => item.key === row.digitalAssetKey);
+    if (!asset) throw new RewardError(400, "invalid_digital_asset");
+    if (expected.title !== asset.rewardTitle) throw new RewardError(400, "digital_reward_title_mismatch");
+    reference = asset.evidenceReference;
+  }
   if (typeof reference !== "string" || reference.length < 10 || reference.length > 500 || reference !== reference.trim()) throw new RewardError(400, "invalid_reward_evidence");
   let url: URL;
   try { url = new URL(reference); } catch { throw new RewardError(400, "invalid_reward_evidence"); }
   if (url.protocol !== "https:" || url.username || url.password || url.hash || !url.hostname.includes(".") || url.hostname.endsWith(".local") || /^\d+(?:\.\d+){3}$/.test(url.hostname) || url.hostname.startsWith("[") || url.href !== reference) throw new RewardError(400, "invalid_reward_evidence");
+  if (!validRewardEvidence(reference)) throw new RewardError(400, "invalid_reward_evidence");
+  if (digitalAssetEvidence(reference) && row.digitalAssetKey === undefined) throw new RewardError(400, "digital_capacity_confirmation_required");
   return { expected, inventoryRemaining: row.inventoryRemaining as number, fulfillmentReference: reference };
 }
 
@@ -242,6 +255,10 @@ export async function editRewardDraft(pool: Pool, actorId: string, id: string, e
 
 export async function publishRewardDraft(pool: Pool, actorId: string, id: string, input: RewardPublication) {
   if (!uuidPattern.test(id)) throw new RewardError(400, "invalid_reward_id");
+  const digital = digitalAssetEvidence(input.fulfillmentReference);
+  const expectedAsset = digitalAssetCatalog().find(asset => asset.rewardTitle === input.expected.title);
+  if (expectedAsset && digital?.key !== expectedAsset.key) throw new RewardError(400, "digital_asset_required");
+  if (digital && digital.rewardTitle !== input.expected.title) throw new RewardError(400, "digital_reward_title_mismatch");
   return transaction(pool, async client => {
     const actor = await client.query("SELECT role FROM users WHERE clerk_user_id=$1 FOR SHARE", [actorId]);
     if (actor.rows[0]?.role !== "admin") throw new RewardError(403, "admin_required");
@@ -298,10 +315,11 @@ export async function redeemReward(pool: Pool, userId: string, rewardId: string,
 
 export async function listReservedRedemptions(pool: Pool) {
   const rows = await pool.query(`SELECT r.id, r.reward_id AS "rewardId", w.title AS "rewardTitle", r.cost,
-    r.created_at AS "createdAt", r.fulfillment_status AS "fulfillmentStatus"
+    r.created_at AS "createdAt", r.fulfillment_status AS "fulfillmentStatus", w.fulfillment_reference AS "rewardEvidence"
     FROM redemptions r JOIN rewards w ON w.id=r.reward_id
     WHERE r.fulfillment_status='reserved' ORDER BY r.created_at ASC, r.id ASC LIMIT 100`);
-  return rows.rows;
+  return rows.rows.map(({ rewardEvidence, ...row }) => ({ ...row,
+    digitalFulfillmentReference: digitalAssetEvidence(rewardEvidence)?.fulfillmentReference ?? null }));
 }
 
 export async function listFulfilledRedemptions(pool: Pool, limit: number, cursor: DeliveryCursor | null) {
@@ -322,7 +340,9 @@ export async function fulfillRedemption(pool: Pool, actorId: string, id: string,
   return transaction(pool, async client => {
     const actor = await client.query("SELECT role FROM users WHERE clerk_user_id=$1 FOR SHARE", [actorId]);
     if (actor.rows[0]?.role !== "admin") throw new RewardError(403, "admin_required");
-    const result = await client.query("SELECT id,fulfillment_status,fulfillment_reference,fulfilled_by FROM redemptions WHERE id=$1 FOR UPDATE", [id]);
+    const result = await client.query(`SELECT id,fulfillment_status,fulfillment_reference,fulfilled_by,
+      (SELECT fulfillment_reference FROM rewards WHERE id=redemptions.reward_id) AS reward_reference
+      FROM redemptions WHERE id=$1 FOR UPDATE`, [id]);
     const prior = result.rows[0];
     if (!prior) throw new RewardError(404, "redemption_not_found");
     if (prior.fulfillment_status === "fulfilled") {
@@ -330,6 +350,11 @@ export async function fulfillRedemption(pool: Pool, actorId: string, id: string,
       return { id, replayed: true };
     }
     if (prior.fulfillment_status !== "reserved") throw new RewardError(409, "redemption_state_conflict");
+    const digital = digitalAssetEvidence(prior.reward_reference);
+    if ((digital && reference !== digital.fulfillmentReference) || (reference.startsWith("digital:") && !digital) ||
+      (typeof prior.reward_reference === "string" && prior.reward_reference.startsWith(digitalEvidenceNamespace) && !digital)) {
+      throw new RewardError(409, "digital_asset_mismatch");
+    }
     await client.query(`UPDATE redemptions SET fulfillment_status='fulfilled',fulfillment_reference=$2,fulfilled_by=$3,fulfilled_at=now()
       WHERE id=$1`, [id,reference,actorId]);
     return { id, replayed: false };

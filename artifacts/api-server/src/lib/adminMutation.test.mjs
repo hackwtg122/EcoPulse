@@ -31,6 +31,8 @@ function poolFor(role, failWrite = false) {
       queries.push({ sql, params });
       if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql) || sql.includes("pg_advisory_xact_lock")) return { rows: [] };
       if (sql.startsWith("SELECT role FROM users")) { assert.deepEqual(params, [actor]); return { rows: role ? [{ role }] : [] }; }
+      if (sql.startsWith("SELECT EXISTS")) return { rows: [{ ready: true }] };
+      if (sql.startsWith("SELECT p.active")) return { rows: [{ active: true, validation_reference: "https://example.org/confirmed", validated_at: new Date(), validated_by: actor }] };
       if (/^(INSERT|UPDATE|DELETE)/.test(sql)) {
         if (failWrite) throw Object.assign(Error("injected_failure"), { code: "XX000" });
         if (sql.startsWith("INSERT INTO rewards")) return { rowCount: 1, rows: [{ id: params[0], title: params[1], description: params[2], cost: params[3] }] };

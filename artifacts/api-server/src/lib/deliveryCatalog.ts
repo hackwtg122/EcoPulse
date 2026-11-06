@@ -75,16 +75,23 @@ export function parseDraftSlot(value: unknown, now = new Date()): DraftSlot {
 
 export async function listCatalog(pool: Pool, validationReady: boolean) {
   const pointEvidence = validationReady
-    ? 'validation_reference AS "validationReference", validated_at AS "validatedAt"'
+    ? 'validation_reference AS "validationReference", validated_at AS "validatedAt", validated_by AS "validatedBy"'
     : 'NULL::text AS "validationReference", NULL::timestamptz AS "validatedAt"';
   const slotEvidence = validationReady
-    ? 's.validation_reference AS "validationReference", s.validated_at AS "validatedAt"'
+    ? 's.validation_reference AS "validationReference", s.validated_at AS "validatedAt", s.validated_by AS "validatedBy"'
     : 'NULL::text AS "validationReference", NULL::timestamptz AS "validatedAt"';
   const [points, slots] = await Promise.all([
     pool.query(`SELECT id, code, name, address, municipality, time_zone AS "timeZone", appointment_required AS "appointmentRequired", active, (to_jsonb(delivery_points)->>'latitude')::float8 AS latitude, (to_jsonb(delivery_points)->>'longitude')::float8 AS longitude, ${pointEvidence}, created_at AS "createdAt" FROM delivery_points ORDER BY created_at DESC, id DESC LIMIT 100`),
     pool.query(`SELECT s.id, s.delivery_point_id AS "pointId", s.starts_at AS "startsAt", s.ends_at AS "endsAt", s.capacity, s.active, ${slotEvidence}, (s.capacity - count(d.id))::integer AS "remainingCapacity" FROM delivery_slots s LEFT JOIN deliveries d ON d.slot_id = s.id AND d.status NOT IN ('cancelled', 'rejected') GROUP BY s.id ORDER BY s.starts_at DESC LIMIT 500`),
   ]);
-  return { points: points.rows, slots: slots.rows };
+  const view = ({ validatedBy, ...row }: Record<string, unknown>) => {
+    let operationallyValidated = false;
+    if (row.validatedAt && typeof validatedBy === "string" && validatedBy) {
+      try { parseValidationReference({ validationReference: row.validationReference }); operationallyValidated = true; } catch { /* Legacy metadata is not operational evidence. */ }
+    }
+    return { ...row, operationallyValidated };
+  };
+  return { points: points.rows.map(view), slots: slots.rows.map(view) };
 }
 
 export async function catalogDetailsCapabilities(pool: Pool) {
@@ -254,6 +261,9 @@ export async function validateCatalogPoint(pool: Pool, id: string, actorId: stri
     return await adminMutation(pool, actorId, async client => {
       const result = await client.query(`UPDATE delivery_points SET validation_reference = $3, validated_by = $2, validated_at = now(), active = true
         WHERE id = $1 AND active = false RETURNING id, code, name, address, municipality, active, validation_reference AS "validationReference", validated_at AS "validatedAt"`, [id, actorId, reference]);
+      const materials = await client.query(`SELECT EXISTS(SELECT 1 FROM delivery_point_materials m JOIN material_categories c ON c.code=m.category_code
+        WHERE m.delivery_point_id=$1 AND c.active=true) AS ready`, [id]);
+      if (materials.rows[0]?.ready !== true) throw new CatalogError(409, "point_materials_required");
       if (result.rowCount) return { point: result.rows[0], replayed: false };
       const existing = await client.query(`SELECT id, code, name, address, municipality, active, validation_reference AS "validationReference", validated_by AS "validatedBy", validated_at AS "validatedAt" FROM delivery_points WHERE id = $1`, [id]);
       if (existing.rows[0]?.active && existing.rows[0].validatedBy === actorId && existing.rows[0].validationReference === reference) return { point: existing.rows[0], replayed: true };
@@ -265,6 +275,12 @@ export async function validateCatalogPoint(pool: Pool, id: string, actorId: stri
 export async function validateCatalogSlot(pool: Pool, id: string, actorId: string, reference: string) {
   try {
     return await adminMutation(pool, actorId, async client => {
+      const parent = await client.query(`SELECT p.active,p.validation_reference,p.validated_by,p.validated_at
+        FROM delivery_points p JOIN delivery_slots s ON s.delivery_point_id=p.id WHERE s.id=$1 FOR SHARE OF p`, [id]);
+      const point = parent.rows[0];
+      if (!point?.active || !point.validated_at || !point.validated_by) throw new CatalogError(409, "parent_center_unvalidated");
+      try { parseValidationReference({ validationReference: point.validation_reference }); }
+      catch { throw new CatalogError(409, "parent_center_unvalidated"); }
       const result = await client.query(`UPDATE delivery_slots SET validation_reference = $3, validated_by = $2, validated_at = now(), active = true
         WHERE id = $1 AND active = false RETURNING id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active, validation_reference AS "validationReference", validated_at AS "validatedAt"`, [id, actorId, reference]);
       if (result.rowCount) return { slot: result.rows[0], replayed: false };

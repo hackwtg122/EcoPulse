@@ -262,7 +262,7 @@ export async function loadDeliveryOptions(
     validated_by?: string | null;
     validated_at?: Date | null;
   }>(pointResult).filter((row) => !operationalOnly || hasOperationalEvidence(row)).map((row) => {
-    const presented = presentDeliveryPoint(row);
+    const presented = operationalOnly ? { name: row.name, address: row.address, latitude: null, longitude: null } : presentDeliveryPoint(row);
     return {
       id: row.id,
       code: row.code,
@@ -277,13 +277,15 @@ export async function loadDeliveryOptions(
       slots: slotsByPoint.get(row.id) ?? [],
     };
   });
-  const configured = categories.length > 0 && points.some((point) => point.materials?.some(code => categories.some(category => category.code === code)) && (!point.appointmentRequired || point.slots.length > 0));
+  const selectable = (point: DeliveryOptionPoint) => point.materials?.some(code => categories.some(category => category.code === code)) && (!point.appointmentRequired || point.slots.length > 0);
+  const availablePoints = operationalOnly ? points.filter(selectable) : points;
+  const configured = categories.length > 0 && availablePoints.some(selectable);
   return {
     mode: "detailed",
     enabled: configured,
     reason: configured ? null : "configuration_pending",
     categories,
-    points,
+    points: availablePoints,
   };
 }
 

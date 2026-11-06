@@ -3,6 +3,20 @@ import test from "node:test";
 import { digitalAssetCatalog, ownedDigitalAsset, registeredDigitalAsset } from "./digitalAssets.ts";
 
 const id = "00000000-0000-4000-8000-000000000001";
+test("delivered file must match the digital publication and its recorded digest", async () => {
+  const asset = digitalAssetCatalog()[0];
+  for (const [reference, key, allowed] of [
+    [asset.evidenceReference, asset.key, true],
+    [asset.evidenceReference, "badge-v1", false],
+    [asset.evidenceReference.replace(asset.sha256, "0".repeat(64)), asset.key, false],
+  ]) {
+    const pool = { async query(sql, params) {
+      assert.match(sql, /user_id=\$2/); assert.equal(params[1], "owner");
+      return { rows: [{ fulfillment_status: "fulfilled", fulfillment_reference: "digital:ecopulse/" + key, reward_reference: reference }] };
+    } };
+    assert.equal(Boolean(await ownedDigitalAsset(pool, "owner", id)), allowed);
+  }
+});
 test("administrative catalog describes existing bytes, never arbitrary paths or inherited object keys", () => {
   const catalog = digitalAssetCatalog();
   assert.equal(catalog.length, 3);

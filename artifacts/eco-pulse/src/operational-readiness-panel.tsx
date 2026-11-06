@@ -50,6 +50,12 @@ export function OperationalReadinessPanel() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [initializing, setInitializing] = useState(false);
   const [initializationMessage, setInitializationMessage] = useState("");
+  useEffect(() => {
+    const refresh = () => setRevision(value => value + 1);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("ecopulse-operational-resources-changed", refresh);
+    return () => { window.removeEventListener("focus", refresh); window.removeEventListener("ecopulse-operational-resources-changed", refresh); };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();

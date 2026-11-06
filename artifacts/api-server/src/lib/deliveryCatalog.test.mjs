@@ -1,10 +1,49 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canManageCatalog, CatalogError, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, validateCatalogPoint } from "./deliveryCatalog.ts";
+import { canManageCatalog, CatalogError, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, validateCatalogPoint, validateCatalogSlot } from "./deliveryCatalog.ts";
 
 const pointId = "00000000-0000-5000-8000-000000000010";
 const point = { code: "centro-prueba", name: "Centro comprobado", address: "Dirección comprobada", municipality: "Montería", timeZone: "America/Bogota", appointmentRequired: true };
 const now = new Date("2026-10-16T00:00:00Z");
+test("administrative status distinguishes legacy active records from operational validation without rewriting them", async () => {
+  const legacy = { id: pointId, active: true, validationReference: "academic:ecopulse/old", validatedAt: new Date(), validatedBy: "user_Admin" };
+  const valid = { ...legacy, validationReference: "https://example.org/authorization" };
+  const catalog = await listCatalog({ async query() { return { rows: [legacy, valid] }; } }, true);
+  for (const collection of [catalog.points, catalog.slots]) {
+    assert.equal(collection[0].operationallyValidated, false);
+    assert.equal(collection[0].active, true);
+    assert.equal(collection[0].validationReference, legacy.validationReference);
+    assert.equal(collection[1].operationallyValidated, true);
+    assert.ok(!("validatedBy" in collection[1]));
+  }
+});
+test("a slot cannot be published against an unvalidated legacy parent", async () => {
+  const queries = [];
+  const pool = { async connect() { return { release() {}, async query(sql) {
+    queries.push(sql);
+    if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [] };
+    if (sql.startsWith("SELECT role")) return { rows: [{ role: "admin" }] };
+    if (sql.startsWith("SELECT p.active")) return { rows: [{ active: true, validation_reference: "academic:ecopulse/old", validated_at: new Date(), validated_by: "user_Admin" }] };
+    throw Error("Unexpected SQL " + sql);
+  } }; } };
+  await assert.rejects(validateCatalogSlot(pool, pointId, "user_Admin", "https://example.org/slot"), { code: "parent_center_unvalidated" });
+  assert.equal(queries.at(-1), "ROLLBACK");
+  assert.ok(!queries.some(sql => sql.startsWith("UPDATE")));
+});
+test("center publication rolls back when no accepted active material is configured", async () => {
+  const queries = [];
+  const pool = { async connect() { return { release() {}, async query(sql) {
+    queries.push(sql);
+    if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [] };
+    if (sql.startsWith("SELECT role")) return { rows: [{ role: "admin" }] };
+    if (sql.startsWith("UPDATE delivery_points")) return { rows: [{ id: pointId }], rowCount: 1 };
+    if (sql.startsWith("SELECT EXISTS")) return { rows: [{ ready: false }] };
+    throw Error("Unexpected SQL " + sql);
+  } }; } };
+  await assert.rejects(validateCatalogPoint(pool, pointId, "user_Admin", "https://example.org/point"), { code: "point_materials_required" });
+  assert.equal(queries.at(-1), "ROLLBACK");
+  assert.ok(!queries.includes("COMMIT"));
+});
 
 test("coordinates and accepted materials reject invalid or extra data", () => {
   assert.deepEqual(parsePointCoordinates({ latitude: 8.75, longitude: -75.88 }), { latitude: 8.75, longitude: -75.88 });
@@ -36,6 +75,7 @@ test("publishing a walk-in center does not incorrectly require appointment_requi
   const result = await validateCatalogPoint({ async connect() { return { release() {}, async query(text, params) {
     if (["BEGIN", "COMMIT", "ROLLBACK"].includes(text)) return { rows: [] };
     if (text.startsWith("SELECT role FROM users")) return { rows: [{ role: "admin" }] };
+    if (text.startsWith("SELECT EXISTS")) return { rows: [{ ready: true }] };
     assert.ok(text.includes("active = false"));
     assert.ok(!text.includes("appointment_required = true"));
     assert.deepEqual(params, [pointId, "user_TestAdmin", "https://example.org/test-evidence"]);

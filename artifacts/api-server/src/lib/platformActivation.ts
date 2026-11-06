@@ -46,7 +46,7 @@ export async function readPlatformEnvironment(pool: Pick<Pool, "query">, base: E
 export function platformModules(p: Prerequisites, env: Environment): PlatformModule[] {
   const module = (key: string, title: string, flags: Flag[], conditions: Array<[boolean, string]>, href: string): PlatformModule => {
     const missing = conditions.filter(([ready]) => !ready).map(([, message]) => message);
-    return { key, title, flags, ready: missing.length === 0, enabled: flags.every(flag => env[flag] === "true"), missing, href };
+    return { key, title, flags, ready: missing.length === 0, enabled: missing.length === 0 && flags.every(flag => env[flag] === "true"), missing, href };
   };
   return [
     module("catalog", "Centros, materiales, ubicaciones y cupos", ["PILOT_CATALOG_ADMIN_ENABLED", "PILOT_CATALOG_PUBLICATION_ENABLED"],
@@ -108,7 +108,7 @@ export async function activatePlatform(pool: Pool, actorId: string, key: unknown
     const flags: Partial<Record<Flag, true>> = {};
     for (const flag of platformFlags) if (current[flag] === "true") flags[flag] = true;
     for (const module of status.modules) if (module.ready) for (const flag of module.flags) flags[flag] = true;
-    const modules = status.modules.map(module => ({ ...module, enabled: module.flags.every(flag => flags[flag] === true) }));
+    const modules = status.modules.map(module => ({ ...module, enabled: module.ready && module.flags.every(flag => flags[flag] === true) }));
     const result = { modules, replayed: false };
     await client.query(`INSERT INTO platform_activation_events(id,administrator_id,idempotency_key,flags,result)
       VALUES($1,$2,$3,$4::jsonb,$5::jsonb)`, [randomUUID(), actorId, key, JSON.stringify(flags), JSON.stringify(result)]);

@@ -47,10 +47,20 @@ try {
   const effectiveEnvironment = await readPlatformEnvironment(queryPool, env);
   const platform = await platformStatus(queryPool, effectiveEnvironment);
   if (!platform.activationReady || platform.modules.length !== 6) throw Error("platform_readiness_unavailable");
+  await client.query(`PREPARE digital_fulfillment_binding(uuid) AS SELECT id,fulfillment_status,fulfillment_reference,fulfilled_by,
+    (SELECT fulfillment_reference FROM rewards WHERE id=redemptions.reward_id) AS reward_reference FROM redemptions WHERE id=$1 FOR UPDATE`);
+  await client.query(`PREPARE center_materials_before_publication(uuid) AS SELECT EXISTS(SELECT 1 FROM delivery_point_materials m
+    JOIN material_categories c ON c.code=m.category_code WHERE m.delivery_point_id=$1 AND c.active=true) AS ready`);
+  await client.query(`PREPARE slot_parent_before_publication(uuid) AS SELECT p.active,p.validation_reference,p.validated_by,p.validated_at
+    FROM delivery_points p JOIN delivery_slots s ON s.delivery_point_id=p.id WHERE s.id=$1 FOR SHARE OF p`);
+  await client.query(`PREPARE digital_owned_download(uuid,text) AS SELECT fulfillment_status,fulfillment_reference,
+    (SELECT fulfillment_reference FROM rewards WHERE id=redemptions.reward_id) AS reward_reference
+    FROM redemptions WHERE id=$1 AND user_id=$2`);
   await client.query("ROLLBACK");
   console.log(JSON.stringify({ check: "production_reward_inventory_schema", status: "PASS", ...result, ...recovery, runtimePermissions: true,
     activationRuntimePermissions: true, platformModules: platform.modules.map(({ key, ready, missing }) => ({ key, ready, missingConditions: missing.length })),
     activationAuditImmutable: true, runtimeUsesDedicatedRole: activationPermissions.dedicated_role,
+    digitalAndCatalogQueriesPrepared: 4,
     runtimeCredentialHardeningPending: activationPermissions.mutable_audit,
     scope: "actual_render_database_not_admin_operation" }));
 } catch (error) {

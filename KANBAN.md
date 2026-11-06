@@ -11,7 +11,7 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 
 ## EN PROCESO
 
-- Auditoría integral y aceptación autenticada: observar los recorridos reales desde Firefox del propietario y revisar los controles pendientes de cada apartado de `AUDITORIA_FUNCIONAL.md`. Configuración y correcciones de rol ya publicadas y verificadas técnicamente; no se declara completa la auditoría de todos los controles ni el circuito físico.
+- Incidencia #2 (actualización 2026-11-06): correcciones implementadas y en publicación. Los tres premios se publican desde el registro real de archivos con título/tipo/huella SHA-256 y cupos digitales declarados, usando recuperación existente auditada; cumplimiento y descarga verifican el archivo vinculado. Centros/horarios distinguen validación real, muestran checklist y controles editables; publicación requiere materiales y horario requiere centro validado. Solicitudes excluyen destinos incompletos y conservan texto validado; activación refleja requisitos actuales y refresca tras cambios. Tipos/build, 135 pruebas API y 39 del cliente aprobados. No se convierten registros heredados ni se modifica la credencial técnica Render. Falta verificación del despliegue y aceptación autenticada con recursos reales.
 
 ## BLOQUEADO
 

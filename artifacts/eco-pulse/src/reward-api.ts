@@ -1,10 +1,20 @@
-export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean; draftRecoveryAvailable?: boolean; operationallyValidated?: boolean };
-export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled"; digitalAsset?: "nature-v1" | "badge-v1" | "guide-v1" | null };
+export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean; draftRecoveryAvailable?: boolean; operationallyValidated?: boolean; digitalAssetKey?: string | null };
+export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled"; digitalAsset?: "nature-v1" | "badge-v1" | "guide-v1" | null; digitalFulfillmentReference?: string | null };
 export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean; canRestock: boolean; inventorySchemaReady: boolean; canRecoverDraft: boolean };
 export type RewardRestockInput = { quantity: number; evidenceReference: string; availabilityConfirmed: true };
 export type InventoryMovement = { id: string; rewardId: string; administratorId: string; quantity: number; inventoryBefore: number; inventoryAfter: number; evidenceReference: string; createdAt: string };
 export type RewardDraftInput = { title: string; description: string; cost: number };
-export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number; fulfillmentReference: string };
+export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number } & ({ fulfillmentReference: string } | { digitalAssetKey: string; availabilityConfirmed: true });
+export type DigitalRewardAsset = { key: string; rewardTitle: string; title: string; filename: string; contentType: string; bytes: number; sha256: string; evidenceReference: string; fulfillmentReference: string };
+export async function loadDigitalRewardAssets(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<DigitalRewardAsset[]> {
+  return items(await call(apiUrl, token, "admin/digital-assets", signal, undefined, fetchImpl)).map(row => {
+    if (typeof row.key !== "string" || typeof row.rewardTitle !== "string" || typeof row.title !== "string" || typeof row.filename !== "string" ||
+      !["application/pdf", "image/svg+xml"].includes(String(row.contentType)) || !Number.isSafeInteger(row.bytes) || (row.bytes as number) <= 0 ||
+      typeof row.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(row.sha256) || typeof row.evidenceReference !== "string" ||
+      typeof row.fulfillmentReference !== "string" || row.fulfillmentReference !== "digital:ecopulse/" + row.key) throw new RewardApiError(502, "invalid_digital_asset_response");
+    return row as DigitalRewardAsset;
+  });
+}
 export type PointMovement = { id: string; delta: number; kind: "delivery" | "redemption" | "adjustment"; createdAt: string };
 export type FulfilledRedemption = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfilledAt: string; fulfillmentReference: string };
 export type FulfillmentHistory = { items: FulfilledRedemption[]; nextCursor: string | null };
@@ -63,7 +73,8 @@ function reward(value: Record<string, unknown>): RewardItem {
     ...(typeof value.fulfillmentDocumented === "boolean" ? { fulfillmentDocumented: value.fulfillmentDocumented } : {}),
     ...(typeof value.validationRecorded === "boolean" ? { validationRecorded: value.validationRecorded } : {}),
     ...(typeof value.draftRecoveryAvailable === "boolean" ? { draftRecoveryAvailable: value.draftRecoveryAvailable } : {}),
-    ...(typeof value.operationallyValidated === "boolean" ? { operationallyValidated: value.operationallyValidated } : {}) };
+    ...(typeof value.operationallyValidated === "boolean" ? { operationallyValidated: value.operationallyValidated } : {}),
+    ...(typeof value.digitalAssetKey === "string" ? { digitalAssetKey: value.digitalAssetKey } : {}) };
 }
 export async function loadRewards(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch) {
   return items(await call(apiUrl, token, "rewards", signal, undefined, fetchImpl)).map(reward);
@@ -87,7 +98,8 @@ export async function loadAdminRedemptions(apiUrl: string, token: string, signal
       !Number.isSafeInteger(row.cost) || typeof row.createdAt !== "string" ||
       (row.fulfillmentStatus !== "reserved" && row.fulfillmentStatus !== "fulfilled")) throw new RewardApiError(502, "invalid_redemption_response");
     return { id: row.id, rewardId: row.rewardId, rewardTitle: row.rewardTitle, cost: row.cost as number,
-      createdAt: row.createdAt, fulfillmentStatus: row.fulfillmentStatus };
+      createdAt: row.createdAt, fulfillmentStatus: row.fulfillmentStatus,
+      digitalFulfillmentReference: typeof row.digitalFulfillmentReference === "string" && /^digital:ecopulse\/(guide-v1|badge-v1|nature-v1)$/.test(row.digitalFulfillmentReference) ? row.digitalFulfillmentReference : null };
   });
 }
 export async function fulfillRedemption(apiUrl: string, token: string, id: string, reference: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<{ id: string; replayed: boolean }> {

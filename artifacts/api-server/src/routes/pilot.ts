@@ -384,6 +384,10 @@ router.get("/admin/digital-assets/:key/download", (req, res) => {
   res.set("Content-Disposition", `attachment; filename="${asset.filename}"`);
   return res.type(asset.contentType).send(asset.content);
 });
+router.get("/admin/digital-assets", (_req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  return res.json(digitalAssetCatalog());
+});
 
 router.post("/admin/platform/activate", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });

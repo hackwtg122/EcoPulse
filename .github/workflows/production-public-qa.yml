@@ -128,7 +128,7 @@ jobs:
         with:
           node-version: "22"
       - name: Production API security and deployed SHA (read only)
-        run: node scripts/qa/production-api.mjs
+        run: node --experimental-strip-types scripts/qa/production-api.mjs
         env:
           EXPECTED_PRODUCTION_SHA: ${{ github.sha }}
 
