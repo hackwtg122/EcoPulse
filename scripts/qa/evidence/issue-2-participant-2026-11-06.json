@@ -1,0 +1,43 @@
+{
+  "date": "2026-11-06",
+  "sourceCommit": "0bfb0a6947c4de9fd9f6097f66ddd2fe401e2b33",
+  "browser": "Owner's installed Mozilla Firefox; separate private window",
+  "registration": "Owner completed registration and verification directly; agent did not read or enter credentials",
+  "authenticatedRoleFromRealApi": "participant",
+  "checks": {
+    "ownApiReadsSuccessful": true,
+    "publishedRewardsVisible": 3,
+    "availableDigitalCapacities": [1, 1, 1],
+    "balance": 0,
+    "redemptionButtonsDisabledWithoutBalance": true,
+    "catalogueAndBalancePersistedAfterReload": true,
+    "ownRedemptions": 0,
+    "selectableDeliveryDestinations": 0,
+    "requestsUnavailableWithoutValidatedDestination": true,
+    "ownEmptyDeliveryHistoryVisible": true,
+    "administrativeApiDenials": [
+      { "path": "/api/pilot/admin/rewards", "status": 403 },
+      { "path": "/api/pilot/admin/catalog", "status": 403 },
+      { "path": "/api/pilot/admin/platform", "status": 403 },
+      { "path": "/api/pilot/verifier/deliveries", "status": 403 }
+    ],
+    "administrativeCapabilitiesDenied": true,
+    "administrativeUiDenied": ["/admin?section=settings", "/admin/centers", "/admin/rewards"],
+    "missingOwnedRedemptionDownloadStatus": 404,
+    "administratorPagesReloadWithoutFalseAccessDenial": true
+  },
+  "mutationsByParticipantTest": 0,
+  "physicalReceiptsOrVerificationsCreated": 0,
+  "pointsAwarded": 0,
+  "credentialsOrTokensExported": false,
+  "temporaryLocalProxyAndNativeAutomationListenerClosedAfterTesting": true,
+  "normalFirefoxAndProfileLeftIntact": true,
+  "notTested": [
+    "request at a physically authorized destination",
+    "real physical receipt, weight verification and points credit",
+    "participant redemption with legitimately earned points",
+    "download from an owned fulfilled redemption",
+    "cross-owner isolation with two real existing redemptions"
+  ],
+  "externalBlocker": "Owner explicitly confirmed that there is no real physical delivery yet; no physical evidence or points were fabricated"
+}

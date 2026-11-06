@@ -2,6 +2,8 @@
 
 Estas acciones pertenecen al administrador y se realizan desde la interfaz. No requieren SQL ni otra cuenta verificadora. No deben completarse con autorizaciones, inventario o entregas inexistentes.
 
+Estado verificado el 2026-11-06: el propietario autorizó y se probaron en su Firefox la recuperación/publicación de los tres premios originales, con un cupo digital por archivo y precios conservados. Ya no deben recuperarse otra vez: ahora son recursos validados y sus historiales están protegidos. El participante registrado por el propietario ve los tres y saldo cero; aún no hay una entrega física real ni puntos legítimos para probar el canje. Las pruebas no añadieron saldo ni registraron recepciones.
+
 ## Premios digitales — Administración → Gestión recompensas
 
 1. En cada premio heredado no operativo, pulsar **Preparar para edición**. Se conserva el identificador y una copia inmutable del registro anterior. La recuperación no se permite para premios operativos ni con canjes o reposiciones.
