@@ -24,6 +24,7 @@ import { computeProgress } from "../lib/progressService";
 import { listEvaluationTestPoints } from "../lib/evaluationPoints";
 import { logger } from "../lib/logger";
 import { activatePlatform, PlatformActivationError, platformStatus, readPlatformEnvironment } from "../lib/platformActivation";
+import { AdminMutationError } from "../lib/adminMutation";
 
 const router: IRouter = Router();
 const mutationCounts = new Map<string, { count: number; resetAt: number }>();
@@ -449,7 +450,7 @@ router.post("/admin/catalog/points", async (req, res) => {
   const input = parseDraftPoint(req.body);
   const pool = await databasePool();
   if (!await hasDeliveryDetailsSchema(pool)) return res.status(503).json({ error: "delivery_details_migration_required" });
-  return res.status(201).json(await createDraftPoint(pool, input));
+  return res.status(201).json(await createDraftPoint(pool, res.locals.userId, input));
 });
 
 router.post("/admin/catalog/slots", async (req, res) => {
@@ -458,7 +459,7 @@ router.post("/admin/catalog/slots", async (req, res) => {
   const input = parseDraftSlot(req.body);
   const pool = await databasePool();
   if (!await hasDeliveryDetailsSchema(pool)) return res.status(503).json({ error: "delivery_details_migration_required" });
-  return res.status(201).json(await createDraftSlot(pool, input));
+  return res.status(201).json(await createDraftSlot(pool, res.locals.userId, input));
 });
 router.patch("/admin/catalog/points/:id", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
@@ -467,7 +468,7 @@ router.patch("/admin/catalog/points/:id", async (req, res) => {
   const input = parsePointEdit(req.body);
   const pool = await databasePool();
   if (!await hasCatalogValidationSchema(pool)) return res.status(503).json({ error: "catalog_validation_migration_required" });
-  return res.json(await updateDraftPoint(pool, String(req.params.id), input));
+  return res.json(await updateDraftPoint(pool, res.locals.userId, String(req.params.id), input));
 });
 router.patch("/admin/catalog/slots/:id", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
@@ -476,7 +477,7 @@ router.patch("/admin/catalog/slots/:id", async (req, res) => {
   const input = parseSlotEdit(req.body);
   const pool = await databasePool();
   if (!await hasCatalogValidationSchema(pool)) return res.status(503).json({ error: "catalog_validation_migration_required" });
-  return res.json(await updateDraftSlot(pool, String(req.params.id), input));
+  return res.json(await updateDraftSlot(pool, res.locals.userId, String(req.params.id), input));
 });
 router.post("/admin/catalog/points/:id/validate", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
@@ -515,7 +516,7 @@ router.post("/admin/catalog/:kind/:id/deactivate", async (req, res) => {
   if ((req.params.kind !== "points" && req.params.kind !== "slots") || !uuidPattern.test(String(req.params.id)) || !hasOnlyFields(req.body ?? {}, [])) return res.status(400).json({ error: "invalid_catalog_record" });
   const pool = await databasePool();
   if (!await hasCatalogValidationSchema(pool)) return res.status(503).json({ error: "catalog_validation_migration_required" });
-  return res.json(await deactivateCatalogRecord(pool, req.params.kind, String(req.params.id)));
+  return res.json(await deactivateCatalogRecord(pool, res.locals.userId, req.params.kind, String(req.params.id)));
 });
 router.get("/delivery-points", async (_req, res) => {
   const pool = await databasePool();
@@ -789,7 +790,7 @@ router.patch("/admin/rewards/:id", async (req, res) => {
   if (platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "reward_drafts_disabled" });
   if (!hasOnlyFields(req.body, ["expected", "next"]) || !req.body.expected || !req.body.next) return res.status(400).json({ error: "invalid_reward_edit" });
   const pool = await databasePool();
-  const result = await editRewardDraft(pool, String(req.params.id), parseRewardDraft(req.body.expected), parseRewardDraft(req.body.next));
+  const result = await editRewardDraft(pool, res.locals.userId, String(req.params.id), parseRewardDraft(req.body.expected), parseRewardDraft(req.body.next));
   return res.json(result);
 });
 router.patch("/admin/catalog/points/:id/coordinates", async (req, res) => {
@@ -799,7 +800,7 @@ router.patch("/admin/catalog/points/:id/coordinates", async (req, res) => {
   const coordinates = parsePointCoordinates(req.body);
   const pool = await databasePool();
   if (!(await catalogDetailsCapabilities(pool)).canEditCoordinates) return res.status(503).json({ error: "catalog_coordinates_unavailable" });
-  return res.json(await updateDraftPointCoordinates(pool, String(req.params.id), coordinates));
+  return res.json(await updateDraftPointCoordinates(pool, res.locals.userId, String(req.params.id), coordinates));
 });
 router.patch("/admin/catalog/points/:id/materials", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
@@ -808,7 +809,7 @@ router.patch("/admin/catalog/points/:id/materials", async (req, res) => {
   const materials = parsePointMaterials(req.body);
   const pool = await databasePool();
   if (!(await catalogDetailsCapabilities(pool)).canEditMaterials) return res.status(503).json({ error: "catalog_materials_unavailable" });
-  return res.json(await replaceDraftPointMaterials(pool, String(req.params.id), materials));
+  return res.json(await replaceDraftPointMaterials(pool, res.locals.userId, String(req.params.id), materials));
 });
 router.post("/admin/rewards/:id/publish", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
@@ -981,7 +982,7 @@ const pilotErrorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   if (dbError?.code === "42P01") return res.status(503).json({ error: "schema_migration_required" });
   if (dbError?.code === "42501") return res.status(503).json({ error: "permissions_unavailable" });
   if (dbError?.code === "55P03" || dbError?.code === "57014") return res.status(503).json({ error: "operation_temporarily_unavailable" });
-  if (error instanceof PlatformActivationError || error instanceof DeliveryRequestError || error instanceof DeliveryLifecycleError || error instanceof CatalogError || error instanceof RewardError || error instanceof AiClassificationError || error instanceof AiGuideError || error instanceof GuideStorageError) {
+  if (error instanceof AdminMutationError || error instanceof PlatformActivationError || error instanceof DeliveryRequestError || error instanceof DeliveryLifecycleError || error instanceof CatalogError || error instanceof RewardError || error instanceof AiClassificationError || error instanceof AiGuideError || error instanceof GuideStorageError) {
     return res.status(error.status).json({ error: error.code });
   }
   if (typeof error === "object" && error && "code" in error && error.code === "42501") {

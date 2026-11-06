@@ -17,6 +17,8 @@ END;
 $$;
 CREATE TRIGGER platform_activation_events_immutable BEFORE UPDATE OR DELETE ON public.platform_activation_events
 FOR EACH ROW EXECUTE FUNCTION public.reject_platform_activation_mutation();
+CREATE TRIGGER platform_activation_events_no_truncate BEFORE TRUNCATE ON public.platform_activation_events
+FOR EACH STATEMENT EXECUTE FUNCTION public.reject_platform_activation_mutation();
 REVOKE ALL ON public.platform_activation_events FROM PUBLIC;
 GRANT SELECT,INSERT ON public.platform_activation_events TO ecopulse_app;
 GRANT USAGE ON SEQUENCE public.platform_activation_events_revision_seq TO ecopulse_app;

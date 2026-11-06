@@ -21,23 +21,26 @@ test("material changes lock drafts and roll back when categories are unavailable
   const client = { release() {}, async query(sql) {
     queries.push(sql);
     if (sql === "BEGIN" || sql === "ROLLBACK") return { rows: [] };
+    if (sql.startsWith("SELECT role FROM users")) return { rows: [{ role: "admin" }] };
     if (sql.startsWith("SELECT id FROM delivery_points")) return { rowCount: 1, rows: [{ id: pointId }] };
     if (sql.startsWith("SELECT code FROM material_categories")) return { rowCount: 0, rows: [] };
     throw Error("unexpected_query");
   } };
-  await assert.rejects(replaceDraftPointMaterials({ connect: async () => client }, pointId, ["paper"]), error => error.code === "material_category_unavailable");
+  await assert.rejects(replaceDraftPointMaterials({ connect: async () => client }, "user_TestAdmin", pointId, ["paper"]), error => error.code === "material_category_unavailable");
   assert.ok(queries.some(sql => sql.includes("active=false FOR UPDATE")));
   assert.ok(!queries.some(sql => sql.startsWith("DELETE")));
   assert.equal(queries.at(-1), "ROLLBACK");
 });
 
 test("publishing a walk-in center does not incorrectly require appointment_required=true", async () => {
-  const result = await validateCatalogPoint({ async query(text, params) {
+  const result = await validateCatalogPoint({ async connect() { return { release() {}, async query(text, params) {
+    if (["BEGIN", "COMMIT", "ROLLBACK"].includes(text)) return { rows: [] };
+    if (text.startsWith("SELECT role FROM users")) return { rows: [{ role: "admin" }] };
     assert.ok(text.includes("active = false"));
     assert.ok(!text.includes("appointment_required = true"));
     assert.deepEqual(params, [pointId, "user_TestAdmin", "https://example.org/test-evidence"]);
     return { rowCount: 1, rows: [{ id: pointId, active: true }] };
-  } }, pointId, "user_TestAdmin", "https://example.org/test-evidence");
+  } }; } }, pointId, "user_TestAdmin", "https://example.org/test-evidence");
   assert.equal(result.replayed, false);
 });
 

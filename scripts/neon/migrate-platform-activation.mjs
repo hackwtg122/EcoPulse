@@ -19,12 +19,15 @@ try {
   if (!state.prerequisite || !state.safe_role) throw Error("prerequisites_missing");
   stage = "additive_schema";
   if (!state.present) await client.query(await readFile(new URL("./platform-activation-migration.sql", import.meta.url), "utf8"));
+  const { rows: [truncateGuard] } = await client.query("SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='public.platform_activation_events'::regclass AND tgname='platform_activation_events_no_truncate') AS present");
+  if (!truncateGuard.present) await client.query(`CREATE TRIGGER platform_activation_events_no_truncate BEFORE TRUNCATE ON public.platform_activation_events
+    FOR EACH STATEMENT EXECUTE FUNCTION public.reject_platform_activation_mutation()`);
   stage = "permissions_and_queries";
   const { rows: [metadata] } = await client.query(`SELECT obj_description('public.platform_activation_events'::regclass,'pg_class') AS marker,
     has_table_privilege('ecopulse_app','public.platform_activation_events','SELECT') AND has_table_privilege('ecopulse_app','public.platform_activation_events','INSERT') AS allowed,
     has_table_privilege('ecopulse_app','public.platform_activation_events','UPDATE,DELETE,TRUNCATE') AS mutable,
     has_sequence_privilege('ecopulse_app','public.platform_activation_events_revision_seq','USAGE') AS sequence_ready,
-    EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='public.platform_activation_events'::regclass AND tgname='platform_activation_events_immutable' AND tgenabled='O') AS immutable`);
+    (SELECT count(*)=2 FROM pg_trigger WHERE tgrelid='public.platform_activation_events'::regclass AND tgname IN ('platform_activation_events_immutable','platform_activation_events_no_truncate') AND tgenabled='O') AS immutable`);
   if (metadata.marker !== "ecopulse:platform-activation:v1" || !metadata.allowed || metadata.mutable || !metadata.sequence_ready || !metadata.immutable) throw Error("schema_requires_review");
   await client.query("PREPARE activation_latest AS SELECT flags FROM platform_activation_events ORDER BY revision DESC LIMIT 1");
   await client.query("PREPARE activation_replay(text,text) AS SELECT result FROM platform_activation_events WHERE administrator_id=$1 AND idempotency_key=$2");

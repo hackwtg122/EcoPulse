@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { uuidPattern, validIdempotencyKey } from "./pilotPolicy.ts";
 import type { DeliveryCursor } from "./pilotPolicy.ts";
+import { lockCurrentAdministrator } from "./adminMutation.ts";
 
 export class RewardError extends Error {
   readonly status: number;
@@ -215,6 +216,7 @@ async function transaction<T>(pool: Pool, task: (client: PoolClient) => Promise<
 export async function createRewardDraft(pool: Pool, actorId: string, key: unknown, input: RewardDraft) {
   const id = rewardIdForKey(actorId, key);
   return transaction(pool, async client => {
+    await lockCurrentAdministrator(client, actorId);
     const inserted = await client.query(`INSERT INTO rewards (id,title,description,cost) VALUES ($1,$2,$3,$4)
       ON CONFLICT (id) DO NOTHING RETURNING id,title,description,cost,active`, [id,input.title,input.description,input.cost]);
     const row = inserted.rows[0] ?? (await client.query("SELECT id,title,description,cost,active FROM rewards WHERE id=$1", [id])).rows[0];
@@ -225,14 +227,17 @@ export async function createRewardDraft(pool: Pool, actorId: string, key: unknow
   });
 }
 
-export async function editRewardDraft(pool: Pool, id: string, expected: RewardDraft, input: RewardDraft) {
+export async function editRewardDraft(pool: Pool, actorId: string, id: string, expected: RewardDraft, input: RewardDraft) {
   if (!uuidPattern.test(id)) throw new RewardError(400, "invalid_reward_id");
-  const result = await pool.query(`UPDATE rewards SET title=$3, description=$4, cost=$5
-    WHERE id=$1 AND active=false AND validated_at IS NULL AND validated_by IS NULL AND fulfillment_reference IS NULL
-      AND NOT EXISTS (SELECT 1 FROM redemptions WHERE reward_id=$1) AND title=$2 AND description=$6 AND cost=$7
-    RETURNING id,title,description,cost,active`, [id,expected.title,input.title,input.description,input.cost,expected.description,expected.cost]);
-  if (!result.rows[0]) throw new RewardError(409, "reward_changed_or_unavailable");
-  return result.rows[0];
+  return transaction(pool, async client => {
+    await lockCurrentAdministrator(client, actorId);
+    const result = await client.query(`UPDATE rewards SET title=$3, description=$4, cost=$5
+      WHERE id=$1 AND active=false AND validated_at IS NULL AND validated_by IS NULL AND fulfillment_reference IS NULL
+        AND NOT EXISTS (SELECT 1 FROM redemptions WHERE reward_id=$1) AND title=$2 AND description=$6 AND cost=$7
+      RETURNING id,title,description,cost,active`, [id,expected.title,input.title,input.description,input.cost,expected.description,expected.cost]);
+    if (!result.rows[0]) throw new RewardError(409, "reward_changed_or_unavailable");
+    return result.rows[0];
+  });
 }
 
 export async function publishRewardDraft(pool: Pool, actorId: string, id: string, input: RewardPublication) {

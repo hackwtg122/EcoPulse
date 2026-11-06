@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { scanCategories } from "./pilotPolicy.ts";
 import type { Pool, PoolClient } from "pg";
+import { adminMutation, lockCurrentAdministrator } from "./adminMutation.ts";
 
 export function canManageCatalog(role: unknown): boolean { return role === "admin"; }
 
@@ -118,16 +119,19 @@ export function parsePointMaterials(value: unknown): string[] {
   return input.materials as string[];
 }
 
-export async function updateDraftPointCoordinates(pool: Pool, id: string, coordinates: { latitude: number | null; longitude: number | null }) {
-  const result = await pool.query(`UPDATE delivery_points SET latitude=$2, longitude=$3 WHERE id=$1 AND active=false RETURNING id, latitude, longitude`, [id, coordinates.latitude, coordinates.longitude]);
-  if (!result.rowCount) throw new CatalogError(409, "point_not_editable");
-  return result.rows[0];
+export async function updateDraftPointCoordinates(pool: Pool, actorId: string, id: string, coordinates: { latitude: number | null; longitude: number | null }) {
+  return adminMutation(pool, actorId, async client => {
+    const result = await client.query(`UPDATE delivery_points SET latitude=$2, longitude=$3 WHERE id=$1 AND active=false RETURNING id, latitude, longitude`, [id, coordinates.latitude, coordinates.longitude]);
+    if (!result.rowCount) throw new CatalogError(409, "point_not_editable");
+    return result.rows[0];
+  });
 }
 
-export async function replaceDraftPointMaterials(pool: Pool, id: string, materials: string[]) {
+export async function replaceDraftPointMaterials(pool: Pool, actorId: string, id: string, materials: string[]) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockCurrentAdministrator(client, actorId);
     const point = await client.query("SELECT id FROM delivery_points WHERE id=$1 AND active=false FOR UPDATE", [id]);
     if (!point.rowCount) throw new CatalogError(409, "point_not_editable");
     const categories = await client.query("SELECT code FROM material_categories WHERE active=true AND code=ANY($1::text[])", [materials]);
@@ -143,20 +147,23 @@ export async function replaceDraftPointMaterials(pool: Pool, id: string, materia
   } finally { client.release(); }
 }
 
-export async function createDraftPoint(pool: Pool, input: DraftPoint) {
+export async function createDraftPoint(pool: Pool, actorId: string, input: DraftPoint) {
   try {
-    const result = await pool.query(`INSERT INTO delivery_points (id, code, name, address, municipality, time_zone, appointment_required) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, code, name, address, municipality, time_zone AS "timeZone", appointment_required AS "appointmentRequired", active`, [randomUUID(), input.code, input.name, input.address, input.municipality, input.timeZone, input.appointmentRequired]);
-    return result.rows[0];
+    return await adminMutation(pool, actorId, async client => {
+      const result = await client.query(`INSERT INTO delivery_points (id, code, name, address, municipality, time_zone, appointment_required) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, code, name, address, municipality, time_zone AS "timeZone", appointment_required AS "appointmentRequired", active`, [randomUUID(), input.code, input.name, input.address, input.municipality, input.timeZone, input.appointmentRequired]);
+      return result.rows[0];
+    });
   } catch (error) {
     if ((error as { code?: string }).code === "23505") throw new CatalogError(409, "point_code_exists");
     throw error;
   }
 }
 
-export async function createDraftSlot(pool: Pool, input: DraftSlot) {
+export async function createDraftSlot(pool: Pool, actorId: string, input: DraftSlot) {
   const client: PoolClient = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockCurrentAdministrator(client, actorId);
     await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [input.pointId]);
     const point = await client.query(`SELECT id, appointment_required FROM delivery_points WHERE id = $1`, [input.pointId]);
     if (!point.rowCount) throw new CatalogError(404, "point_not_found");
@@ -218,65 +225,77 @@ function catalogConflict(error: unknown): never {
   throw error;
 }
 
-export async function updateDraftPoint(pool: Pool, id: string, input: Omit<DraftPoint, "code">) {
+export async function updateDraftPoint(pool: Pool, actorId: string, id: string, input: Omit<DraftPoint, "code">) {
   try {
-    const result = await pool.query(`UPDATE delivery_points SET name = $2, address = $3, municipality = $4, time_zone = $5, appointment_required = $6
-      WHERE id = $1 AND active = false RETURNING id, code, name, address, municipality, time_zone AS "timeZone", appointment_required AS "appointmentRequired", active`,
-      [id, input.name, input.address, input.municipality, input.timeZone, input.appointmentRequired]);
-    if (!result.rowCount) throw new CatalogError(409, "point_not_editable");
-    return result.rows[0];
+    return await adminMutation(pool, actorId, async client => {
+      const result = await client.query(`UPDATE delivery_points SET name = $2, address = $3, municipality = $4, time_zone = $5, appointment_required = $6
+        WHERE id = $1 AND active = false RETURNING id, code, name, address, municipality, time_zone AS "timeZone", appointment_required AS "appointmentRequired", active`,
+        [id, input.name, input.address, input.municipality, input.timeZone, input.appointmentRequired]);
+      if (!result.rowCount) throw new CatalogError(409, "point_not_editable");
+      return result.rows[0];
+    });
   } catch (error) { catalogConflict(error); }
 }
 
-export async function updateDraftSlot(pool: Pool, id: string, input: Omit<DraftSlot, "pointId">) {
+export async function updateDraftSlot(pool: Pool, actorId: string, id: string, input: Omit<DraftSlot, "pointId">) {
   try {
-    const result = await pool.query(`UPDATE delivery_slots SET starts_at = $2, ends_at = $3, capacity = $4
-      WHERE id = $1 AND active = false RETURNING id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active`,
-      [id, input.startsAt, input.endsAt, input.capacity]);
-    if (!result.rowCount) throw new CatalogError(409, "slot_not_editable");
-    return result.rows[0];
+    return await adminMutation(pool, actorId, async client => {
+      const result = await client.query(`UPDATE delivery_slots SET starts_at = $2, ends_at = $3, capacity = $4
+        WHERE id = $1 AND active = false RETURNING id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active`,
+        [id, input.startsAt, input.endsAt, input.capacity]);
+      if (!result.rowCount) throw new CatalogError(409, "slot_not_editable");
+      return result.rows[0];
+    });
   } catch (error) { catalogConflict(error); }
 }
 
 export async function validateCatalogPoint(pool: Pool, id: string, actorId: string, reference: string) {
   try {
-    const result = await pool.query(`UPDATE delivery_points SET validation_reference = $3, validated_by = $2, validated_at = now(), active = true
-      WHERE id = $1 AND active = false RETURNING id, code, name, address, municipality, active, validation_reference AS "validationReference", validated_at AS "validatedAt"`, [id, actorId, reference]);
-    if (result.rowCount) return { point: result.rows[0], replayed: false };
-    const existing = await pool.query(`SELECT id, code, name, address, municipality, active, validation_reference AS "validationReference", validated_by AS "validatedBy", validated_at AS "validatedAt" FROM delivery_points WHERE id = $1`, [id]);
-    if (existing.rows[0]?.active && existing.rows[0].validatedBy === actorId && existing.rows[0].validationReference === reference) return { point: existing.rows[0], replayed: true };
-    throw new CatalogError(409, "point_validation_conflict");
+    return await adminMutation(pool, actorId, async client => {
+      const result = await client.query(`UPDATE delivery_points SET validation_reference = $3, validated_by = $2, validated_at = now(), active = true
+        WHERE id = $1 AND active = false RETURNING id, code, name, address, municipality, active, validation_reference AS "validationReference", validated_at AS "validatedAt"`, [id, actorId, reference]);
+      if (result.rowCount) return { point: result.rows[0], replayed: false };
+      const existing = await client.query(`SELECT id, code, name, address, municipality, active, validation_reference AS "validationReference", validated_by AS "validatedBy", validated_at AS "validatedAt" FROM delivery_points WHERE id = $1`, [id]);
+      if (existing.rows[0]?.active && existing.rows[0].validatedBy === actorId && existing.rows[0].validationReference === reference) return { point: existing.rows[0], replayed: true };
+      throw new CatalogError(409, "point_validation_conflict");
+    });
   } catch (error) { catalogConflict(error); }
 }
 
 export async function validateCatalogSlot(pool: Pool, id: string, actorId: string, reference: string) {
   try {
-    const result = await pool.query(`UPDATE delivery_slots SET validation_reference = $3, validated_by = $2, validated_at = now(), active = true
-      WHERE id = $1 AND active = false RETURNING id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active, validation_reference AS "validationReference", validated_at AS "validatedAt"`, [id, actorId, reference]);
-    if (result.rowCount) return { slot: result.rows[0], replayed: false };
-    const existing = await pool.query(`SELECT id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active, validation_reference AS "validationReference", validated_by AS "validatedBy", validated_at AS "validatedAt" FROM delivery_slots WHERE id = $1`, [id]);
-    if (existing.rows[0]?.active && existing.rows[0].validatedBy === actorId && existing.rows[0].validationReference === reference) return { slot: existing.rows[0], replayed: true };
-    throw new CatalogError(409, "slot_validation_conflict");
+    return await adminMutation(pool, actorId, async client => {
+      const result = await client.query(`UPDATE delivery_slots SET validation_reference = $3, validated_by = $2, validated_at = now(), active = true
+        WHERE id = $1 AND active = false RETURNING id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active, validation_reference AS "validationReference", validated_at AS "validatedAt"`, [id, actorId, reference]);
+      if (result.rowCount) return { slot: result.rows[0], replayed: false };
+      const existing = await client.query(`SELECT id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active, validation_reference AS "validationReference", validated_by AS "validatedBy", validated_at AS "validatedAt" FROM delivery_slots WHERE id = $1`, [id]);
+      if (existing.rows[0]?.active && existing.rows[0].validatedBy === actorId && existing.rows[0].validationReference === reference) return { slot: existing.rows[0], replayed: true };
+      throw new CatalogError(409, "slot_validation_conflict");
+    });
   } catch (error) { catalogConflict(error); }
 }
 
 export async function updateActiveSlotCapacity(pool: Pool, id: string, actorId: string, capacity: unknown, reference: string) {
   if (typeof capacity !== "number" || !Number.isSafeInteger(capacity) || capacity < 1 || capacity > 1000) throw new CatalogError(400, "invalid_slot_capacity");
   try {
-    const result = await pool.query(`UPDATE delivery_slots SET capacity = $2, validation_reference = $4, validated_by = $3, validated_at = now()
-      WHERE id = $1 AND active = true RETURNING id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active`, [id, capacity, actorId, reference]);
-    if (!result.rowCount) throw new CatalogError(409, "slot_not_active");
-    return result.rows[0];
+    return await adminMutation(pool, actorId, async client => {
+      const result = await client.query(`UPDATE delivery_slots SET capacity = $2, validation_reference = $4, validated_by = $3, validated_at = now()
+        WHERE id = $1 AND active = true RETURNING id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active`, [id, capacity, actorId, reference]);
+      if (!result.rowCount) throw new CatalogError(409, "slot_not_active");
+      return result.rows[0];
+    });
   } catch (error) { catalogConflict(error); }
 }
 
-export async function deactivateCatalogRecord(pool: Pool, kind: "points" | "slots", id: string) {
+export async function deactivateCatalogRecord(pool: Pool, actorId: string, kind: "points" | "slots", id: string) {
   const table = kind === "points" ? "delivery_points" : "delivery_slots";
   try {
-    const result = await pool.query(`UPDATE ${table} SET active = false WHERE id = $1 AND active = true RETURNING id, active`, [id]);
-    if (result.rowCount) return result.rows[0];
-    const existing = await pool.query(`SELECT id, active FROM ${table} WHERE id = $1`, [id]);
-    if (existing.rowCount) return existing.rows[0];
-    throw new CatalogError(404, "catalog_record_not_found");
+    return await adminMutation(pool, actorId, async client => {
+      const result = await client.query(`UPDATE ${table} SET active = false WHERE id = $1 AND active = true RETURNING id, active`, [id]);
+      if (result.rowCount) return result.rows[0];
+      const existing = await client.query(`SELECT id, active FROM ${table} WHERE id = $1`, [id]);
+      if (existing.rowCount) return existing.rows[0];
+      throw new CatalogError(404, "catalog_record_not_found");
+    });
   } catch (error) { catalogConflict(error); }
 }

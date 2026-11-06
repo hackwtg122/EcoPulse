@@ -37,7 +37,9 @@ try {
     has_table_privilege(current_user,'public.platform_activation_events','SELECT') AND
     has_table_privilege(current_user,'public.platform_activation_events','INSERT') AND
     has_sequence_privilege(current_user,'public.platform_activation_events_revision_seq','USAGE') AND
-    NOT has_table_privilege(current_user,'public.platform_activation_events','UPDATE,DELETE,TRUNCATE') AS ready`);
+    NOT has_table_privilege('ecopulse_app','public.platform_activation_events','UPDATE,DELETE,TRUNCATE') AND
+    (SELECT count(*)=2 FROM pg_trigger WHERE tgrelid='public.platform_activation_events'::regclass AND
+      tgname IN ('platform_activation_events_immutable','platform_activation_events_no_truncate') AND tgenabled='O') AS ready`);
   activationDiagnostics = { dedicatedRole: activationPermissions.dedicated_role, mutableAudit: activationPermissions.mutable_audit, permissionsReady: activationPermissions.ready };
   if (!activationPermissions.ready) throw Error("runtime_platform_activation_permissions_missing");
   stage = "platform_readiness";
@@ -48,6 +50,8 @@ try {
   await client.query("ROLLBACK");
   console.log(JSON.stringify({ check: "production_reward_inventory_schema", status: "PASS", ...result, ...recovery, runtimePermissions: true,
     activationRuntimePermissions: true, platformModules: platform.modules.map(({ key, ready, missing }) => ({ key, ready, missingConditions: missing.length })),
+    activationAuditImmutable: true, runtimeUsesDedicatedRole: activationPermissions.dedicated_role,
+    runtimeCredentialHardeningPending: activationPermissions.mutable_audit,
     scope: "actual_render_database_not_admin_operation" }));
 } catch (error) {
   await client?.query("ROLLBACK").catch(() => {});

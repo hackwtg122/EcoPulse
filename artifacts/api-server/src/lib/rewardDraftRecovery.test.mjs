@@ -75,7 +75,9 @@ test("a failed reset rolls back both deactivation and audit snapshot", async () 
   assert.deepEqual(pool.state.snapshot, before); assert.equal(pool.state.audit.length, 0);
 });
 test("editing a draft cannot rewrite a validated or previously redeemed reward", async () => {
-  await assert.rejects(editRewardDraft({ async query(sql) {
+  await assert.rejects(editRewardDraft({ async connect() { return { release() {}, async query(sql) {
+    if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [] };
+    if (sql.startsWith("SELECT role FROM users")) return { rows: [{ role: "admin" }] };
     assert.match(sql, /validated_at IS NULL/); assert.match(sql, /NOT EXISTS \(SELECT 1 FROM redemptions/); return { rows: [] };
-  } }, rewardId, { title: "Test", description: "Unit", cost: 20 }, { title: "Changed", description: "Unit", cost: 30 }), { code: "reward_changed_or_unavailable" });
+  } }; } }, "user_Admin", rewardId, { title: "Test", description: "Unit", cost: 20 }, { title: "Changed", description: "Unit", cost: 30 }), { code: "reward_changed_or_unavailable" });
 });
