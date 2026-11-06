@@ -21,6 +21,16 @@ const assets: Record<string, { filename: string; contentType: string; content: s
   "badge-v1": { filename: "ecopulse-insignia.svg", contentType: "image/svg+xml", content: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600"><rect width="600" height="600" fill="#e4f3e8"/><circle cx="300" cy="280" r="210" fill="#fff" stroke="#205f48" stroke-width="14"/><path d="M300 390C180 325 195 180 355 145c5 95-20 165-100 205M305 355c35-80 110-105 145-65-22 65-72 90-145 85" fill="#438a6e"/><text x="300" y="540" text-anchor="middle" fill="#205f48" font-family="sans-serif" font-size="38">EcoPulse</text></svg>' },
 };
 
+export function registeredDigitalAsset(key: string) {
+  return Object.hasOwn(assets, key) ? assets[key] : null;
+}
+
+export function digitalAssetCatalog() {
+  const titles: Record<string, string> = { "guide-v1": "Guía práctica de reciclaje", "nature-v1": "Fondo digital de naturaleza", "badge-v1": "Insignia Huella Verde" };
+  return Object.entries(assets).map(([key, asset]) => ({ key, title: titles[key], filename: asset.filename,
+    contentType: asset.contentType, bytes: Buffer.byteLength(asset.content), fulfillmentReference: "digital:ecopulse/" + key }));
+}
+
 export async function ownedDigitalAsset(pool: Pool, userId: string, redemptionId: string) {
   if (!userId || !uuidPattern.test(redemptionId)) return null;
   const result = await pool.query<{ fulfillment_status: string; fulfillment_reference: string | null }>(
@@ -28,5 +38,5 @@ export async function ownedDigitalAsset(pool: Pool, userId: string, redemptionId
   );
   const row = result.rows[0];
   const key = row && digitalAssetForFulfillment(row.fulfillment_status, row.fulfillment_reference);
-  return key ? assets[key] ?? null : null;
+  return key ? registeredDigitalAsset(key) : null;
 }

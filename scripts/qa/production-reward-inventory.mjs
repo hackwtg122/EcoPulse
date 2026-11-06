@@ -3,6 +3,7 @@ import { resolveDatabaseUrl } from "../../lib/db/src/connectionConfig.ts";
 import { renderGuideEnvironment } from "./render-guide-environment.mjs";
 import { verifyRewardInventory } from "../neon/verify-reward-inventory.mjs";
 import { verifyRewardDraftRecovery } from "../neon/verify-reward-draft-recovery.mjs";
+import { platformStatus, readPlatformEnvironment } from "../../artifacts/api-server/src/lib/platformActivation.ts";
 
 let client;
 try {
@@ -26,8 +27,21 @@ try {
   const { rows: [recoveryPermissions] } = await client.query(`SELECT has_table_privilege(current_user,'public.reward_draft_recoveries','SELECT') AND
     has_table_privilege(current_user,'public.reward_draft_recoveries','INSERT') AS ready`);
   if (!recoveryPermissions.ready) throw Error("runtime_recovery_permissions_missing");
+  const { rows: [activationPermissions] } = await client.query(`SELECT
+    obj_description('public.platform_activation_events'::regclass,'pg_class')='ecopulse:platform-activation:v1' AND
+    has_table_privilege(current_user,'public.platform_activation_events','SELECT') AND
+    has_table_privilege(current_user,'public.platform_activation_events','INSERT') AND
+    has_sequence_privilege(current_user,'public.platform_activation_events_revision_seq','USAGE') AND
+    NOT has_table_privilege(current_user,'public.platform_activation_events','UPDATE,DELETE,TRUNCATE') AS ready`);
+  if (!activationPermissions.ready) throw Error("runtime_platform_activation_permissions_missing");
+  const queryPool = { query: client.query.bind(client) };
+  const effectiveEnvironment = await readPlatformEnvironment(queryPool, env);
+  const platform = await platformStatus(queryPool, effectiveEnvironment);
+  if (!platform.activationReady || platform.modules.length !== 6) throw Error("platform_readiness_unavailable");
   await client.query("ROLLBACK");
-  console.log(JSON.stringify({ check: "production_reward_inventory_schema", status: "PASS", ...result, ...recovery, runtimePermissions: true, scope: "actual_render_database_not_admin_operation" }));
+  console.log(JSON.stringify({ check: "production_reward_inventory_schema", status: "PASS", ...result, ...recovery, runtimePermissions: true,
+    activationRuntimePermissions: true, platformModules: platform.modules.map(({ key, ready, missing }) => ({ key, ready, missingConditions: missing.length })),
+    scope: "actual_render_database_not_admin_operation" }));
 } catch (error) {
   await client?.query("ROLLBACK").catch(() => {});
   console.log(JSON.stringify({ check: "production_reward_inventory_schema", status: "BLOCKED", code: /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : "schema_or_runtime_verification_failed" }));

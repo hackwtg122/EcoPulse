@@ -116,7 +116,7 @@ try {
     } catch (error) {
       results.push({ profile: profile.name, path: "/ (quick guide flow)", status: null, errors: [...errors], pass: false, reason: `quick_guide_failed_at_${quickGuideStep}`, detail: String(error?.message ?? error).slice(0, 160) });
     }
-    for (const path of ["/deliveries", "/rewards", "/admin", "/admin/centers", "/admin/rewards", "/admin/users"]) {
+    for (const path of ["/deliveries", "/rewards", "/admin", "/admin?section=settings", "/admin/centers", "/admin/rewards", "/admin/users"]) {
       errors.length = 0;
       try {
         await page.goto(path, { waitUntil: "domcontentloaded", timeout: 45000 });

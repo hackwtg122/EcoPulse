@@ -11,7 +11,7 @@ Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción.
 
 ## EN PROCESO
 
-- Sin corrección pendiente de publicar. Incidencia #2 continúa en BLOQUEADO para la validación autenticada y física; no se declara completado el circuito por pasar pruebas unitarias o protección anónima.
+- Configuración general implementada y en verificación de publicación: acceso `/admin?section=settings`, preparación explícita reutilizada, activación persistente/auditada por rol vigente con idempotencia y bloqueo global, requisitos por módulo y descarga administrativa de tres archivos digitales reales. Migración aditiva aplicada con cero eventos de activación/cuentas/operaciones creados; pruebas dirigidas, tipos y build aprobados (95 pruebas API). El propietario inició sesión en su Firefox instalado; las herramientas actuales no controlan esa sesión. Matriz por rutas y pendientes en `AUDITORIA_FUNCIONAL.md`; ni la aceptación privada ni la auditoría exhaustiva se declaran terminadas.
 
 ## BLOQUEADO
 

@@ -46,7 +46,7 @@ const source = await readFile(new URL("../../artifacts/api-server/src/routes/pil
 const routes = [...source.matchAll(/^router\.(get|post|patch|delete)\("([^"]+)"/gm)];
 assert.ok(routes.length >= 44, "Private endpoint inventory unexpectedly shrank");
 for (const [, method, route] of routes) {
-  const path = `/api/pilot${route.replace(/:clerkUserId/g, "user_QaNotAnAccount").replace(/:kind/g, "points").replace(/:id/g, "00000000-0000-4000-8000-000000000000")}`;
+  const path = `/api/pilot${route.replace(/:clerkUserId/g, "user_QaNotAnAccount").replace(/:kind/g, "points").replace(/:key/g, "guide-v1").replace(/:id/g, "00000000-0000-4000-8000-000000000000")}`;
   const response = await fetch(`${api}${path}`, { method: method.toUpperCase(), signal: AbortSignal.timeout(45000), redirect: "error" });
   assert.equal(response.status, 401, `anonymous access: ${method} ${path}`);
   assert.equal((await response.json()).error, "authentication_required");

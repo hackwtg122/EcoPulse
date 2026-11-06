@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/react";
 import { Link } from "wouter";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, CircleAlert, RefreshCw } from "lucide-react";
 
 const apiUrl = import.meta.env.VITE_PILOT_API_URL?.trim() || "http://127.0.0.1:5001";
@@ -49,7 +49,6 @@ export function OperationalReadinessPanel() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [initializing, setInitializing] = useState(false);
-  const autoPreparedAccount = useRef<string | null>(null);
   const [initializationMessage, setInitializationMessage] = useState("");
 
   useEffect(() => {
@@ -118,14 +117,6 @@ export function OperationalReadinessPanel() {
     }
   };
 
-  // The owner requested automatic initial drafts. Run after the first successful
-  // authorized dashboard read, once per mounted account. The server is idempotent.
-  useEffect(() => {
-    if (!userId || status !== "ready" || autoPreparedAccount.current === userId) return;
-    autoPreparedAccount.current = userId;
-    void prepareCatalog();
-  }, [userId, status]);
-
   const steps = snapshot ? [
     {
       key: "centers",
@@ -145,7 +136,7 @@ export function OperationalReadinessPanel() {
       ready: snapshot.receiptEnabled && snapshot.verificationEnabled && snapshot.pointsEnabled,
       description: snapshot.receiptEnabled && snapshot.verificationEnabled && snapshot.pointsEnabled
         ? "El administrador puede recibir y verificar entregas de otros participantes, y acreditar sus EcoPuntos."
-        : "El administrador ya tiene permiso para operar; falta habilitar alguna función de recepción, verificación o acreditación en el servidor.",
+        : "Revisa Configuración general para activar recepción, verificación y acreditación cuando se cumplan sus requisitos.",
       href: "/admin",
       action: "Abrir bandeja de entregas",
     },
@@ -156,7 +147,7 @@ export function OperationalReadinessPanel() {
       description: snapshot.publishedRewards > 0
         ? snapshot.redemptionsEnabled
           ? String(snapshot.publishedRewards) + " recompensa(s) publicadas y canje habilitado."
-          : "Hay recompensas publicadas, pero el canje no está habilitado en el servidor."
+          : "Hay recompensas publicadas; revisa la activación de canjes en Configuración general."
         : "Publica una recompensa con inventario y cumplimiento confirmados.",
       href: "/admin/rewards",
       action: "Gestionar recompensas",
@@ -181,8 +172,8 @@ export function OperationalReadinessPanel() {
     <div className="flex flex-wrap items-center gap-3">
       <button type="button" onClick={() => void prepareCatalog()} disabled={initializing || status === "loading"}
         className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-sm font-semibold text-[hsl(var(--primary-foreground))] disabled:opacity-50"
-        data-testid="button-initialize-admin-catalog">{initializing ? "Preparando..." : "Preparar centros, horarios y premios"}</button>
-      <p className="max-w-xl text-xs text-[hsl(var(--muted-foreground))]">La primera preparación es automática. Este botón permite reintentar; no reemplaza registros existentes ni publica disponibilidad.</p>
+        data-testid="button-initialize-admin-catalog">{initializing ? "Preparando..." : "Preparar plataforma"}</button>
+      <p className="max-w-xl text-xs text-[hsl(var(--muted-foreground))]">Prepara borradores editables donde no hay registros. No duplica ni reemplaza recursos existentes, no publica disponibilidad y no acredita puntos.</p>
     </div>
     {initializationMessage && <p role="status" className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm">{initializationMessage}</p>}
     {status === "loading" && <p role="status" className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm">Consultando centros, usuarios y recompensas…</p>}
@@ -197,6 +188,6 @@ export function OperationalReadinessPanel() {
         <Link href={step.href} className="mt-4 inline-flex min-h-10 items-center gap-2 self-start text-sm font-bold text-[hsl(var(--primary))] underline">{step.action} <ArrowRight size={15} /></Link>
       </article>)}
     </div>}
-    {status === "ready" && configurationLocked && <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" data-testid="admin-operational-configuration-warning">Algunas gestiones están deshabilitadas por configuración del servidor. Comprueba en Render los permisos de catálogo y recompensas antes de intentar publicarlas.</p>}
+    {status === "ready" && configurationLocked && <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" data-testid="admin-operational-configuration-warning">Algunas gestiones están deshabilitadas. <Link href="/admin?section=settings" className="font-semibold underline">Revisar Configuración general</Link> para consultar requisitos y activar los módulos preparados.</p>}
   </section>;
 }

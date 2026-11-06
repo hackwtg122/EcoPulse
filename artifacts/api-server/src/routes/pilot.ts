@@ -14,7 +14,7 @@ import { hasRewardInventorySchema, listRewardInventoryMovements, parseRewardRest
 import { adminRewardView, hasRewardDraftRecoverySchema, recoverRewardDraft } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
 import { AiGuideError, askGuideWithProvider, parseGuideRequest } from "../lib/aiGuide";
-import { ownedDigitalAsset } from "../lib/digitalAssets";
+import { digitalAssetCatalog, ownedDigitalAsset, registeredDigitalAsset } from "../lib/digitalAssets";
 import { guideAccountDetails } from "../lib/aiGuideCore";
 import { GuideStorageError, hasGuideStorage, listGuideConversations, createGuideConversation, readGuideConversation, deleteGuideConversation, parseStoredQuestion, answerStoredGuideQuestion } from "../lib/guideStorage";
 import { AiProviderError, ProviderConfig, classifyImageWithVision } from "../lib/aiProvider";
@@ -23,6 +23,7 @@ import { QuotaConfig, QuotaStoreError, reserveQuota, finishQuotaAttempt } from "
 import { computeProgress } from "../lib/progressService";
 import { listEvaluationTestPoints } from "../lib/evaluationPoints";
 import { logger } from "../lib/logger";
+import { activatePlatform, PlatformActivationError, platformStatus, readPlatformEnvironment } from "../lib/platformActivation";
 
 const router: IRouter = Router();
 const mutationCounts = new Map<string, { count: number; resetAt: number }>();
@@ -116,6 +117,10 @@ async function databasePool() {
   return pool;
 }
 
+function platformEnvironment(res: Response): Record<string, string | undefined> {
+  return res.locals.platformEnvironment ?? process.env;
+}
+
 // Favourites live in a table created by scripts/neon, not by a Drizzle
 // migration, so every read/write checks it instead of failing with a 500.
 async function hasFavoritesSchema(pool: Awaited<ReturnType<typeof databasePool>>) {
@@ -133,6 +138,7 @@ router.use(async (req, res, next) => {
     if (!user) return res.status(503).json({ error: "user_unavailable" });
     res.locals.userId = userId;
     res.locals.role = user.role;
+    res.locals.platformEnvironment = await readPlatformEnvironment(await databasePool(), process.env);
     if (req.method !== "GET" && req.method !== "HEAD") {
       const now = Date.now();
       const previous = mutationCounts.get(userId);
@@ -272,7 +278,7 @@ async function answerGuideRequest(uid: string, request: ReturnType<typeof parseG
       scanCount: Math.trunc(Number(scanCount[0]?.c ?? 0)),
       deliveryCount: Math.trunc(Number(deliveryCount[0]?.c ?? 0)),
       activeCenters: options.points.length,
-      pointsPolicyEnabled: verificationActionsEnabled(process.env.PILOT_POINTS_ENABLED),
+      pointsPolicyEnabled: verificationActionsEnabled((await readPlatformEnvironment(pool, process.env)).PILOT_POINTS_ENABLED),
       academic: process.env.EVALUATION_MODE_ENABLED === "true",
       ...guideAccountDetails(options, recentDeliveries),
     };
@@ -364,6 +370,26 @@ router.post("/scans", async (req, res) => {
   return res.status(200).json(existing);
 });
 
+router.get("/admin/platform", async (_req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  return res.json({ ...await platformStatus(await databasePool(), platformEnvironment(res)), digitalAssets: digitalAssetCatalog() });
+});
+
+router.get("/admin/digital-assets/:key/download", (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  const asset = registeredDigitalAsset(String(req.params.key));
+  if (!asset) return res.status(404).json({ error: "digital_asset_unavailable" });
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("Content-Disposition", `attachment; filename="${asset.filename}"`);
+  return res.type(asset.contentType).send(asset.content);
+});
+
+router.post("/admin/platform/activate", async (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  if (!hasOnlyFields(req.body ?? {}, [])) return res.status(400).json({ error: "unexpected_fields" });
+  return res.json(await activatePlatform(await databasePool(), res.locals.userId, req.get("Idempotency-Key"), process.env));
+});
+
 router.get("/admin/catalog", async (_req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
   const pool = await databasePool();
@@ -371,7 +397,7 @@ router.get("/admin/catalog", async (_req, res) => {
   const validationReady = await hasCatalogValidationSchema(pool);
   const capabilities = await catalogDetailsCapabilities(pool);
   const materials = capabilities.canReadMaterials ? (await pool.query('SELECT delivery_point_id AS "pointId",category_code AS code FROM delivery_point_materials ORDER BY category_code')).rows : [];
-  return res.json({ ...await listCatalog(pool, validationReady), materials, ...capabilities, editingEnabled: process.env.PILOT_CATALOG_ADMIN_ENABLED === "true", validationReady, publishingEnabled: validationReady && process.env.PILOT_CATALOG_PUBLICATION_ENABLED === "true" });
+  return res.json({ ...await listCatalog(pool, validationReady), materials, ...capabilities, editingEnabled: platformEnvironment(res).PILOT_CATALOG_ADMIN_ENABLED === "true", validationReady, publishingEnabled: validationReady && platformEnvironment(res).PILOT_CATALOG_PUBLICATION_ENABLED === "true" });
 });
 
 // Prepare editable initial records exactly once. Records remain inactive until
@@ -379,7 +405,7 @@ router.get("/admin/catalog", async (_req, res) => {
 router.post("/admin/catalog/initialize", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
   if (!hasOnlyFields(req.body ?? {}, [])) return res.status(400).json({ error: "unexpected_fields" });
-  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true" || process.env.PILOT_REWARD_ADMIN_ENABLED !== "true") {
+  if (platformEnvironment(res).PILOT_CATALOG_ADMIN_ENABLED !== "true" || platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED !== "true") {
     return res.status(503).json({ error: "catalog_initialization_disabled" });
   }
   const pool = await databasePool();
@@ -419,7 +445,7 @@ router.get("/admin/stats", async (_req, res) => {
 
 router.post("/admin/catalog/points", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
   const input = parseDraftPoint(req.body);
   const pool = await databasePool();
   if (!await hasDeliveryDetailsSchema(pool)) return res.status(503).json({ error: "delivery_details_migration_required" });
@@ -428,7 +454,7 @@ router.post("/admin/catalog/points", async (req, res) => {
 
 router.post("/admin/catalog/slots", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
   const input = parseDraftSlot(req.body);
   const pool = await databasePool();
   if (!await hasDeliveryDetailsSchema(pool)) return res.status(503).json({ error: "delivery_details_migration_required" });
@@ -436,7 +462,7 @@ router.post("/admin/catalog/slots", async (req, res) => {
 });
 router.patch("/admin/catalog/points/:id", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
   if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_point_id" });
   const input = parsePointEdit(req.body);
   const pool = await databasePool();
@@ -445,7 +471,7 @@ router.patch("/admin/catalog/points/:id", async (req, res) => {
 });
 router.patch("/admin/catalog/slots/:id", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
   if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_slot_id" });
   const input = parseSlotEdit(req.body);
   const pool = await databasePool();
@@ -454,7 +480,7 @@ router.patch("/admin/catalog/slots/:id", async (req, res) => {
 });
 router.post("/admin/catalog/points/:id/validate", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
   if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_point_id" });
   const reference = parseValidationReference(req.body);
   const pool = await databasePool();
@@ -465,7 +491,7 @@ router.post("/admin/catalog/points/:id/validate", async (req, res) => {
 });
 router.post("/admin/catalog/slots/:id/validate", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
   if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_slot_id" });
   const reference = parseValidationReference(req.body);
   const pool = await databasePool();
@@ -476,7 +502,7 @@ router.post("/admin/catalog/slots/:id/validate", async (req, res) => {
 });
 router.patch("/admin/catalog/slots/:id/capacity", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
   if (!uuidPattern.test(String(req.params.id)) || !hasOnlyFields(req.body, ["capacity", "validationReference"])) return res.status(400).json({ error: "invalid_capacity_change" });
   const reference = parseValidationReference({ validationReference: req.body.validationReference });
   const pool = await databasePool();
@@ -485,7 +511,7 @@ router.patch("/admin/catalog/slots/:id/capacity", async (req, res) => {
 });
 router.post("/admin/catalog/:kind/:id/deactivate", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
   if ((req.params.kind !== "points" && req.params.kind !== "slots") || !uuidPattern.test(String(req.params.id)) || !hasOnlyFields(req.body ?? {}, [])) return res.status(400).json({ error: "invalid_catalog_record" });
   const pool = await databasePool();
   if (!await hasCatalogValidationSchema(pool)) return res.status(503).json({ error: "catalog_validation_migration_required" });
@@ -507,7 +533,7 @@ router.get("/evaluation-points", async (_req, res) => {
 });
 router.get("/delivery-options", async (_req, res) => {
   const pool = await databasePool();
-  const options = await loadDeliveryOptions(pool, deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED), true);
+  const options = await loadDeliveryOptions(pool, deliveryDetailsEnabled(platformEnvironment(res).PILOT_DELIVERY_DETAILS_ENABLED), true);
   return res.json(options);
 });
 
@@ -528,7 +554,7 @@ router.post("/deliveries", async (req, res) => {
 
   const userId: string = res.locals.userId;
   const pool = await databasePool();
-  const featureRequested = deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED);
+  const featureRequested = deliveryDetailsEnabled(platformEnvironment(res).PILOT_DELIVERY_DETAILS_ENABLED);
   const schemaReady = await hasDeliveryDetailsSchema(pool);
   const detailedPayload = Object.keys(req.body).length > 0;
 
@@ -567,15 +593,15 @@ router.get("/verifier/capabilities", async (_req, res) => {
   const schemaReady = await hasDeliveryDetailsSchema(pool);
   const policyReady = parsePointsPolicy(process.env.POINTS_PER_KG, process.env.POINTS_MAX_PER_DELIVERY) !== null;
   return res.json({
-    receiptEnabled: schemaReady && verificationActionsEnabled(process.env.PILOT_RECEIPT_ENABLED),
-    decisionEnabled: schemaReady && verificationActionsEnabled(process.env.PILOT_VERIFICATION_ENABLED),
-    pointsEnabled: schemaReady && verificationActionsEnabled(process.env.PILOT_VERIFICATION_ENABLED)
-      && verificationActionsEnabled(process.env.PILOT_POINTS_ENABLED) && policyReady,
+    receiptEnabled: schemaReady && verificationActionsEnabled(platformEnvironment(res).PILOT_RECEIPT_ENABLED),
+    decisionEnabled: schemaReady && verificationActionsEnabled(platformEnvironment(res).PILOT_VERIFICATION_ENABLED),
+    pointsEnabled: schemaReady && verificationActionsEnabled(platformEnvironment(res).PILOT_VERIFICATION_ENABLED)
+      && verificationActionsEnabled(platformEnvironment(res).PILOT_POINTS_ENABLED) && policyReady,
   });
 });
 router.post("/deliveries/:id/schedule", async (req, res) => {
   if (!hasOnlyFields(req.body ?? {}, []) || !uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_delivery" });
-  if (!deliveryDetailsEnabled(process.env.PILOT_DELIVERY_DETAILS_ENABLED)) return res.status(503).json({ error: "delivery_details_disabled" });
+  if (!deliveryDetailsEnabled(platformEnvironment(res).PILOT_DELIVERY_DETAILS_ENABLED)) return res.status(503).json({ error: "delivery_details_disabled" });
   const pool = await databasePool();
   if (!await hasDeliveryDetailsSchema(pool)) return res.status(503).json({ error: "delivery_details_migration_required" });
   const result = await updateOwnDeliveryStatus(pool, res.locals.userId, String(req.params.id), "schedule");
@@ -624,7 +650,7 @@ router.get("/verifier/deliveries", async (req, res) => {
 });
 router.post("/deliveries/:id/receive", async (req, res) => {
   if (!canAccessVerifierQueue(res.locals.role)) return res.status(403).json({ error: "verifier_required" });
-  if (!verificationActionsEnabled(process.env.PILOT_RECEIPT_ENABLED)) {
+  if (!verificationActionsEnabled(platformEnvironment(res).PILOT_RECEIPT_ENABLED)) {
     return res.status(503).json({ error: "receipt_actions_disabled" });
   }
   if (!hasOnlyFields(req.body ?? {}, []) || typeof req.params.id !== "string" || !uuidPattern.test(req.params.id)) {
@@ -643,7 +669,7 @@ router.post("/deliveries/:id/verify", async (req, res) => {
   if (!canAccessVerifierQueue(res.locals.role)) {
     return res.status(403).json({ error: "verifier_required" });
   }
-  if (!verificationActionsEnabled(process.env.PILOT_VERIFICATION_ENABLED)) {
+  if (!verificationActionsEnabled(platformEnvironment(res).PILOT_VERIFICATION_ENABLED)) {
     return res.status(503).json({ error: "verification_actions_disabled" });
   }
   if (!hasOnlyFields(req.body, ["decision", "verifiedGrams", "receiptCode", "reasonCode"])) {
@@ -670,7 +696,7 @@ router.post("/deliveries/:id/verify", async (req, res) => {
     return res.status(400).json({ error: "rejection_reason_required" });
   }
   if (decision === "approved" && reasonCode !== undefined) return res.status(400).json({ error: "rejection_reason_not_allowed" });
-  if (decision === "approved" && !verificationActionsEnabled(process.env.PILOT_POINTS_ENABLED)) {
+  if (decision === "approved" && !verificationActionsEnabled(platformEnvironment(res).PILOT_POINTS_ENABLED)) {
     return res.status(503).json({ error: "points_disabled" });
   }
   const policy = parsePointsPolicy(process.env.POINTS_PER_KG, process.env.POINTS_MAX_PER_DELIVERY);
@@ -703,17 +729,17 @@ router.get("/rewards/capabilities", async (_req, res) => {
   const privileges = await pool.query<{ draft_insert: boolean; publication_update: boolean }>(`SELECT has_column_privilege(current_user,'public.rewards','title','INSERT') AS draft_insert,
     ${schemaReady ? "(SELECT bool_and(has_column_privilege(current_user,'public.rewards',c,'UPDATE')) FROM unnest(ARRAY['active','inventory_remaining','fulfillment_reference','validated_by','validated_at','updated_at']) AS cols(c))" : "false"} AS publication_update`);
   return res.json({
-    canRedeem: redemptionActionsEnabled({ rewards: process.env.PILOT_REWARDS_ENABLED, points: process.env.PILOT_POINTS_ENABLED,
-      fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, schemaReady),
-    canManageDrafts: res.locals.role === "admin" && process.env.PILOT_REWARD_ADMIN_ENABLED === "true" && privileges.rows[0]?.draft_insert === true,
-    canPublish: res.locals.role === "admin" && privileges.rows[0]?.publication_update === true && rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED,
-      admin: process.env.PILOT_REWARD_ADMIN_ENABLED, rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, schemaReady),
-    canFulfill: schemaReady && res.locals.role === "admin" && process.env.PILOT_REWARD_FULFILLMENT_ENABLED === "true" && process.env.PILOT_REWARDS_ENABLED === "true",
+    canRedeem: redemptionActionsEnabled({ rewards: platformEnvironment(res).PILOT_REWARDS_ENABLED, points: platformEnvironment(res).PILOT_POINTS_ENABLED,
+      fulfillment: platformEnvironment(res).PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, schemaReady),
+    canManageDrafts: res.locals.role === "admin" && platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED === "true" && privileges.rows[0]?.draft_insert === true,
+    canPublish: res.locals.role === "admin" && privileges.rows[0]?.publication_update === true && rewardPublicationEnabled({ publication: platformEnvironment(res).PILOT_REWARD_PUBLICATION_ENABLED,
+      admin: platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED, rewards: platformEnvironment(res).PILOT_REWARDS_ENABLED, fulfillment: platformEnvironment(res).PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, schemaReady),
+    canFulfill: schemaReady && res.locals.role === "admin" && platformEnvironment(res).PILOT_REWARD_FULFILLMENT_ENABLED === "true" && platformEnvironment(res).PILOT_REWARDS_ENABLED === "true",
     canRestock: res.locals.role === "admin" && inventoryPrivileges?.rows[0]?.ready === true && privileges.rows[0]?.publication_update === true &&
-      rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED, admin: process.env.PILOT_REWARD_ADMIN_ENABLED,
-        rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, inventorySchemaReady),
+      rewardPublicationEnabled({ publication: platformEnvironment(res).PILOT_REWARD_PUBLICATION_ENABLED, admin: platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED,
+        rewards: platformEnvironment(res).PILOT_REWARDS_ENABLED, fulfillment: platformEnvironment(res).PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, inventorySchemaReady),
     inventorySchemaReady,
-    canRecoverDraft: res.locals.role === "admin" && process.env.PILOT_REWARD_ADMIN_ENABLED === "true" &&
+    canRecoverDraft: res.locals.role === "admin" && platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED === "true" &&
       privileges.rows[0]?.publication_update === true && recoveryPrivileges?.rows[0]?.ready === true,
     schemaReady,
   });
@@ -741,7 +767,7 @@ router.get("/admin/rewards", async (_req, res) => {
 });
 router.post("/admin/rewards/:id/recover-draft", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_REWARD_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "reward_drafts_disabled" });
+  if (platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "reward_drafts_disabled" });
   if (!hasOnlyFields(req.body ?? {}, [])) return res.status(400).json({ error: "unexpected_fields" });
   const pool = await databasePool();
   if (!await hasRewardDraftRecoverySchema(pool) || !await hasRewardInventorySchema(pool)) return res.status(503).json({ error: "reward_recovery_migration_required" });
@@ -751,7 +777,7 @@ router.post("/admin/rewards/:id/recover-draft", async (req, res) => {
 });
 router.post("/admin/rewards", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_REWARD_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "reward_drafts_disabled" });
+  if (platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "reward_drafts_disabled" });
   const input = parseRewardDraft(req.body);
   const pool = await databasePool();
   const result = await createRewardDraft(pool, res.locals.userId, req.header("Idempotency-Key"), input);
@@ -760,7 +786,7 @@ router.post("/admin/rewards", async (req, res) => {
 });
 router.patch("/admin/rewards/:id", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_REWARD_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "reward_drafts_disabled" });
+  if (platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "reward_drafts_disabled" });
   if (!hasOnlyFields(req.body, ["expected", "next"]) || !req.body.expected || !req.body.next) return res.status(400).json({ error: "invalid_reward_edit" });
   const pool = await databasePool();
   const result = await editRewardDraft(pool, String(req.params.id), parseRewardDraft(req.body.expected), parseRewardDraft(req.body.next));
@@ -768,7 +794,7 @@ router.patch("/admin/rewards/:id", async (req, res) => {
 });
 router.patch("/admin/catalog/points/:id/coordinates", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
   if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_point_id" });
   const coordinates = parsePointCoordinates(req.body);
   const pool = await databasePool();
@@ -777,7 +803,7 @@ router.patch("/admin/catalog/points/:id/coordinates", async (req, res) => {
 });
 router.patch("/admin/catalog/points/:id/materials", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
+  if (platformEnvironment(res).PILOT_CATALOG_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "catalog_editing_disabled" });
   if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_point_id" });
   const materials = parsePointMaterials(req.body);
   const pool = await databasePool();
@@ -787,8 +813,8 @@ router.patch("/admin/catalog/points/:id/materials", async (req, res) => {
 router.post("/admin/rewards/:id/publish", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
   const pool = await databasePool();
-  if (!rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED, admin: process.env.PILOT_REWARD_ADMIN_ENABLED,
-    rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED,
+  if (!rewardPublicationEnabled({ publication: platformEnvironment(res).PILOT_REWARD_PUBLICATION_ENABLED, admin: platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED,
+    rewards: platformEnvironment(res).PILOT_REWARDS_ENABLED, fulfillment: platformEnvironment(res).PILOT_REWARD_FULFILLMENT_ENABLED,
     policyReference: process.env.REWARD_POLICY_REFERENCE }, await hasRewardFulfillmentSchema(pool))) return res.status(503).json({ error: "reward_publication_disabled" });
   const result = await publishRewardDraft(pool, res.locals.userId, String(req.params.id), parseRewardPublication(req.body));
   if (result.replayed) res.set("Idempotency-Replayed", "true");
@@ -799,8 +825,8 @@ router.post("/admin/rewards/:id/restock", async (req, res) => {
   const input = parseRewardRestock(req.body);
   const pool = await databasePool();
   if (!await hasRewardInventorySchema(pool)) return res.status(503).json({ error: "reward_inventory_migration_required" });
-  if (!rewardPublicationEnabled({ publication: process.env.PILOT_REWARD_PUBLICATION_ENABLED, admin: process.env.PILOT_REWARD_ADMIN_ENABLED,
-    rewards: process.env.PILOT_REWARDS_ENABLED, fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, await hasRewardFulfillmentSchema(pool))) {
+  if (!rewardPublicationEnabled({ publication: platformEnvironment(res).PILOT_REWARD_PUBLICATION_ENABLED, admin: platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED,
+    rewards: platformEnvironment(res).PILOT_REWARDS_ENABLED, fulfillment: platformEnvironment(res).PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, await hasRewardFulfillmentSchema(pool))) {
     return res.status(503).json({ error: "reward_restock_disabled" });
   }
   const result = await restockReward(pool, res.locals.userId, String(req.params.id), req.get("Idempotency-Key"), input);
@@ -829,8 +855,8 @@ router.get("/redemptions", async (_req, res) => {
 router.post("/redemptions", async (req, res) => {
   const pool = await databasePool();
   const schemaReady = await hasRewardFulfillmentSchema(pool);
-  if (!redemptionActionsEnabled({ rewards: process.env.PILOT_REWARDS_ENABLED, points: process.env.PILOT_POINTS_ENABLED,
-    fulfillment: process.env.PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, schemaReady)) {
+  if (!redemptionActionsEnabled({ rewards: platformEnvironment(res).PILOT_REWARDS_ENABLED, points: platformEnvironment(res).PILOT_POINTS_ENABLED,
+    fulfillment: platformEnvironment(res).PILOT_REWARD_FULFILLMENT_ENABLED, policyReference: process.env.REWARD_POLICY_REFERENCE }, schemaReady)) {
     return res.status(503).json({ error: "redemptions_disabled" });
   }
   if (!hasOnlyFields(req.body, ["rewardId"]) || typeof req.body.rewardId !== "string") return res.status(400).json({ error: "invalid_redemption" });
@@ -858,7 +884,7 @@ router.get("/admin/redemptions/history", async (req, res) => {
 });
 router.post("/admin/redemptions/:id/fulfill", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
-  if (process.env.PILOT_REWARD_FULFILLMENT_ENABLED !== "true" || process.env.PILOT_REWARDS_ENABLED !== "true") {
+  if (platformEnvironment(res).PILOT_REWARD_FULFILLMENT_ENABLED !== "true" || platformEnvironment(res).PILOT_REWARDS_ENABLED !== "true") {
     return res.status(503).json({ error: "fulfillment_disabled" });
   }
   if (!hasOnlyFields(req.body, ["reference"]) || typeof req.body.reference !== "string") return res.status(400).json({ error: "invalid_fulfillment_reference" });
@@ -954,7 +980,8 @@ const pilotErrorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   const dbError = error?.cause ?? error;
   if (dbError?.code === "42P01") return res.status(503).json({ error: "schema_migration_required" });
   if (dbError?.code === "42501") return res.status(503).json({ error: "permissions_unavailable" });
-  if (error instanceof DeliveryRequestError || error instanceof DeliveryLifecycleError || error instanceof CatalogError || error instanceof RewardError || error instanceof AiClassificationError || error instanceof AiGuideError || error instanceof GuideStorageError) {
+  if (dbError?.code === "55P03" || dbError?.code === "57014") return res.status(503).json({ error: "operation_temporarily_unavailable" });
+  if (error instanceof PlatformActivationError || error instanceof DeliveryRequestError || error instanceof DeliveryLifecycleError || error instanceof CatalogError || error instanceof RewardError || error instanceof AiClassificationError || error instanceof AiGuideError || error instanceof GuideStorageError) {
     return res.status(error.status).json({ error: error.code });
   }
   if (typeof error === "object" && error && "code" in error && error.code === "42501") {
