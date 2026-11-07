@@ -43,7 +43,9 @@ test("redemption locks spending and inventory and rolls back all writes if debit
       if (sql.startsWith("SELECT clerk_user_id")) return { rows: [{ clerk_user_id: "user_owner" }] };
       if (sql.startsWith("SELECT id,reward_id")) return { rows: [] };
       if (sql.startsWith("SELECT cost,inventory_remaining")) return { rows: [{ cost: 20, inventory_remaining: 1, active: true, fulfillment_reference: "https://example.org/evidence", validated_at: new Date(), validated_by: "user_Admin" }] };
-      if (sql.startsWith("SELECT coalesce(sum(delta)")) return { rows: [{ balance: "20" }] };
+      if (sql.startsWith("SELECT to_regclass('public.reward_photos')")) return { rows: [{ present: true }] };
+       if (sql.startsWith("SELECT EXISTS(SELECT 1 FROM public.reward_photos")) return { rows: [{ present: true }] };
+       if (sql.startsWith("SELECT coalesce(sum(delta)")) return { rows: [{ balance: "20" }] };
       if (sql.startsWith("INSERT INTO redemptions")) return { rows: [{ id, reward_id: id, cost: 20, fulfillment_status: "reserved" }] };
       if (sql.startsWith("INSERT INTO point_movements")) {
         assert.equal(params[2], -20);
