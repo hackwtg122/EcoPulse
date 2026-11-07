@@ -43,6 +43,13 @@
       "when": 1794075756229,
       "tag": "0005_coordination_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794082170711,
+      "tag": "0006_coordination_preferences",
+      "breakpoints": true
     }
   ]
 }

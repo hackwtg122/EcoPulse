@@ -32,7 +32,7 @@ export function safePrivateDiagnostic(error) {
     ...(Number.isInteger(error.accountIndex) && error.accountIndex >= 0 && error.accountIndex < 3 ? { accountIndex: error.accountIndex } : {}) };
 }
 
-export function parseQAAccounts(raw) {
+export function parseQAAccounts(raw, { concurrent = false } = {}) {
   if (!raw) throw new PrivateQAError("PRODUCTION_QA_ACCOUNTS_secret_missing");
   if (typeof raw !== "string") throw new PrivateQAError("qa_fixture_json_invalid", "root");
   let config;
@@ -42,10 +42,15 @@ export function parseQAAccounts(raw) {
   const fenced = json.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i);
   if (fenced) json = fenced[1];
   try { config = JSON.parse(json); } catch { throw new PrivateQAError("qa_fixture_json_invalid", "root"); }
+  // Some secret editors serialize the complete JSON once more. Decode one
+  // layer only; never repair quotes or alter credential characters.
+  if (typeof config === "string") {
+    try { config = JSON.parse(config); } catch { throw new PrivateQAError("qa_fixture_json_invalid", "root"); }
+  }
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new PrivateQAError("qa_fixture_root_invalid", "root");
   if (config.version !== 1) throw new PrivateQAError("qa_fixture_version_invalid", "version");
   if (config.authorized !== true) throw new PrivateQAError("explicit_test_fixture_authorization_required", "authorized");
-  if (!Array.isArray(config.accounts) || !config.accounts.length || config.accounts.length > 3) throw new PrivateQAError("qa_fixture_accounts_invalid", "accounts");
+  if (!Array.isArray(config.accounts) || !config.accounts.length || config.accounts.length > (concurrent ? 20 : 3)) throw new PrivateQAError("qa_fixture_accounts_invalid", "accounts");
   const ids = new Set(), emails = new Set(), roles = new Set();
   const accounts = [];
   for (const [index, supplied] of config.accounts.entries()) {
@@ -62,7 +67,7 @@ export function parseQAAccounts(raw) {
       email: ["participant@example.invalid", "verifier@example.invalid", "admin@example.invalid"],
       password: ["REEMPLAZAR_SOLO_EN_GITHUB", "REEMPLAZAR_EN_GITHUB"],
     })) if (placeholders.includes(account[field])) throw new PrivateQAError("qa_account_placeholder_value", field, index);
-    if (ids.has(account.userId) || emails.has(account.email.toLowerCase()) || roles.has(account.role)) throw new PrivateQAError("qa_accounts_must_be_distinct_by_identity_and_role", "accounts", index);
+    if (ids.has(account.userId) || emails.has(account.email.toLowerCase()) || (!concurrent && roles.has(account.role))) throw new PrivateQAError("qa_accounts_must_be_distinct_by_identity_and_role", "accounts", index);
     ids.add(account.userId); emails.add(account.email.toLowerCase()); roles.add(account.role);
     accounts.push(account);
   }

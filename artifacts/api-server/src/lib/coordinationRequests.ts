@@ -5,7 +5,7 @@ import { hasOperationalEvidence } from "./deliveryDetails.ts";
 
 export type CoordinationStatus = "pending" | "assigned" | "cancelled";
 export type CoordinationMaterial = { categoryCode: (typeof scanCategories)[number]; estimatedGrams: number };
-export type CoordinationInput = { materials: CoordinationMaterial[]; note: string | null };
+export type CoordinationInput = { materials: CoordinationMaterial[]; note: string | null; requestedPointId?: string | null; preferredAt?: string | null };
 export type CoordinationEvent = {
   fromStatus: CoordinationStatus | null;
   toStatus: CoordinationStatus;
@@ -22,8 +22,11 @@ export type PublicCoordinationRequest = {
   events: CoordinationEvent[];
   deliveryId: string | null;
   deliveryStatus: string | null;
-  assignedPoint: null | { id: string; code: string; name: string; municipality: string };
+  assignedPoint: null | { id: string; code: string; name: string; municipality: string; address: string };
   accountId?: string;
+  requestedPointId: string | null;
+  requestedPointName: string | null;
+  preferredAt: Date | null;
 };
 
 type Queryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
@@ -53,7 +56,7 @@ export function parseCoordinationInput(value: unknown): CoordinationInput {
     throw new CoordinationError(400, "invalid_coordination_request");
   }
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).some((key) => !["materials", "note"].includes(key))) {
+  if (Object.keys(record).some((key) => !["materials", "note", "requestedPointId", "preferredAt"].includes(key))) {
     throw new CoordinationError(400, "unexpected_fields");
   }
   if (!Array.isArray(record.materials) || record.materials.length < 1 || record.materials.length > 6) {
@@ -86,9 +89,13 @@ export function parseCoordinationInput(value: unknown): CoordinationInput {
   if (note === undefined || (note !== null && (note.length < 1 || note.length > 500))) {
     throw new CoordinationError(400, "invalid_coordination_note");
   }
+  if (record.requestedPointId != null && (typeof record.requestedPointId !== "string" || !uuidPattern.test(record.requestedPointId))) throw new CoordinationError(400, "invalid_delivery_point");
+  if (record.preferredAt != null && (typeof record.preferredAt !== "string" || !/^\d{4}-\d\d-\d\dT/.test(record.preferredAt) || !Number.isFinite(Date.parse(record.preferredAt)))) throw new CoordinationError(400, "invalid_preferred_date");
   return {
     materials: materials.sort((left, right) => left.categoryCode.localeCompare(right.categoryCode)),
     note,
+    ...(record.requestedPointId == null ? {} : { requestedPointId: record.requestedPointId as string }),
+    ...(record.preferredAt == null ? {} : { preferredAt: new Date(record.preferredAt as string).toISOString() }),
   };
 }
 
@@ -96,6 +103,8 @@ export function hashCoordinationInput(input: CoordinationInput): string {
   return createHash("sha256").update(JSON.stringify({
     note: input.note,
     materials: input.materials.map(({ categoryCode, estimatedGrams }) => ({ categoryCode, estimatedGrams })),
+    ...(input.requestedPointId ? { requestedPointId: input.requestedPointId } : {}),
+    ...(input.preferredAt ? { preferredAt: input.preferredAt } : {}),
   }), "utf8").digest("hex");
 }
 
@@ -116,6 +125,9 @@ function mapRow(row: Record<string, unknown>, includeAccount = false): PublicCoo
     id: String(row.id),
     status: row.status as CoordinationStatus,
     note: row.note === null || row.note === undefined ? null : String(row.note),
+    requestedPointId: row.requested_point_id ? String(row.requested_point_id) : null,
+    requestedPointName: row.requested_point_name ? String(row.requested_point_name) : null,
+    preferredAt: (row.preferred_at ?? null) as Date | null,
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at ?? row.created_at) as Date,
     materials: materials.map((item) => {
@@ -141,7 +153,8 @@ function mapRow(row: Record<string, unknown>, includeAccount = false): PublicCoo
         id: String(row.assigned_point_id),
         code: String(row.point_code),
         name: String(row.point_name),
-        municipality: String(row.point_municipality),
+         municipality: String(row.point_municipality),
+         address: String(row.point_address ?? ""),
       }
       : null,
     ...(includeAccount ? { accountId: String(row.user_id) } : {}),
@@ -154,7 +167,8 @@ async function findCoordinationRequest(
   options: { userId?: string; includeAccount?: boolean } = {},
 ): Promise<PublicCoordinationRequest | null> {
   const result = await database.query(`
-    SELECT r.id, r.user_id, r.status, r.note, r.created_at, r.updated_at,
+    SELECT r.id, r.user_id, r.status, r.note, r.created_at, r.updated_at,r.requested_point_id,r.preferred_at,
+      (SELECT name FROM delivery_points WHERE id=r.requested_point_id) AS requested_point_name,p.address AS point_address,
       r.delivery_id, r.assigned_point_id,
       p.code AS point_code, p.name AS point_name, p.municipality AS point_municipality,
       d.status AS delivery_status,
@@ -186,7 +200,8 @@ async function findCoordinationRequest(
 export async function listOwnCoordinationRequests(database: Queryable, userId: string): Promise<PublicCoordinationRequest[]> {
   if (!await hasCoordinationSchema(database)) return [];
   const result = await database.query(`
-    SELECT r.id, r.user_id, r.status, r.note, r.created_at, r.updated_at,
+    SELECT r.id, r.user_id, r.status, r.note, r.created_at, r.updated_at,r.requested_point_id,r.preferred_at,
+      (SELECT name FROM delivery_points WHERE id=r.requested_point_id) AS requested_point_name,p.address AS point_address,
       r.delivery_id, r.assigned_point_id,
       p.code AS point_code, p.name AS point_name, p.municipality AS point_municipality,
       d.status AS delivery_status,
@@ -219,7 +234,8 @@ export async function listOwnCoordinationRequests(database: Queryable, userId: s
 export async function listAdminCoordinationRequests(database: Queryable): Promise<PublicCoordinationRequest[]> {
   if (!await hasCoordinationSchema(database)) return [];
   const result = await database.query(`
-    SELECT r.id, r.user_id, r.status, r.note, r.created_at, r.updated_at,
+    SELECT r.id, r.user_id, r.status, r.note, r.created_at, r.updated_at,r.requested_point_id,r.preferred_at,
+      (SELECT name FROM delivery_points WHERE id=r.requested_point_id) AS requested_point_name,p.address AS point_address,
       r.delivery_id, r.assigned_point_id,
       p.code AS point_code, p.name AS point_name, p.municipality AS point_municipality,
       d.status AS delivery_status,
@@ -259,12 +275,16 @@ export async function createCoordinationRequest(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (input.requestedPointId) {
+      const point = await client.query("SELECT id FROM delivery_points WHERE id=$1 AND active=true FOR SHARE", [input.requestedPointId]);
+      if (!point.rows[0]) throw new CoordinationError(409, "requested_center_unavailable");
+    }
     const inserted = await client.query(`
-      INSERT INTO coordination_requests (id, user_id, status, note, request_hash)
-      VALUES ($1, $2, 'pending', $3, $4)
+       INSERT INTO coordination_requests (id, user_id, status, note, request_hash,requested_point_id,preferred_at)
+       VALUES ($1, $2, 'pending', $3, $4,$5,$6)
       ON CONFLICT (id) DO NOTHING
       RETURNING id
-    `, [id, userId, input.note, requestHash]);
+    `, [id, userId, input.note, requestHash,input.requestedPointId ?? null,input.preferredAt ?? null]);
 
     if (!inserted.rowCount) {
       const prior = await client.query<{ user_id: string; request_hash: string }>(
@@ -445,8 +465,8 @@ export async function assignCoordinationRequest(
       }>(`
         SELECT validation_reference, validated_by, validated_at
         FROM delivery_slots
-        WHERE id = $1 AND delivery_point_id = $2 AND active = true AND starts_at > now()
-        FOR SHARE
+         WHERE id = $1 AND delivery_point_id = $2 AND active = true AND starts_at > now()
+         FOR UPDATE
       `, [assignment.slotId, assignment.deliveryPointId]);
       if (!slot.rows[0] || !hasOperationalEvidence(slot.rows[0])) {
         throw new CoordinationError(409, "delivery_slot_unavailable");

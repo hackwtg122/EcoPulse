@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
-import { parseQAAccounts, commonReads, adminReads, verifierReads } from "./private-qa-policy.mjs";
+import { parseQAAccounts, commonReads, adminReads, verifierReads, expectedReadStatus } from "./private-qa-policy.mjs";
 
 const productionApi = "https://ecopulse-3xb4.onrender.com";
 const productionFrontend = "https://ecopulseef.netlify.app";
@@ -81,7 +81,7 @@ async function runPublic(config) {
 }
 
 function readsFor(role) {
-  return [...commonReads, ...(role === "admin" ? adminReads : []), ...(role === "verifier" ? verifierReads : ["verifier/capabilities"])];
+  return [...commonReads, ...(role === "admin" ? adminReads : []), ...(role === "verifier" ? verifierReads : [])];
 }
 
 async function runAuthenticated(config) {
@@ -89,20 +89,22 @@ async function runAuthenticated(config) {
   if (config.baseUrl !== productionApi && process.env.CONCURRENCY_ISOLATED !== "true") throw Error("isolated_environment_authorization_required");
   const frontend = (process.env.QA_FRONTEND_URL || productionFrontend).replace(/\/$/, "");
   if (frontend !== productionFrontend && process.env.CONCURRENCY_ISOLATED !== "true") throw Error("isolated_environment_authorization_required");
-  const accounts = parseQAAccounts(process.env.PRODUCTION_QA_ACCOUNTS);
+  const accounts = parseQAAccounts(process.env.PRODUCTION_QA_ACCOUNTS, { concurrent: true });
+  if (accounts.length < config.workers) throw Error("one_distinct_authorized_account_per_worker_required");
   if (!process.env.PROD_QA_MODULES_DIR || !process.env.CHROME_PATH) throw Error("remote_browser_dependencies_required");
   const { chromium } = await import(pathToFileURL(join(process.env.PROD_QA_MODULES_DIR, "playwright-core", "index.mjs")).href);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
   const records = [];
-  const started = Date.now();
-  const deadline = started + config.durationMs;
+  let started;
+  let deadline;
   const sessions = [];
   try {
     for (let index = 0; index < config.workers; index++) {
-      const account = accounts[index % accounts.length];
+      const account = accounts[index];
       const context = await browser.newContext({ viewport: { width: 1366, height: 900 }, serviceWorkers: "block" });
-      await context.route("**/api/pilot/**", (route) => route.request().method() === "GET" ? route.continue() : route.abort());
       const page = await context.newPage();
+      let identityApproved = false;
+      await context.route("**/api/pilot/**", route => identityApproved && route.request().method() === "GET" ? route.continue() : route.abort());
       await page.goto(`${frontend}/sign-in`, { waitUntil: "domcontentloaded", timeout: 45000 });
       const identifier = page.locator('input[name="identifier"], input[name="emailAddress"], input[type="email"]').first();
       await identifier.waitFor({ state: "visible", timeout: 30000 });
@@ -114,8 +116,18 @@ async function runAuthenticated(config) {
       await page.locator('button[type="submit"]').first().click();
       await page.waitForURL(`${frontend}/dashboard`, { timeout: 60000 });
       await page.waitForFunction(() => Boolean(window.Clerk?.session), null, { timeout: 30000 });
+      if (!await page.evaluate(id => window.Clerk?.user?.id === id, account.userId)) throw Error("qa_fixture_identity_mismatch");
+      identityApproved = true;
+      const meMatches = await page.evaluate(async ({ api, account }) => {
+        const token = await window.Clerk.session.getToken();
+        const response = await fetch(`${api}/api/pilot/me`, { headers: { Authorization: `Bearer ${token}` } });
+        const me = await response.json();
+        return response.ok && me.id === account.userId && me.role === account.role;
+      }, { api: config.baseUrl, account: { userId: account.userId, role: account.role } });
+      if (!meMatches) throw Error("qa_application_role_mismatch");
       sessions.push({ page, account, paths: readsFor(account.role), cursor: 0 });
     }
+    started = Date.now(); deadline = started + config.durationMs;
     const worker = async (session) => {
       while (Date.now() < deadline) {
         const path = session.paths[session.cursor++ % session.paths.length];
@@ -136,7 +148,7 @@ async function runAuthenticated(config) {
             return response.status;
           }, { api: config.baseUrl, path });
         } catch { status = null; }
-        records.push({ ms: Date.now() - begin, status });
+        records.push({ ms: Date.now() - begin, status, expected: expectedReadStatus(session.account.role, path) });
         const remaining = config.pauseMs - (Date.now() - begin);
         if (remaining > 0) await sleep(Math.min(remaining, deadline - Date.now()));
       }
@@ -145,7 +157,7 @@ async function runAuthenticated(config) {
   } finally {
     await browser.close().catch(() => {});
   }
-  return summarize(records, Date.now() - started);
+  return { ...summarize(records, Date.now() - started), unexpectedResponses: records.filter(r => r.status !== r.expected).length, distinctAccounts: sessions.length };
 }
 
 async function main() {
@@ -164,7 +176,7 @@ async function main() {
     usersCreated: 0,
     ...summary,
   }));
-  if (summary.serverErrors > 0 || summary.networkErrors > 0) process.exitCode = 1;
+  if (!summary.requests || summary.serverErrors > 0 || summary.networkErrors > 0 || summary.rateLimited > 0 || summary.unexpectedResponses > 0) process.exitCode = 1;
 }
 
 if (process.argv[1] && pathToFileURL(fileURLToPath(import.meta.url)).href === pathToFileURL(process.argv[1]).href) {

@@ -3,6 +3,17 @@ import test from "node:test";
 import { parseQAAccounts, expectedReadStatus, commonReads, adminReads, verifierReads, safePrivateDiagnostic, PrivateQAError } from "./private-qa-policy.mjs";
 const account = { role: "participant", testOnly: true, profilePreexists: true, userId: "user_QaTest123", email: "fixture@example.invalid", password: "mock-only-password" };
 const config = accounts => JSON.stringify({ version: 1, authorized: true, accounts });
+test("double-encoded secrets preserve credentials and still require every attestation", () => {
+  assert.deepEqual(parseQAAccounts(JSON.stringify(config([account]))), [account]);
+  assert.throws(() => parseQAAccounts(JSON.stringify(config([{ ...account, testOnly: false }]))));
+  assert.throws(() => parseQAAccounts(JSON.stringify(JSON.stringify(config([account])))));
+});
+test("concurrent mode requires distinct identities but permits twenty participants", () => {
+  const accounts = Array.from({ length:20 },(_,i)=>({ ...account,userId:`user_Concurrent${i}`,email:`qa${i}@example.invalid` }));
+  assert.equal(parseQAAccounts(config(accounts),{ concurrent:true }).length,20);
+  assert.throws(()=>parseQAAccounts(config(accounts)));
+  assert.throws(()=>parseQAAccounts(config([...accounts.slice(0,19),accounts[0]]),{ concurrent:true }));
+});
 test("fixtures must explicitly authorize existing isolated test accounts", () => {
   assert.equal(parseQAAccounts(config([account])).length, 1);
   for (const raw of ["", "{", JSON.stringify({ version: 1, accounts: [account] }), config([{ ...account, testOnly: false }]), config([{ ...account, profilePreexists: false }])]) {

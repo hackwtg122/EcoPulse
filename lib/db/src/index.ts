@@ -10,6 +10,10 @@ const { Pool } = pg;
 
 export const pool = new Pool({
   connectionString: resolveDatabaseUrl(process.env),
+  max: 10,
+  connectionTimeoutMillis: 15000,
+  idleTimeoutMillis: 30000,
+  statement_timeout: 30000,
 });
 export const db = drizzle(pool, { schema });
 

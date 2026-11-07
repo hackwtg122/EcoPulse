@@ -833,7 +833,7 @@ function AuthenticatedRouter() {
       }
     })();
     return () => controller.abort();
-  }, [getToken, isLoaded, isSignedIn, reloadKey, user?.id]);
+  }, [getToken, isLoaded, isSignedIn, reloadKey, user?.id, path]);
   if (!isLoaded) return <div className="grid min-h-[100dvh] place-items-center bg-[hsl(var(--background))]"><div className="h-12 w-12 animate-pulse rounded-2xl bg-[hsl(var(--secondary))]" /></div>;
   const cleanPath = path.split("?")[0] || "/";
   const queryParams = new URLSearchParams(window.location.search);

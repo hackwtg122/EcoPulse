@@ -184,6 +184,8 @@ export const coordinationRequests = pgTable("coordination_requests", {
   userId: text("user_id").notNull().references(() => users.clerkUserId),
   status: coordinationRequestStatus("status").notNull().default("pending"),
   note: text("note"),
+  requestedPointId: uuid("requested_point_id").references(() => deliveryPoints.id),
+  preferredAt: timestamp("preferred_at", { withTimezone: true }),
   requestHash: text("request_hash").notNull(),
   deliveryId: uuid("delivery_id").references(() => deliveries.id),
   assignedPointId: uuid("assigned_point_id").references(() => deliveryPoints.id),

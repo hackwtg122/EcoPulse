@@ -2,6 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createRewardDraft, fulfillRedemption, publishRewardDraft, loadAdminRedemptions, loadAdminRewards, loadPointMovements, loadRedemptions, loadRewardBalance, loadRewardCapabilities, loadRewards, RewardApiError } from "./reward-api.ts";
 import { loadAdminFulfillmentHistory } from "./reward-api.ts";
+import { savePhysicalRewardPhoto } from "./reward-api.ts";
+
+test("photo registration preserves authorization fields and rejects mismatched responses",async()=>{
+  const input={imageUrl:"https://example.org/photo.jpg",sourceUrl:"https://example.org/permission",photoConfirmed:true};
+  const signal=new AbortController().signal;
+  await savePhysicalRewardPhoto("https://api.invalid","test-token","reward",input,signal,async(url,options)=>{
+    assert.equal(options.method,"PUT");assert.deepEqual(JSON.parse(options.body),input);
+    return new Response(JSON.stringify({rewardId:"reward",...input,confirmedAt:"2026-11-07T00:00:00Z"}));
+  });
+  await assert.rejects(savePhysicalRewardPhoto("https://api.invalid","test-token","reward",input,signal,async()=>new Response(JSON.stringify({rewardId:"other",...input,confirmedAt:"2026-11-07T00:00:00Z"}))),{code:"invalid_reward_photo_response"});
+});
+test("physical fulfillment transmits the presented pickup code instead of deriving it from the target",async()=>{
+  await fulfillRedemption("https://api.invalid","test-token","target","TEST-RECEIPT-001",new AbortController().signal,async(url,options)=>{
+    assert.deepEqual(JSON.parse(options.body),{reference:"TEST-RECEIPT-001",pickupCode:"presented-code"});
+    return new Response(JSON.stringify({id:"target",replayed:false}));
+  },"presented-code");
+});
 
 test("administrative fulfillment history paginates authenticated no-store reads and strips identities", async () => {
   const row = { id: "redemption", rewardId: "reward", rewardTitle: "Contract test", cost: 20,

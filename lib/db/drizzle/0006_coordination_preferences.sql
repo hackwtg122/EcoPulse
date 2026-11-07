@@ -1,0 +1,3 @@
+ALTER TABLE "coordination_requests" ADD COLUMN "requested_point_id" uuid;--> statement-breakpoint
+ALTER TABLE "coordination_requests" ADD COLUMN "preferred_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "coordination_requests" ADD CONSTRAINT "coordination_requests_requested_point_id_delivery_points_id_fk" FOREIGN KEY ("requested_point_id") REFERENCES "public"."delivery_points"("id") ON DELETE no action ON UPDATE no action;

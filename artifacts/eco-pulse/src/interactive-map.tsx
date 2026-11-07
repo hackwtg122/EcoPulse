@@ -224,7 +224,7 @@ export function InteractiveMap({
                            {p.slots?.map(slot => <p key={slot.id}>{new Date(slot.startsAt).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })} · {slot.remainingCapacity} cupos</p>)}
                            {p.slots === undefined && <p>Horario de referencia: {p.hours}. Reservas aún no disponibles.</p>}
                            {p.slots && p.slots.length === 0 && <p>Por ahora no hay cupos futuros.</p>}
-                           {p.slots && p.slots.length > 0 && <a href={`/deliveries?point=${encodeURIComponent(p.id)}&slot=${encodeURIComponent(p.slots[0].id)}`} className="mt-2 inline-block font-semibold text-[hsl(var(--primary))] underline">Solicitar entrega en este centro</a>}
+                           <a href={`/deliveries?point=${encodeURIComponent(p.id)}`} className="mt-2 inline-block font-semibold text-[hsl(var(--primary))] underline">Elegir este centro / coordinar entrega</a>
                          </div>
                       </div>
                     )}
@@ -271,7 +271,7 @@ export function InteractiveMap({
                      {p.slots?.length ?? 0} horarios disponibles · {p.capacity} cupos de referencia
                   </p>
                   <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
-                     {p.slots?.length ? <a href={`/deliveries?point=${encodeURIComponent(p.id)}`}>Solicitar entrega</a> : <span>Reservas no disponibles</span>}
+                     <a href={`/deliveries?point=${encodeURIComponent(p.id)}`}>Elegir centro / solicitar coordinación</a>
                   </p>
                 </div>
               </Popup>
@@ -334,6 +334,7 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
                 {!referenceOnly && point.materials && point.materials.length > 0 && <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Materiales: {point.materials.map(code => categoryLabels[code] ?? code).join(", ")}</p>}
                 <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{referenceOnly ? "Ubicación de referencia: recepción física no confirmada." : point.appointmentRequired ? `${point.slots.length} horarios con cupo publicados` : "Consulta disponibilidad antes de acudir"}</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-sm">
+                  <a href={`/deliveries?point=${encodeURIComponent(point.id)}`} className="inline-flex min-h-11 items-center font-semibold text-[hsl(var(--primary))] underline">Elegir este centro / coordinar entrega</a>
                   <button type="button" onClick={() => setSelectedId(open ? null : point.id)} aria-pressed={open} className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))]">{open ? "Cerrar ficha" : "Ver ficha"}<ArrowRight size={14} className={`transition ${open ? "rotate-90" : ""}`} /></button>
                   {favoriteIds && onToggleFavorite && <button type="button" disabled={favoriteBusy} aria-pressed={favoriteIds.has(point.id)} onClick={() => onToggleFavorite(point.id)} className="inline-flex items-center gap-1 font-semibold text-[hsl(var(--primary))] disabled:opacity-50" data-testid={`favorite-${point.id}`}><Heart size={14} fill={favoriteIds.has(point.id) ? "currentColor" : "none"} />{favoriteIds.has(point.id) ? "Quitar favorito" : "Guardar favorito"}</button>}
                   {hasCoordinates
@@ -368,7 +369,8 @@ export function PublishedCentersMap({ points, favoriteIds, onToggleFavorite, fav
               <p className="text-xs">{point.address}, {point.municipality}</p>
               {/^eval-0[1-8]$/i.test(point.code)
                 ? <p className="text-xs">Ubicación aproximada de referencia; recepción física no confirmada.</p>
-                : <><p className="text-xs text-[hsl(var(--muted-foreground))]">{point.slots.length} horarios con cupo publicados</p><p className="text-[11px]">{point.slots.length ? <a href={`/deliveries?point=${encodeURIComponent(point.id)}`}>Solicitar entrega</a> : <span>Consulta disponibilidad antes de acudir</span>}</p></>}
+                 : <><p className="text-xs text-[hsl(var(--muted-foreground))]">{point.slots.length} horarios con cupo publicados</p><p className="text-[11px]"><a href={`/deliveries?point=${encodeURIComponent(point.id)}`}>Elegir centro / solicitar coordinación</a></p></>}
+              {/^eval-0[1-8]$/i.test(point.code) && <a href={`/deliveries?point=${encodeURIComponent(point.id)}`}>Solicitar coordinación con este centro (sin reserva)</a>}
             </div>
           </Popup>
         </Marker>)}

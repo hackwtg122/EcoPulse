@@ -10,6 +10,9 @@ import { initializeAdminCatalog } from "../lib/adminInitialCatalog";
 import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { listFulfilledRedemptions } from "../lib/rewardService";
+import { withdrawReward } from "../lib/rewardService";
+import { hasRewardPhotoSchema, parsePhysicalRewardPhoto, recordPhysicalRewardPhoto } from "../lib/rewardPhotos";
+import { digitalAssetEvidence } from "../lib/digitalAssetRegistry";
 import { hasRewardInventorySchema, listRewardInventoryMovements, parseRewardRestock, restockReward } from "../lib/rewardService";
 import { adminRewardView, hasRewardDraftRecoverySchema, recoverRewardDraft } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
@@ -803,10 +806,18 @@ router.get("/rewards/capabilities", async (_req, res) => {
 router.get("/rewards", async (_req, res) => {
   const pool = await databasePool();
   if (!await hasRewardFulfillmentSchema(pool)) return res.json([]);
-  const rows = await pool.query(`SELECT id,title,description,cost,active,inventory_remaining AS "inventoryRemaining", fulfillment_reference, validated_at, validated_by FROM rewards
-    WHERE active=true AND inventory_remaining>0 AND fulfillment_reference IS NOT NULL
-    ORDER BY created_at DESC,id DESC LIMIT 50`);
-  return res.json(rows.rows.filter(row => hasRewardFulfillmentEvidence(row.fulfillment_reference, row.validated_at, row.validated_by))
+  const photosReady = await hasRewardPhotoSchema(pool);
+  const rows = await pool.query(`SELECT r.id,r.title,r.description,r.cost,r.active,r.inventory_remaining AS "inventoryRemaining",
+    r.fulfillment_reference,r.validated_at,r.validated_by,
+    ${photosReady ? 'p.image_url AS "imageUrl"' : 'NULL::text AS "imageUrl"'}
+    FROM rewards r
+    ${photosReady ? 'LEFT JOIN reward_photos p ON p.reward_id=r.id AND p.product_title=r.title AND p.product_description=r.description' : ''}
+    WHERE r.active=true AND r.inventory_remaining>0 AND r.fulfillment_reference IS NOT NULL
+    ORDER BY r.created_at DESC,r.id DESC LIMIT 50`);
+  return res.json(rows.rows.filter(row =>
+    hasRewardFulfillmentEvidence(row.fulfillment_reference, row.validated_at, row.validated_by) &&
+    (digitalAssetEvidence(row.fulfillment_reference) !== null ||
+      (typeof row.imageUrl === "string" && row.imageUrl.startsWith("https://"))))
     .map(({ fulfillment_reference: _reference, validated_at: _validatedAt, validated_by: _validatedBy, ...row }) => row));
 });
 router.get("/admin/rewards", async (_req, res) => {
@@ -814,12 +825,28 @@ router.get("/admin/rewards", async (_req, res) => {
   const pool = await databasePool();
   if (!await hasRewardFulfillmentSchema(pool)) return res.json([]);
   const inventoryReady = await hasRewardInventorySchema(pool);
+  const photosReady = await hasRewardPhotoSchema(pool);
   const rows = await pool.query(`SELECT r.id,r.title,r.description,r.cost,r.active,r.inventory_remaining AS "inventoryRemaining",
+    ${photosReady ? '(SELECT image_url FROM reward_photos p WHERE p.reward_id=r.id AND p.product_title=r.title AND p.product_description=r.description)' : 'NULL::text'} AS "imageUrl",
     r.fulfillment_reference IS NOT NULL AS "fulfillmentDocumented",r.validated_at IS NOT NULL AS "validationRecorded",r.created_at AS "createdAt",
     r.fulfillment_reference,r.validated_at,r.validated_by,
     (EXISTS(SELECT 1 FROM redemptions x WHERE x.reward_id=r.id) OR ${inventoryReady ? "EXISTS(SELECT 1 FROM reward_inventory_movements m WHERE m.reward_id=r.id)" : "true"}) AS "hasOperations"
     FROM rewards r ORDER BY r.created_at DESC,r.id DESC LIMIT 100`);
   return res.json(rows.rows.map(row => adminRewardView(row)));
+});
+router.put("/admin/rewards/:id/photo", async (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  if (platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED !== "true") return res.status(503).json({ error: "reward_admin_disabled" });
+  const input = parsePhysicalRewardPhoto(req.body);
+  const pool = await databasePool();
+  if (!await hasRewardPhotoSchema(pool)) return res.status(503).json({ error: "reward_photo_migration_required" });
+  return res.json(await recordPhysicalRewardPhoto(pool, res.locals.userId, String(req.params.id), input));
+});
+router.post("/admin/rewards/:id/withdraw", async (req,res)=>{
+  if(res.locals.role!=="admin") return res.status(403).json({error:"admin_required"});
+  if(platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED!=="true") return res.status(503).json({error:"reward_admin_disabled"});
+  if(!hasOnlyFields(req.body,[])) return res.status(400).json({error:"unexpected_fields"});
+  return res.json(await withdrawReward(await databasePool(),res.locals.userId,String(req.params.id)));
 });
 router.post("/admin/rewards/:id/recover-draft", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
@@ -943,10 +970,10 @@ router.post("/admin/redemptions/:id/fulfill", async (req, res) => {
   if (platformEnvironment(res).PILOT_REWARD_FULFILLMENT_ENABLED !== "true" || platformEnvironment(res).PILOT_REWARDS_ENABLED !== "true") {
     return res.status(503).json({ error: "fulfillment_disabled" });
   }
-  if (!hasOnlyFields(req.body, ["reference"]) || typeof req.body.reference !== "string") return res.status(400).json({ error: "invalid_fulfillment_reference" });
+  if (!hasOnlyFields(req.body, ["reference", "pickupCode"]) || typeof req.body.reference !== "string") return res.status(400).json({ error: "invalid_fulfillment_reference" });
   const pool = await databasePool();
   if (!await hasRewardFulfillmentSchema(pool)) return res.status(503).json({ error: "reward_migration_required" });
-  return res.json(await fulfillRedemption(pool, res.locals.userId, String(req.params.id), req.body.reference));
+  return res.json(await fulfillRedemption(pool, res.locals.userId, String(req.params.id), req.body.reference, req.body.pickupCode));
 });
 
 // Administrative user management. Rules live in pilotRoles so they can be

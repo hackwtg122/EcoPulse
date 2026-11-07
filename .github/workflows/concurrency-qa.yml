@@ -1,0 +1,47 @@
+name: Twenty authenticated accounts QA
+on:
+  workflow_dispatch:
+    inputs:
+      validate_only:
+        description: Validate fixture without logging in
+        type: boolean
+        default: true
+      accounts_verified:
+        description: Twenty distinct existing test accounts are authorized
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ecopulse-authenticated-concurrency
+  cancel-in-progress: false
+jobs:
+  concurrency:
+    if: github.repository == 'hackwtg122/EcoPulse' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: node --test scripts/qa/private-qa-policy.test.mjs scripts/qa/concurrency-20.test.mjs
+      - name: Validate fixture without disclosing credentials or creating profiles
+        run: node scripts/qa/validate-concurrency-fixture.mjs
+        env:
+          PRODUCTION_QA_ACCOUNTS: ${{ secrets.CONCURRENCY_QA_ACCOUNTS || secrets.PRODUCTION_QA_ACCOUNTS }}
+      - if: ${{ !inputs.validate_only && inputs.accounts_verified }}
+        run: npm ci --prefix scripts/qa --ignore-scripts --no-audit --no-fund
+      - name: Five minutes after all twenty identities are verified
+        if: ${{ !inputs.validate_only && inputs.accounts_verified }}
+        run: node scripts/qa/concurrency-20.mjs
+        env:
+          PRIVATE_QA_AUTHORIZED: 'true'
+          CONCURRENCY_MODE: authenticated
+          CONCURRENCY_WORKERS: '20'
+          CONCURRENCY_DURATION_MS: '300000'
+          PRODUCTION_QA_ACCOUNTS: ${{ secrets.CONCURRENCY_QA_ACCOUNTS || secrets.PRODUCTION_QA_ACCOUNTS }}
+          PROD_QA_MODULES_DIR: ${{ github.workspace }}/scripts/qa/node_modules
+          CHROME_PATH: /usr/bin/google-chrome

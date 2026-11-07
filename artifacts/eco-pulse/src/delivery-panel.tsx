@@ -461,7 +461,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
       <DeliveryHistory deliveries={deliveries} busy={historyBusy} onAction={(id, action) => { void updateHistory(id, action); }} />
     </section>
 
-    <div className="lg:col-span-2"><CoordinationRequestsPanel apiUrl={pilotApiUrl} allowCreate={detailsUnavailable} /></div>
+    <div className="lg:col-span-2"><CoordinationRequestsPanel apiUrl={pilotApiUrl} allowCreate={optionsStatus === "ready"} /></div>
 
     {showVerifierQueue && <div className="lg:col-span-2"><VerifierQueue role={role} onRefresh={onRefresh} /></div>}
   </div>;

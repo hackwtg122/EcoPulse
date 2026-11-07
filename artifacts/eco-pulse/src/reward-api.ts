@@ -1,9 +1,21 @@
-export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean; draftRecoveryAvailable?: boolean; operationallyValidated?: boolean; digitalAssetKey?: string | null };
+export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean; draftRecoveryAvailable?: boolean; operationallyValidated?: boolean; digitalAssetKey?: string | null; imageUrl?: string | null };
 export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled"; digitalAsset?: "nature-v1" | "badge-v1" | "guide-v1" | null; digitalFulfillmentReference?: string | null };
 export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean; canRestock: boolean; inventorySchemaReady: boolean; canRecoverDraft: boolean };
 export type RewardRestockInput = { quantity: number; evidenceReference: string; availabilityConfirmed: true };
 export type InventoryMovement = { id: string; rewardId: string; administratorId: string; quantity: number; inventoryBefore: number; inventoryAfter: number; evidenceReference: string; createdAt: string };
+export type PhysicalRewardPhotoInput = { imageUrl: string; sourceUrl: string; photoConfirmed: true };
+export async function savePhysicalRewardPhoto(apiUrl: string, token: string, id: string, input: PhysicalRewardPhotoInput, signal: AbortSignal, fetchImpl?: typeof fetch) {
+  const result = object(await call(apiUrl, token, `admin/rewards/${id}/photo`, signal, { method: "PUT", body: input }, fetchImpl));
+  if (result.rewardId !== id || result.imageUrl !== input.imageUrl || result.sourceUrl !== input.sourceUrl ||
+    typeof result.confirmedAt !== "string") throw new RewardApiError(502, "invalid_reward_photo_response");
+  return result;
+}
 export type RewardDraftInput = { title: string; description: string; cost: number };
+export async function withdrawReward(apiUrl:string,token:string,id:string,signal:AbortSignal) {
+  const row=object(await call(apiUrl,token,`admin/rewards/${encodeURIComponent(id)}/withdraw`,signal,{method:"POST",body:{}}));
+  if(row.rewardId!==id || typeof row.replayed!=="boolean") throw new RewardApiError(502,"invalid_withdrawal_response");
+  return row;
+}
 export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number } & ({ fulfillmentReference: string } | { digitalAssetKey: string; availabilityConfirmed: true });
 export type DigitalRewardAsset = { key: string; rewardTitle: string; title: string; filename: string; contentType: string; bytes: number; sha256: string; evidenceReference: string; fulfillmentReference: string };
 export async function loadDigitalRewardAssets(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<DigitalRewardAsset[]> {
@@ -74,7 +86,8 @@ function reward(value: Record<string, unknown>): RewardItem {
     ...(typeof value.validationRecorded === "boolean" ? { validationRecorded: value.validationRecorded } : {}),
     ...(typeof value.draftRecoveryAvailable === "boolean" ? { draftRecoveryAvailable: value.draftRecoveryAvailable } : {}),
     ...(typeof value.operationallyValidated === "boolean" ? { operationallyValidated: value.operationallyValidated } : {}),
-    ...(typeof value.digitalAssetKey === "string" ? { digitalAssetKey: value.digitalAssetKey } : {}) };
+    ...(typeof value.digitalAssetKey === "string" ? { digitalAssetKey: value.digitalAssetKey } : {}),
+    ...(typeof value.imageUrl === "string" && value.imageUrl.startsWith("https://") ? { imageUrl: value.imageUrl } : {}) };
 }
 export async function loadRewards(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch) {
   return items(await call(apiUrl, token, "rewards", signal, undefined, fetchImpl)).map(reward);
@@ -102,8 +115,8 @@ export async function loadAdminRedemptions(apiUrl: string, token: string, signal
       digitalFulfillmentReference: typeof row.digitalFulfillmentReference === "string" && /^digital:ecopulse\/(guide-v1|badge-v1|nature-v1)$/.test(row.digitalFulfillmentReference) ? row.digitalFulfillmentReference : null };
   });
 }
-export async function fulfillRedemption(apiUrl: string, token: string, id: string, reference: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<{ id: string; replayed: boolean }> {
-  const row = object(await call(apiUrl, token, `admin/redemptions/${encodeURIComponent(id)}/fulfill`, signal, { method: "POST", body: { reference } }, fetchImpl));
+export async function fulfillRedemption(apiUrl: string, token: string, id: string, reference: string, signal: AbortSignal, fetchImpl?: typeof fetch, pickupCode?: string): Promise<{ id: string; replayed: boolean }> {
+  const row = object(await call(apiUrl, token, `admin/redemptions/${encodeURIComponent(id)}/fulfill`, signal, { method: "POST", body: { reference, ...(pickupCode === undefined ? {} : { pickupCode }) } }, fetchImpl));
   if (row.id !== id || typeof row.replayed !== "boolean") throw new RewardApiError(502, "invalid_fulfillment_response");
   return { id: row.id, replayed: row.replayed };
 }

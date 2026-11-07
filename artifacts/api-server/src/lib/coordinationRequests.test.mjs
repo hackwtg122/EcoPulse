@@ -18,6 +18,14 @@ const deliveryId = "00000000-0000-5000-8000-000000000013";
 const owner = "user_owner";
 const admin = "user_admin";
 const key = "coordination_test_key";
+test("targeted coordination preserves a published-center preference without assigning it",()=>{
+  const materials=[{categoryCode:"paper",estimatedGrams:1000}];
+  const input=parseCoordinationInput({materials,requestedPointId:pointId,preferredAt:"2026-11-08T10:00:00-05:00"});
+  assert.equal(input.requestedPointId,pointId);assert.equal(input.preferredAt,"2026-11-08T15:00:00.000Z");
+  assert.notEqual(hashCoordinationInput(input),hashCoordinationInput({materials,note:null}));
+  assert.throws(()=>parseCoordinationInput({materials,requestedPointId:"fake-center"}),{code:"invalid_delivery_point"});
+  assert.throws(()=>parseCoordinationInput({materials,preferredAt:"not-a-date"}),{code:"invalid_preferred_date"});
+});
 
 function row(overrides = {}) {
   return {

@@ -46,6 +46,7 @@ function poolFor({ initial = 10, role = "admin", documented = true, failUpdate =
       }
       if (sql.startsWith("SELECT clerk_user_id")) return { rows: [{ clerk_user_id: params[0] }] };
       if (sql.startsWith("SELECT id,reward_id")) return { rows: [] };
+      if (sql.startsWith("SELECT to_regclass('public.reward_photos')") || sql.startsWith("SELECT EXISTS(SELECT 1 FROM public.reward_photos")) return { rows: [{ present: true }] };
       if (sql.startsWith("SELECT coalesce(sum(delta)")) return { rows: [{ balance: String(pending.balance) }] };
       if (sql.startsWith("INSERT INTO redemptions")) { const row = { id: params[0], reward_id: params[2], cost: params[3], fulfillment_status: "reserved" }; pending.redemptions.push(row); return { rows: [row] }; }
       if (sql.startsWith("INSERT INTO point_movements")) { pending.balance += params[2]; pending.debits.push(params[2]); return { rows: [] }; }

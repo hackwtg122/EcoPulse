@@ -71,9 +71,9 @@ try {
   assert.equal(second.filter(result => result.status === "fulfilled").length,1);
   assert.equal(second.filter(result => result.status === "rejected").length,1);
   const fulfilledId = sameKey[0].redemption.id;
-  assert.equal((await fulfillRedemption(app,other,fulfilledId,"synthetic-proof-001")).replayed,false);
-  assert.equal((await fulfillRedemption(app,other,fulfilledId,"synthetic-proof-001")).replayed,true);
-  await assert.rejects(fulfillRedemption(app,other,fulfilledId,"synthetic-proof-002"),error => error instanceof RewardError && error.code === "already_fulfilled");
+  assert.equal((await fulfillRedemption(app,other,fulfilledId,"synthetic-proof-001",fulfilledId)).replayed,false);
+  assert.equal((await fulfillRedemption(app,other,fulfilledId,"synthetic-proof-001",fulfilledId)).replayed,true);
+  await assert.rejects(fulfillRedemption(app,other,fulfilledId,"synthetic-proof-002",fulfilledId),error => error instanceof RewardError && error.code === "already_fulfilled");
   const state = await admin.query(`SELECT (SELECT count(*)::int FROM redemptions) redemptions,
     (SELECT inventory_remaining FROM rewards WHERE id=$1) inventory,
     (SELECT active FROM rewards WHERE id=$1) active,

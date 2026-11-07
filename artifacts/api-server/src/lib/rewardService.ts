@@ -240,6 +240,20 @@ export async function createRewardDraft(pool: Pool, actorId: string, key: unknow
   });
 }
 
+export async function withdrawReward(pool: Pool, actorId: string, id: string) {
+  if (!uuidPattern.test(id)) throw new RewardError(400,"invalid_reward_id");
+  return transaction(pool,async client=>{
+    await lockCurrentAdministrator(client,actorId);
+    const result=await client.query("SELECT active,to_jsonb(r) AS snapshot FROM rewards r WHERE id=$1 FOR UPDATE",[id]);
+    const row=result.rows[0];
+    if(!row) throw new RewardError(404,"reward_not_found");
+    if(!row.active) return {rewardId:id,replayed:true};
+    await client.query("INSERT INTO reward_withdrawal_events(reward_id,actor_id,previous_state) VALUES($1,$2,$3::jsonb) ON CONFLICT(reward_id) DO NOTHING",[id,actorId,JSON.stringify(row.snapshot)]);
+    await client.query("UPDATE rewards SET active=false,updated_at=now() WHERE id=$1",[id]);
+    return {rewardId:id,replayed:false};
+  });
+}
+
 export async function editRewardDraft(pool: Pool, actorId: string, id: string, expected: RewardDraft, input: RewardDraft) {
   if (!uuidPattern.test(id)) throw new RewardError(400, "invalid_reward_id");
   return transaction(pool, async client => {
@@ -274,6 +288,13 @@ export async function publishRewardDraft(pool: Pool, actorId: string, id: string
       }
       throw new RewardError(409, "reward_already_validated");
     }
+    if (!digital) {
+      const schema = await client.query<{ present: boolean }>("SELECT to_regclass('public.reward_photos') IS NOT NULL AS present");
+      if (!schema.rows[0]?.present) throw new RewardError(409, "reward_photo_required");
+      const photo = await client.query<{ present: boolean }>(
+        "SELECT EXISTS(SELECT 1 FROM public.reward_photos p JOIN rewards r ON r.id=p.reward_id WHERE p.reward_id=$1 AND p.product_title=r.title AND p.product_description=r.description) AS present", [id]);
+      if (!photo.rows[0]?.present) throw new RewardError(409, "reward_photo_required");
+    }
     const updated = await client.query(`UPDATE rewards SET inventory_remaining=$2, fulfillment_reference=$3, validated_by=$4,
       validated_at=now(), active=true, updated_at=now()
       WHERE id=$1 AND active=false AND validated_at IS NULL AND validated_by IS NULL AND fulfillment_reference IS NULL
@@ -300,6 +321,15 @@ export async function redeemReward(pool: Pool, userId: string, rewardId: string,
     const item = reward.rows[0];
     if (!item || !item.active || !Number.isSafeInteger(item.inventory_remaining) || item.inventory_remaining < 1 ||
       !hasRewardFulfillmentEvidence(item.fulfillment_reference, item.validated_at, item.validated_by)) throw new RewardError(404, "reward_unavailable");
+    // A physical reward cannot be redeemed by calling the API directly before
+    // the administrator documents its actual product photograph.
+    if (!digitalAssetEvidence(item.fulfillment_reference)) {
+      const schema = await client.query<{ present: boolean }>("SELECT to_regclass('public.reward_photos') IS NOT NULL AS present");
+      if (!schema.rows[0]?.present) throw new RewardError(404, "reward_unavailable");
+      const photo = await client.query<{ present: boolean }>(
+        "SELECT EXISTS(SELECT 1 FROM public.reward_photos p JOIN rewards r ON r.id=p.reward_id WHERE p.reward_id=$1 AND p.product_title=r.title AND p.product_description=r.description) AS present", [rewardId]);
+      if (!photo.rows[0]?.present) throw new RewardError(404, "reward_unavailable");
+    }
     const balanceResult = await client.query<{ balance: string }>("SELECT coalesce(sum(delta),0)::text AS balance FROM point_movements WHERE user_id=$1", [userId]);
     const balance = Number(balanceResult.rows[0]?.balance ?? "0");
     if (!Number.isSafeInteger(balance)) throw new RewardError(500, "balance_out_of_range");
@@ -335,7 +365,7 @@ export async function listFulfilledRedemptions(pool: Pool, limit: number, cursor
   return result.rows;
 }
 
-export async function fulfillRedemption(pool: Pool, actorId: string, id: string, reference: string) {
+export async function fulfillRedemption(pool: Pool, actorId: string, id: string, reference: string, pickupCode?: unknown) {
   if (!uuidPattern.test(id) || !/^[A-Za-z0-9_:/.-]{10,120}$/.test(reference)) throw new RewardError(400, "invalid_fulfillment_reference");
   return transaction(pool, async client => {
     const actor = await client.query("SELECT role FROM users WHERE clerk_user_id=$1 FOR SHARE", [actorId]);
@@ -345,6 +375,7 @@ export async function fulfillRedemption(pool: Pool, actorId: string, id: string,
       FROM redemptions WHERE id=$1 FOR UPDATE`, [id]);
     const prior = result.rows[0];
     if (!prior) throw new RewardError(404, "redemption_not_found");
+    if (!digitalAssetEvidence(prior.reward_reference) && pickupCode !== id) throw new RewardError(409, "pickup_code_mismatch");
     if (prior.fulfillment_status === "fulfilled") {
       if (prior.fulfillment_reference !== reference || prior.fulfilled_by !== actorId) throw new RewardError(409, "already_fulfilled");
       return { id, replayed: true };

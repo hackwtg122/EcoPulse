@@ -22,7 +22,7 @@ test("fulfillment rechecks the locked admin role, replays safely and never chang
         assert.equal(queries.at(-1), "ROLLBACK");
         assert.equal(queries.length, 3);
       } else {
-        assert.equal((await fulfillRedemption(pool, "user_Admin", id, reference)).replayed, fulfilled);
+        assert.equal((await fulfillRedemption(pool, "user_Admin", id, reference, id)).replayed, fulfilled);
         assert.equal(queries.at(-1), "COMMIT");
         assert.match(queries[1], /FOR SHARE/);
         assert.match(queries[2], /FOR UPDATE/);
@@ -43,7 +43,9 @@ test("redemption locks spending and inventory and rolls back all writes if debit
       if (sql.startsWith("SELECT clerk_user_id")) return { rows: [{ clerk_user_id: "user_owner" }] };
       if (sql.startsWith("SELECT id,reward_id")) return { rows: [] };
       if (sql.startsWith("SELECT cost,inventory_remaining")) return { rows: [{ cost: 20, inventory_remaining: 1, active: true, fulfillment_reference: "https://example.org/evidence", validated_at: new Date(), validated_by: "user_Admin" }] };
-      if (sql.startsWith("SELECT coalesce(sum(delta)")) return { rows: [{ balance: "20" }] };
+      if (sql.startsWith("SELECT to_regclass('public.reward_photos')")) return { rows: [{ present: true }] };
+       if (sql.startsWith("SELECT EXISTS(SELECT 1 FROM public.reward_photos")) return { rows: [{ present: true }] };
+       if (sql.startsWith("SELECT coalesce(sum(delta)")) return { rows: [{ balance: "20" }] };
       if (sql.startsWith("INSERT INTO redemptions")) return { rows: [{ id, reward_id: id, cost: 20, fulfillment_status: "reserved" }] };
       if (sql.startsWith("INSERT INTO point_movements")) {
         assert.equal(params[2], -20);
@@ -107,13 +109,14 @@ test("only documented and validated rewards can be offered for redemption", () =
   assert.equal(hasRewardFulfillmentEvidence("https://example.org/evidence", null, "user_Admin"), false);
   assert.equal(hasRewardFulfillmentEvidence("https://example.org/evidence", new Date(), null), false);
 });
-function publicationPool(row, actorRole = "admin") {
+function publicationPool(row, actorRole = "admin", photoPresent = true) {
   const queries = [];
   return { queries, async connect() { return { release() {}, async query(text, params) {
     queries.push(text);
     if (["BEGIN", "COMMIT", "ROLLBACK"].includes(text)) return { rows: [] };
     if (text.startsWith("SELECT role FROM users")) return { rows: [{ role: actorRole }] };
     if (text.startsWith("SELECT id,title")) return { rows: row ? [row] : [] };
+    if (text.startsWith("SELECT to_regclass('public.reward_photos')") || text.startsWith("SELECT EXISTS(SELECT 1 FROM public.reward_photos")) return { rows: [{ present: photoPresent }] };
     if (text.startsWith("UPDATE rewards SET inventory_remaining")) {
       assert.deepEqual(params, [rewardId, 5, publication.fulfillmentReference, "user_TestAdmin"]);
       return { rows: [{ ...draft, id: rewardId, active: true, inventoryRemaining: 5, fulfillmentDocumented: true, validationRecorded: true }] };
@@ -145,6 +148,12 @@ test("publication locks actor and draft and commits persisted validation atomica
   assert.ok(pool.queries[1].includes("FOR SHARE"));
   assert.ok(pool.queries[2].includes("FOR UPDATE"));
   assert.equal(pool.queries.at(-1), "COMMIT");
+});
+test("physical publication without a current product photo fails before inventory writes", async () => {
+  const pool = publicationPool({ ...draft, id: rewardId, active: false }, "admin", false);
+  await assert.rejects(publishRewardDraft(pool, "user_TestAdmin", rewardId, publication), { code: "reward_photo_required" });
+  assert.equal(pool.queries.some(q => q.startsWith("UPDATE")), false);
+  assert.equal(pool.queries.at(-1), "ROLLBACK");
 });
 test("retry never replenishes depleted inventory or republishes an exhausted reward", async () => {
   for (const active of [true, false]) {

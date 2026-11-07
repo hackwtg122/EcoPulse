@@ -100,6 +100,9 @@ export type PilotCoordinationEvent = {
   createdAt: string;
 };
 export type PilotCoordinationRequest = {
+  requestedPointId: string | null;
+  requestedPointName: string | null;
+  preferredAt: string | null;
   id: string;
   status: CoordinationStatus;
   note: string | null;
@@ -112,7 +115,7 @@ export type PilotCoordinationRequest = {
   assignedPoint: PilotDeliveryPoint | null;
   accountId?: string;
 };
-export type CoordinationRequestInput = { materials: PilotDeliveryMaterial[]; note: string | null };
+export type CoordinationRequestInput = { materials: PilotDeliveryMaterial[]; note: string | null; requestedPointId?: string | null; preferredAt?: string | null };
 export type CoordinationAssignmentInput = { deliveryPointId: string; slotId: string | null };
 
 
@@ -308,6 +311,9 @@ function parseCoordinationRequest(row: Record<string, unknown>): PilotCoordinati
     throw new PilotApiError(502, "invalid_coordination_delivery_status");
   }
   return {
+    requestedPointId: typeof row.requestedPointId === "string" ? row.requestedPointId : null,
+    requestedPointName: typeof row.requestedPointName === "string" ? row.requestedPointName : null,
+    preferredAt: typeof row.preferredAt === "string" ? row.preferredAt : null,
     id: requireString(row.id, "coordination_id"),
     status,
     note: row.note === null || row.note === undefined ? null : requireString(row.note, "coordination_note"),

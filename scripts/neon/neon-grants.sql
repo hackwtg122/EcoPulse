@@ -50,4 +50,11 @@ GRANT SELECT, INSERT ON role_change_events TO ecopulse_app;
 GRANT UPDATE (status, delivery_id, assigned_point_id, assigned_by, assigned_at, updated_at)
   ON coordination_requests TO ecopulse_app;
 -- Sin DELETE, sin GRANT globales ni privilegios futuros automáticos.
+DO $$ BEGIN
+  IF to_regclass('public.reward_photos') IS NOT NULL THEN
+    GRANT SELECT,INSERT ON public.reward_photos,public.reward_photo_events,public.reward_withdrawal_events TO ecopulse_app;
+    GRANT UPDATE(image_url,source_url,confirmed_by,confirmed_at,product_title,product_description) ON public.reward_photos TO ecopulse_app;
+    GRANT USAGE ON SEQUENCE public.reward_photo_events_id_seq TO ecopulse_app;
+  END IF;
+END $$;
 COMMIT;

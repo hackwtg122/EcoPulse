@@ -8,14 +8,14 @@ import {
   loadAdminCoordinationRequests,
   loadCoordinationRequests,
   loadPilotDeliveryOptions,
+  loadPilotPublicPoints,
   PilotApiError,
   type PilotCoordinationRequest,
   type PilotDeliveryMaterial,
   type PilotDeliveryOptions,
+  type CoordinationRequestInput,
 } from "./pilot-api";
 import { manualScanCategories, manualScanGuidance, type ManualScanCategory } from "./scan-catalog";
-
-const pilotApiUrl = import.meta.env.VITE_PILOT_API_URL?.trim() || "http://127.0.0.1:5001";
 
 const coordinationStatusLabels: Record<PilotCoordinationRequest["status"], string> = {
   pending: "Pendiente de coordinación",
@@ -56,6 +56,8 @@ function CoordinationHistory({ request }: { request: PilotCoordinationRequest })
       <div><p className="font-semibold">Materiales y cantidades</p><CoordinationMaterials materials={request.materials} /></div>
       <div>
         <p className="font-semibold">Destino</p>
+        {request.requestedPointName && <p>Centro solicitado: {request.requestedPointName}. Preferencia, no reserva confirmada.</p>}
+        {request.preferredAt && <p>Fecha preferida: {formatTimestamp(request.preferredAt)} (por confirmar)</p>}
         {request.assignedPoint
           ? <p className="mt-1 text-[hsl(var(--muted-foreground))]">{request.assignedPoint.name}, {request.assignedPoint.municipality}</p>
           : <p className="mt-1 text-[hsl(var(--muted-foreground))]">Sin centro asignado. Esta solicitud no reserva centro ni confirma recepción.</p>}
@@ -87,12 +89,17 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [materialKg, setMaterialKg] = useState<Partial<Record<ManualScanCategory, string>>>({});
   const [note, setNote] = useState("");
+  const [points, setPoints] = useState<PilotDeliveryOptions["points"]>([]);
+  const [requestedPointId, setRequestedPointId] = useState("");
+  const [preferredAt, setPreferredAt] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [submitMessage, setSubmitMessage] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [listMessage, setListMessage] = useState("");
   const idempotencyKey = useRef<string | null>(null);
+  const pendingPayload = useRef<CoordinationRequestInput | null>(null);
+  const submissionController = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
   const loadController = useRef<AbortController | null>(null);
   const loadRequestId = useRef(0);
@@ -106,9 +113,13 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
     try {
       const token = await getToken();
       if (!token) throw new PilotApiError(401, "missing_session_token");
-      const result = await loadCoordinationRequests(apiUrl, token, controller.signal);
+      const [result, published] = await Promise.all([
+        loadCoordinationRequests(apiUrl, token, controller.signal),
+        loadPilotPublicPoints(apiUrl, token, controller.signal),
+      ]);
       if (controller.signal.aborted || loadRequestId.current !== requestId) return;
       setItems(result.items);
+      setPoints(published);
       setSchemaReady(result.schemaReady);
       setStatus("ready");
     } catch {
@@ -119,10 +130,12 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
   useEffect(() => {
     setItems([]); setStatus("loading"); setSchemaReady(true);
     setMaterialKg({}); setNote(""); setConfirmed(false);
+    setRequestedPointId(new URLSearchParams(window.location.search).get("point") ?? ""); setPreferredAt("");
     setSubmitStatus("idle"); setSubmitMessage(""); setListMessage("");
     idempotencyKey.current = null;
+    pendingPayload.current = null;
     void load();
-    return () => loadController.current?.abort();
+    return () => { loadController.current?.abort(); submissionController.current?.abort(); };
   }, [load, userId]);
 
   const selectedMaterials = useMemo(() => Object.entries(materialKg).flatMap(([categoryCode, rawKg]) => {
@@ -141,16 +154,24 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
     setSubmitStatus("submitting");
     setSubmitMessage("");
     const controller = new AbortController();
+    submissionController.current = controller;
     try {
       const token = await getToken();
+      if (controller.signal.aborted) return;
       if (!token) throw new PilotApiError(401, "missing_session_token");
       const key = idempotencyKey.current ?? `coord_${crypto.randomUUID()}`;
       idempotencyKey.current = key;
-      const result = await createPilotCoordinationRequest(apiUrl, token, key, {
+      const payload = pendingPayload.current ?? {
         materials: selectedMaterials,
         note: note.trim() ? note.trim() : null,
-      }, controller.signal);
+        requestedPointId: requestedPointId || null,
+        preferredAt: preferredAt ? new Date(preferredAt).toISOString() : null,
+      };
+      pendingPayload.current = payload;
+      const result = await createPilotCoordinationRequest(apiUrl, token, key, payload, controller.signal);
+      if (controller.signal.aborted) return;
       idempotencyKey.current = null;
+      pendingPayload.current = null;
       setSubmitStatus("success");
       setSubmitMessage(result.replayed
         ? "Recuperamos la misma solicitud; no se creó un duplicado."
@@ -158,9 +179,10 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
       setMaterialKg({}); setNote(""); setConfirmed(false);
       await load();
     } catch (error) {
+      if (controller.signal.aborted) return;
       const code = error instanceof PilotApiError ? error.code : "";
       const httpStatus = error instanceof PilotApiError ? error.status : 0;
-      if (httpStatus === 400 || httpStatus === 409) idempotencyKey.current = null;
+      if (httpStatus === 400 || httpStatus === 409) { idempotencyKey.current = null; pendingPayload.current = null; }
       setSubmitStatus("error");
       setSubmitMessage(httpStatus === 401
         ? "Tu sesión venció. Inicia sesión nuevamente."
@@ -213,6 +235,9 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
     {!schemaReady && <p className="mt-5 rounded-2xl bg-[hsl(var(--muted))] p-4 text-sm" role="status">La coordinación de entregas todavía no está habilitada en este entorno.</p>}
 
     {allowCreate && schemaReady && <form onSubmit={submit} className="mt-5 space-y-4" data-testid="form-coordination-request">
+      <fieldset disabled={submitStatus === "submitting" || pendingPayload.current !== null} className="space-y-4">
+      <label className="block text-sm font-semibold">Centro al que deseas entregar<select disabled={submitStatus === "submitting"} value={requestedPointId} onChange={event => setRequestedPointId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border bg-[hsl(var(--background))] p-3"><option value="">Solicitar orientación sin centro elegido</option>{points.map(point => <option key={point.id} value={point.id}>{point.name} · {point.municipality}</option>)}</select></label>
+      <label className="block text-sm font-semibold">Fecha y hora preferidas (no confirmadas)<input type="datetime-local" disabled={submitStatus === "submitting"} value={preferredAt} onChange={event => setPreferredAt(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border bg-[hsl(var(--background))] p-3" /></label>
       <fieldset disabled={submitStatus === "submitting"}>
         <legend className="text-sm font-bold">Materiales y cantidades estimadas</legend>
         <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Selecciona entre 0,001 y 100 kg totales. Un operador autorizado validará el peso real en el centro asignado.</p>
@@ -232,6 +257,7 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
         <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5 h-5 w-5 accent-[hsl(var(--primary))]" data-testid="checkbox-confirm-coordination" />
         <span><strong className="block">Entiendo que esta solicitud no reserva centro</strong><span className="mt-1 block text-[hsl(var(--muted-foreground))]">No confirma recepción ni concede EcoPuntos. La asignación de centro la realiza administración con centros publicados.</span></span>
       </label>
+      </fieldset>
       <button type="submit" disabled={!formValid || submitStatus === "submitting"} className="min-h-12 w-full rounded-full bg-[hsl(var(--primary))] px-5 py-3 font-semibold text-[hsl(var(--primary-foreground))] disabled:cursor-not-allowed disabled:opacity-55" data-testid="button-submit-coordination">{submitStatus === "submitting" ? "Registrando…" : submitStatus === "error" ? "Reintentar solicitud" : "Registrar solicitud de coordinación"}</button>
       <p className={`min-h-6 text-sm ${submitStatus === "error" ? "text-red-800" : submitStatus === "success" ? "text-emerald-800" : "text-[hsl(var(--muted-foreground))]"}`} role={submitStatus === "error" ? "alert" : "status"} aria-live="polite" data-testid="coordination-submit-status">{submitMessage}</p>
     </form>}
@@ -258,7 +284,7 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
   </section>;
 }
 
-function AssignmentForm({ request, options, onAssigned }: { request: PilotCoordinationRequest; options: PilotDeliveryOptions; onAssigned: () => Promise<void> | void }) {
+function AssignmentForm({ apiUrl, request, options, onAssigned }: { apiUrl: string; request: PilotCoordinationRequest; options: PilotDeliveryOptions; onAssigned: () => Promise<void> | void }) {
   const { getToken } = useAuth();
   const [pointId, setPointId] = useState("");
   const [slotId, setSlotId] = useState("");
@@ -277,7 +303,7 @@ function AssignmentForm({ request, options, onAssigned }: { request: PilotCoordi
     try {
       const token = await getToken();
       if (!token) throw new PilotApiError(401, "missing_session_token");
-      await assignPilotCoordinationRequest(pilotApiUrl, token, request.id, { deliveryPointId: pointId, slotId: point?.appointmentRequired ? slotId : null }, new AbortController().signal);
+      await assignPilotCoordinationRequest(apiUrl, token, request.id, { deliveryPointId: pointId, slotId: point?.appointmentRequired ? slotId : null }, new AbortController().signal);
       setMessage("Centro asignado. La entrega quedó registrada en el flujo normal.");
       setPointId("");
       setSlotId("");
@@ -387,8 +413,10 @@ export function CoordinationAdminPanel({ apiUrl }: { apiUrl: string }) {
           <span className="w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">Pendiente</span>
         </div>
         <div className="mt-3 text-sm"><p className="font-semibold">Materiales y cantidades</p><CoordinationMaterials materials={request.materials} /></div>
+        {request.requestedPointName && <p className="mt-2 text-sm">Centro solicitado: {request.requestedPointName} (por confirmar)</p>}
+        {request.preferredAt && <p className="text-sm">Preferencia: {formatTimestamp(request.preferredAt)}</p>}
         {request.note && <p className="mt-3 rounded-xl bg-[hsl(var(--muted))] p-3 text-sm">Nota: {request.note}</p>}
-        {centersAvailable && options && <AssignmentForm request={request} options={options} onAssigned={load} />}
+        {centersAvailable && options && <AssignmentForm apiUrl={apiUrl} request={request} options={options} onAssigned={load} />}
       </article>)}
       {resolved.length > 0 && <details className="rounded-2xl border border-[hsl(var(--border))] p-4">
         <summary className="cursor-pointer font-semibold">Historial reciente ({resolved.length})</summary>

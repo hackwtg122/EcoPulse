@@ -2,6 +2,17 @@
 
 Una tarea solo pasa a TERMINADO tras comprobar su funcionamiento en producción. No se crean datos operativos ficticios.
 
+### Ampliación operativa y PR #5 — 2026-11-07
+
+- PR #5 auditado antes de integrar: se corrigió la prueba de reposición/canje rota, se permitió registrar fotos en borradores antes de publicar, se añadió auditoría append-only, y publicación/canje exigen foto correspondiente al producto actual. Cambiar título/descripción invalida la evidencia anterior. Las fotos son URLs HTTPS aportadas y autorizadas por administración; no se inventaron fotografías ni proveedores.
+- Mapa y Mis entregas permiten elegir cualquier centro publicado para coordinación dirigida y fecha/hora preferida, sin reservar centros no autorizados. Corrección adicional: la respuesta de asignación ahora incluye la dirección exigida por el cliente. La asignación bloquea el horario con FOR UPDATE para evitar conversiones de bloqueo concurrentes.
+- Administración: formularios de productos físicos, preparación de termo/bolsa/cuaderno como borradores editables, fotografía/fuente/permiso antes de publicar, requisitos faltantes visibles y retirada auditada sin borrar historial o inventario. El catálogo real no fue sustituido por existencias o fotos inventadas; se conservan los premios digitales y sus históricos hasta retirada explícita del administrador.
+- Canje físico: código único de retiro basado en UUID del canje, visible al propietario, exigido y validado por la API en el cumplimiento administrativo junto con el comprobante de entrega.
+- Respaldo Neon restaurado en PostgreSQL aislado: 27 tablas coinciden en contenido. Integración real con permisos `ecopulse_app`, 20 cuentas únicamente locales, 20 creaciones y reintentos, cancelaciones, asignaciones, rechazo de sobrecupo, verificaciones simuladas sin doble crédito y 20 intentos de canje sobre 5 unidades: exactamente 5 canjes, inventario final 0, ningún saldo negativo. Evidencia: `scripts/qa/evidence/physical-release-isolated-2026-11-07.json`. No equivale a 20 usuarios autenticados con Clerk ni a una entrega física real.
+- Migraciones aditivas de preferencias/fotos/auditoría ensayadas y aplicadas en Neon con respaldo restaurado; cero escrituras de negocio. Build/tipos: 66 pruebas cliente y 150 API; 12 pruebas de política QA/concurrencia.
+- QA: parser admite un nivel de JSON doblemente codificado conservando autorización/atestaciones. El arnés exige una identidad distinta por worker, verifica Clerk y rol, inicia los 5 minutos después de preparar todas las sesiones y falla ante respuestas inesperadas/429. No se conoce ni se reconstruye el contenido del secreto inválido: comprobar 20 sesiones sigue pendiente de cuentas autorizadas válidas.
+- Seguridad: el rol restringido pasó las operaciones aisladas; no se encontró una credencial Neon de ese rol (la URL local `ecopulse_app` apunta a localhost, no a Neon). No se cambió la credencial de Render ni se inventó acceso. El pool principal ahora tiene límites explícitos de 10 conexiones, 15 s de conexión y 30 s de sentencia.
+
 ## POR HACER
 
 - Habilitar y comprobar solicitudes reales de entrega.
