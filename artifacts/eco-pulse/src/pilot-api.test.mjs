@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadAdminUsers, updateAdminUserRole } from "./pilot-api.ts";
 import { updateOwnPilotDelivery } from "./pilot-api.ts";
-import { createDetailedPilotDelivery, createPilotDelivery, createPilotScan, isCurrentPilotResponse, loadPilotDashboardData, loadPilotDeliveryOptions, loadPilotProgress, loadPilotPublicPoints, loadVerifierDeliveryQueue, loadVerifierCapabilities, loadPilotDeliveryEvents, receivePilotDelivery, verifyPilotDelivery, PilotApiError } from "./pilot-api.ts";
+import { createDetailedPilotDelivery, createPilotDelivery, createPilotScan, isCurrentPilotResponse, loadPilotDashboardData, loadPilotDeliveryOptions, loadPilotProgress, loadPilotPublicPoints, loadVerifierDeliveryQueue, loadVerifierCapabilities, loadPilotDeliveryEvents, receivePilotDelivery, verifyPilotDelivery, PilotApiError, assignPilotCoordinationRequest, cancelPilotCoordinationRequest, createPilotCoordinationRequest, loadAdminCoordinationRequests, loadCoordinationRequests } from "./pilot-api.ts";
 
 function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -361,6 +361,96 @@ test("verifier client sends only the physical decision and handles disabled acti
   assert.deepEqual(JSON.parse(calls.at(-1).options.body), {});
   await assert.rejects(verifyPilotDelivery("http://127.0.0.1:5001", "session", "delivery-id", { decision: "rejected", reasonCode: "contaminated" }, signal, fakeFetch), error => error instanceof PilotApiError);
   assert.deepEqual(JSON.parse(calls.at(-1).options.body), { decision: "rejected", reasonCode: "contaminated" });
+});
+
+test("coordination client posts estimated materials with an idempotency key and no owner data", async () => {
+  let request;
+  const payload = { materials: [{ categoryCode: "paper", estimatedGrams: 1500 }], note: "Coordinar en Montería" };
+  const result = await createPilotCoordinationRequest("http://127.0.0.1:5001", "session", "coord_operation_123", payload, new AbortController().signal, async (url, options) => {
+    request = { url: String(url), options };
+    return new Response(JSON.stringify({
+      id: "00000000-0000-5000-8000-000000000020",
+      status: "pending",
+      note: "Coordinar en Montería",
+      createdAt: "2026-11-07T12:00:00.000Z",
+      updatedAt: "2026-11-07T12:00:00.000Z",
+      materials: [{ categoryCode: "paper", estimatedGrams: 1500 }],
+      events: [{ fromStatus: null, toStatus: "pending", reasonCode: "requested", createdAt: "2026-11-07T12:00:00.000Z" }],
+      deliveryId: null,
+      deliveryStatus: null,
+      assignedPoint: null,
+    }), { status: 201, headers: { "content-type": "application/json", "Idempotency-Replayed": "true" } });
+  });
+  assert.match(request.url, /\/api\/pilot\/coordination-requests$/);
+  assert.equal(request.options.method, "POST");
+  assert.equal(request.options.headers["Idempotency-Key"], "coord_operation_123");
+  assert.deepEqual(JSON.parse(request.options.body), payload);
+  assert.equal(result.replayed, true);
+  assert.equal(result.request.status, "pending");
+  assert.equal(result.request.assignedPoint, null);
+  assert.equal(result.request.deliveryId, null);
+  assert.equal("accountId" in result.request, false);
+});
+
+test("coordination history parses assigned centers and rejects invented states", async () => {
+  const body = {
+    schemaReady: true,
+    items: [{
+      id: "00000000-0000-5000-8000-000000000021",
+      status: "assigned",
+      note: null,
+      createdAt: "2026-11-07T12:00:00.000Z",
+      updatedAt: "2026-11-07T13:00:00.000Z",
+      materials: [{ categoryCode: "glass", estimatedGrams: 800 }],
+      events: [{ fromStatus: "pending", toStatus: "assigned", reasonCode: "center_assigned", createdAt: "2026-11-07T13:00:00.000Z" }],
+      deliveryId: "00000000-0000-5000-8000-000000000022",
+      deliveryStatus: "pending",
+      assignedPoint: { id: "00000000-0000-5000-8000-000000000010", code: "CENTER-1", name: "Centro", address: "Dirección", municipality: "Montería" },
+    }],
+  };
+  const loaded = await loadCoordinationRequests("http://127.0.0.1:5001", "session", new AbortController().signal, async () => response(body));
+  assert.equal(loaded.schemaReady, true);
+  assert.equal(loaded.items[0].status, "assigned");
+  assert.equal(loaded.items[0].assignedPoint.name, "Centro");
+  assert.equal(loaded.items[0].deliveryStatus, "pending");
+  assert.equal("accountId" in loaded.items[0], false);
+  await assert.rejects(loadCoordinationRequests("http://127.0.0.1:5001", "session", new AbortController().signal,
+    async () => response({ ...body, items: [{ ...body.items[0], status: "invented" }] })), /invalid_coordination_status/);
+  await assert.rejects(loadAdminCoordinationRequests("http://127.0.0.1:5001", "session", new AbortController().signal,
+    async () => response({ items: [], schemaReady: "yes" })), /invalid_coordination_schema_state/);
+});
+
+test("admin assignment client sends only center and slot and validates the created delivery", async () => {
+  let request;
+  const result = await assignPilotCoordinationRequest("http://127.0.0.1:5001", "admin-session", "request-id", { deliveryPointId: "00000000-0000-5000-8000-000000000010", slotId: null }, new AbortController().signal, async (url, options) => {
+    request = { url: String(url), options };
+    return response({
+      deliveryId: "00000000-0000-5000-8000-000000000022",
+      replayed: false,
+      request: {
+        id: "request-id", status: "assigned", note: null,
+        createdAt: "2026-11-07T12:00:00.000Z", updatedAt: "2026-11-07T13:00:00.000Z",
+        materials: [{ categoryCode: "paper", estimatedGrams: 1000 }], events: [],
+        deliveryId: "00000000-0000-5000-8000-000000000022", deliveryStatus: "pending",
+        assignedPoint: { id: "00000000-0000-5000-8000-000000000010", code: "CENTER-1", name: "Centro", address: "Dirección", municipality: "Montería" },
+      },
+    });
+  });
+  assert.match(request.url, /\/api\/pilot\/admin\/coordination-requests\/request-id\/assign$/);
+  assert.deepEqual(JSON.parse(request.options.body), { deliveryPointId: "00000000-0000-5000-8000-000000000010", slotId: null });
+  assert.equal(result.deliveryId, "00000000-0000-5000-8000-000000000022");
+  assert.equal(result.request.status, "assigned");
+});
+
+test("coordination cancellation matches the requested id and preserves server denials", async () => {
+  const result = await cancelPilotCoordinationRequest("http://127.0.0.1:5001", "session", "request-id", new AbortController().signal,
+    async () => response({ requestId: "request-id", status: "cancelled", replayed: true }));
+  assert.deepEqual(result, { requestId: "request-id", status: "cancelled", replayed: true });
+  await assert.rejects(cancelPilotCoordinationRequest("http://127.0.0.1:5001", "session", "request-id", new AbortController().signal,
+    async () => response({ requestId: "other-id", status: "cancelled", replayed: true })), /invalid_coordination_cancel_response/);
+  await assert.rejects(cancelPilotCoordinationRequest("http://127.0.0.1:5001", "session", "request-id", new AbortController().signal,
+    async () => response({ error: "coordination_already_assigned" }, 409)),
+  (error) => error instanceof PilotApiError && error.status === 409 && error.code === "coordination_already_assigned");
 });
 
 test("progress client parses a strict educational report and rejects malformed data", async () => {

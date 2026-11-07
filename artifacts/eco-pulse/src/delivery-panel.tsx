@@ -19,6 +19,7 @@ import {
 } from "./pilot-api";
 import type { ManualScanCategory } from "./scan-catalog";
 import { DeliverySubmission, deliveryRequestRejected } from "./delivery-submission";
+import { CoordinationRequestsPanel } from "./coordination-panel";
 
 const pilotApiUrl = import.meta.env.VITE_PILOT_API_URL?.trim() || "http://127.0.0.1:5001";
 
@@ -459,6 +460,8 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
       {historyMessage && <p role="status" className="mt-3 text-sm">{historyMessage}</p>}
       <DeliveryHistory deliveries={deliveries} busy={historyBusy} onAction={(id, action) => { void updateHistory(id, action); }} />
     </section>
+
+    <div className="lg:col-span-2"><CoordinationRequestsPanel apiUrl={pilotApiUrl} allowCreate={detailsUnavailable} /></div>
 
     {showVerifierQueue && <div className="lg:col-span-2"><VerifierQueue role={role} onRefresh={onRefresh} /></div>}
   </div>;

@@ -36,6 +36,13 @@
       "when": 1793646746910,
       "tag": "0004_role_change_events",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794075756229,
+      "tag": "0005_coordination_requests",
+      "breakpoints": true
     }
   ]
 }

@@ -92,6 +92,29 @@ export type VerifierCapabilities = { receiptEnabled: boolean; decisionEnabled: b
 export type PilotDeliveryEvent = { fromStatus: PilotDeliveryStatus | null; toStatus: PilotDeliveryStatus; reasonCode: string | null; createdAt: string };
 export type VerificationDecision = { decision: "approved"; verifiedGrams: number; receiptCode: string } | { decision: "rejected"; reasonCode: "material_not_received" | "contaminated" | "material_mismatch" | "other" };
 
+export type CoordinationStatus = "pending" | "assigned" | "cancelled";
+export type PilotCoordinationEvent = {
+  fromStatus: CoordinationStatus | null;
+  toStatus: CoordinationStatus;
+  reasonCode: string | null;
+  createdAt: string;
+};
+export type PilotCoordinationRequest = {
+  id: string;
+  status: CoordinationStatus;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+  materials: PilotDeliveryMaterial[];
+  events: PilotCoordinationEvent[];
+  deliveryId: string | null;
+  deliveryStatus: PilotDeliveryStatus | null;
+  assignedPoint: PilotDeliveryPoint | null;
+  accountId?: string;
+};
+export type CoordinationRequestInput = { materials: PilotDeliveryMaterial[]; note: string | null };
+export type CoordinationAssignmentInput = { deliveryPointId: string; slotId: string | null };
+
 
 export class PilotApiError extends Error {
   readonly status: number;
@@ -258,6 +281,47 @@ function parseDelivery(row: Record<string, unknown>): PilotDelivery {
   };
 }
 
+function parseCoordinationEvent(row: Record<string, unknown>): PilotCoordinationEvent {
+  const toStatus = requireString(row.toStatus, "coordination_event_status") as CoordinationStatus;
+  if (!["pending", "assigned", "cancelled"].includes(toStatus)) throw new PilotApiError(502, "invalid_coordination_event_status");
+  const fromStatus = row.fromStatus === null || row.fromStatus === undefined
+    ? null
+    : requireString(row.fromStatus, "coordination_event_from_status") as CoordinationStatus;
+  if (fromStatus !== null && !["pending", "assigned", "cancelled"].includes(fromStatus)) {
+    throw new PilotApiError(502, "invalid_coordination_event_from_status");
+  }
+  return {
+    fromStatus,
+    toStatus,
+    reasonCode: row.reasonCode === null || row.reasonCode === undefined ? null : requireString(row.reasonCode, "coordination_event_reason"),
+    createdAt: requireString(row.createdAt, "coordination_event_created_at"),
+  };
+}
+
+function parseCoordinationRequest(row: Record<string, unknown>): PilotCoordinationRequest {
+  const status = requireString(row.status, "coordination_status") as CoordinationStatus;
+  if (!["pending", "assigned", "cancelled"].includes(status)) throw new PilotApiError(502, "invalid_coordination_status");
+  const deliveryStatus = row.deliveryStatus === null || row.deliveryStatus === undefined
+    ? null
+    : requireString(row.deliveryStatus, "coordination_delivery_status") as PilotDeliveryStatus;
+  if (deliveryStatus !== null && !["pending", "scheduled", "received", "approved", "rejected", "cancelled"].includes(deliveryStatus)) {
+    throw new PilotApiError(502, "invalid_coordination_delivery_status");
+  }
+  return {
+    id: requireString(row.id, "coordination_id"),
+    status,
+    note: row.note === null || row.note === undefined ? null : requireString(row.note, "coordination_note"),
+    createdAt: requireString(row.createdAt, "coordination_created_at"),
+    updatedAt: requireString(row.updatedAt, "coordination_updated_at"),
+    materials: parseMaterials(row.materials),
+    events: (Array.isArray(row.events) ? row.events : []).map((event) => parseCoordinationEvent(requireObject(event, "coordination_event"))),
+    deliveryId: row.deliveryId === null || row.deliveryId === undefined ? null : requireString(row.deliveryId, "coordination_delivery_id"),
+    deliveryStatus,
+    assignedPoint: parseDeliveryPoint(row.assignedPoint),
+    ...(row.accountId === undefined ? {} : { accountId: requireString(row.accountId, "coordination_account_id") }),
+  };
+}
+
 export async function createPilotScan(
   apiUrl: string,
   token: string,
@@ -318,6 +382,108 @@ export function createDetailedPilotDelivery(
   fetchImplementation: FetchImplementation = fetch,
 ) {
   return postDelivery(apiUrl, token, idempotencyKey, payload, signal, fetchImplementation);
+}
+
+export async function createPilotCoordinationRequest(
+  apiUrl: string,
+  token: string,
+  idempotencyKey: string,
+  payload: CoordinationRequestInput,
+  signal: AbortSignal,
+  fetchImplementation: FetchImplementation = fetch,
+): Promise<{ request: PilotCoordinationRequest; replayed: boolean }> {
+  const response = await fetchImplementation(`${apiUrl}/api/pilot/coordination-requests`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw await responseError(response);
+  return {
+    request: parseCoordinationRequest(requireObject(await response.json(), "coordination_response")),
+    replayed: response.headers.get("Idempotency-Replayed") === "true",
+  };
+}
+
+export async function loadCoordinationRequests(
+  apiUrl: string,
+  token: string,
+  signal: AbortSignal,
+  fetchImplementation: FetchImplementation = fetch,
+): Promise<{ items: PilotCoordinationRequest[]; schemaReady: boolean }> {
+  const body = requireObject(
+    await requestJson(apiUrl, "coordination-requests", token, signal, fetchImplementation),
+    "coordination_response",
+  );
+  if (typeof body.schemaReady !== "boolean") throw new PilotApiError(502, "invalid_coordination_schema_state");
+  return {
+    items: requireArray(body.items, "coordination_requests").map(parseCoordinationRequest),
+    schemaReady: body.schemaReady,
+  };
+}
+
+export async function loadAdminCoordinationRequests(
+  apiUrl: string,
+  token: string,
+  signal: AbortSignal,
+  fetchImplementation: FetchImplementation = fetch,
+): Promise<{ items: PilotCoordinationRequest[]; schemaReady: boolean }> {
+  const body = requireObject(
+    await requestJson(apiUrl, "admin/coordination-requests", token, signal, fetchImplementation),
+    "coordination_response",
+  );
+  if (typeof body.schemaReady !== "boolean") throw new PilotApiError(502, "invalid_coordination_schema_state");
+  return {
+    items: requireArray(body.items, "coordination_requests").map(parseCoordinationRequest),
+    schemaReady: body.schemaReady,
+  };
+}
+
+export async function cancelPilotCoordinationRequest(
+  apiUrl: string,
+  token: string,
+  requestId: string,
+  signal: AbortSignal,
+  fetchImplementation: FetchImplementation = fetch,
+): Promise<{ requestId: string; status: "cancelled"; replayed: boolean }> {
+  const response = await fetchImplementation(`${apiUrl}/api/pilot/coordination-requests/${encodeURIComponent(requestId)}/cancel`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw await responseError(response);
+  const body = requireObject(await response.json(), "coordination_cancel_response");
+  if (body.requestId !== requestId || body.status !== "cancelled" || typeof body.replayed !== "boolean") {
+    throw new PilotApiError(502, "invalid_coordination_cancel_response");
+  }
+  return { requestId, status: "cancelled", replayed: body.replayed };
+}
+
+export async function assignPilotCoordinationRequest(
+  apiUrl: string,
+  token: string,
+  requestId: string,
+  payload: CoordinationAssignmentInput,
+  signal: AbortSignal,
+  fetchImplementation: FetchImplementation = fetch,
+): Promise<{ request: PilotCoordinationRequest; deliveryId: string; replayed: boolean }> {
+  const response = await fetchImplementation(`${apiUrl}/api/pilot/admin/coordination-requests/${encodeURIComponent(requestId)}/assign`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw await responseError(response);
+  const body = requireObject(await response.json(), "coordination_assignment_response");
+  return {
+    request: parseCoordinationRequest(requireObject(body.request, "coordination_response")),
+    deliveryId: requireString(body.deliveryId, "coordination_delivery_id"),
+    replayed: body.replayed === true,
+  };
 }
 
 export async function loadPilotDeliveryOptions(

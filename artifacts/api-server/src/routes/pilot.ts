@@ -25,6 +25,7 @@ import { listEvaluationTestPoints } from "../lib/evaluationPoints";
 import { logger } from "../lib/logger";
 import { activatePlatform, PlatformActivationError, platformStatus, readPlatformEnvironment } from "../lib/platformActivation";
 import { AdminMutationError } from "../lib/adminMutation";
+import { assignCoordinationRequest, cancelOwnCoordinationRequest, CoordinationError, createCoordinationRequest, hasCoordinationSchema, listAdminCoordinationRequests, listOwnCoordinationRequests, parseCoordinationAssignment, parseCoordinationInput } from "../lib/coordinationRequests";
 
 const router: IRouter = Router();
 const mutationCounts = new Map<string, { count: number; resetAt: number }>();
@@ -592,6 +593,56 @@ router.post("/deliveries", async (req, res) => {
   if (result.replayed) res.set("Idempotency-Replayed", "true");
   return res.status(result.replayed ? 200 : 201).json(result.delivery);
 });
+// Coordination requests are the explicit fallback when no verified center is
+// available. They never claim a destination, receipt or points on their own.
+router.get("/coordination-requests", async (_req, res) => {
+  const pool = await databasePool();
+  if (!await hasCoordinationSchema(pool)) return res.json({ items: [], schemaReady: false });
+  return res.json({ items: await listOwnCoordinationRequests(pool, res.locals.userId), schemaReady: true });
+});
+router.post("/coordination-requests", async (req, res) => {
+  if (!deliveryDetailsEnabled(platformEnvironment(res).PILOT_DELIVERY_DETAILS_ENABLED)) {
+    return res.status(503).json({ error: "coordination_requests_disabled" });
+  }
+  if (!validIdempotencyKey(req.get("Idempotency-Key"))) {
+    return res.status(400).json({ error: "invalid_idempotency_key" });
+  }
+  const input = parseCoordinationInput(req.body);
+  const pool = await databasePool();
+  if (!await hasCoordinationSchema(pool)) return res.status(503).json({ error: "coordination_migration_required" });
+  const result = await createCoordinationRequest(pool, res.locals.userId, req.get("Idempotency-Key")!, input);
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.status(result.replayed ? 200 : 201).json(result.request);
+});
+router.post("/coordination-requests/:id/cancel", async (req, res) => {
+  if (!hasOnlyFields(req.body ?? {}, []) || !uuidPattern.test(String(req.params.id))) {
+    return res.status(400).json({ error: "invalid_coordination_request" });
+  }
+  const pool = await databasePool();
+  if (!await hasCoordinationSchema(pool)) return res.status(503).json({ error: "coordination_migration_required" });
+  const result = await cancelOwnCoordinationRequest(pool, res.locals.userId, String(req.params.id));
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.json(result);
+});
+router.get("/admin/coordination-requests", async (_req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  const pool = await databasePool();
+  if (!await hasCoordinationSchema(pool)) return res.json({ items: [], schemaReady: false });
+  return res.json({ items: await listAdminCoordinationRequests(pool), schemaReady: true });
+});
+router.post("/admin/coordination-requests/:id/assign", async (req, res) => {
+  if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
+  if (!deliveryDetailsEnabled(platformEnvironment(res).PILOT_DELIVERY_DETAILS_ENABLED)) {
+    return res.status(503).json({ error: "coordination_assignment_disabled" });
+  }
+  const assignment = parseCoordinationAssignment(req.body);
+  const pool = await databasePool();
+  if (!await hasCoordinationSchema(pool)) return res.status(503).json({ error: "coordination_migration_required" });
+  const result = await assignCoordinationRequest(pool, res.locals.userId, String(req.params.id), assignment);
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.json(result);
+});
+
 router.get("/verifier/capabilities", async (_req, res) => {
   if (!canAccessVerifierQueue(res.locals.role)) return res.status(403).json({ error: "verifier_required" });
   const pool = await databasePool();
@@ -986,7 +1037,7 @@ const pilotErrorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   if (dbError?.code === "42P01") return res.status(503).json({ error: "schema_migration_required" });
   if (dbError?.code === "42501") return res.status(503).json({ error: "permissions_unavailable" });
   if (dbError?.code === "55P03" || dbError?.code === "57014") return res.status(503).json({ error: "operation_temporarily_unavailable" });
-  if (error instanceof AdminMutationError || error instanceof PlatformActivationError || error instanceof DeliveryRequestError || error instanceof DeliveryLifecycleError || error instanceof CatalogError || error instanceof RewardError || error instanceof AiClassificationError || error instanceof AiGuideError || error instanceof GuideStorageError) {
+  if (error instanceof AdminMutationError || error instanceof PlatformActivationError || error instanceof DeliveryRequestError || error instanceof DeliveryLifecycleError || error instanceof CatalogError || error instanceof RewardError || error instanceof CoordinationError || error instanceof AiClassificationError || error instanceof AiGuideError || error instanceof GuideStorageError) {
     return res.status(error.status).json({ error: error.code });
   }
   if (typeof error === "object" && error && "code" in error && error.code === "42501") {

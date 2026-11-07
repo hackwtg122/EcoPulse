@@ -5,6 +5,10 @@ export const userRole = pgEnum("user_role", ["participant", "verifier", "admin"]
 export const deliveryStatus = pgEnum("delivery_status", ["pending", "approved", "rejected"]);
 export const deliveryRequestStatus = pgEnum("delivery_request_status", ["pending", "scheduled", "received", "approved", "rejected", "cancelled"]);
 export const movementKind = pgEnum("movement_kind", ["delivery", "redemption", "adjustment"]);
+// A pending coordination request is deliberately separate from deliveries: it
+// never claims a center, a receipt or points until an administrator assigns a
+// verified destination and the normal physical delivery flow takes over.
+export const coordinationRequestStatus = pgEnum("coordination_request_status", ["pending", "assigned", "cancelled"]);
 
 // Clerk retains identity data; this database stores only its stable user ID and app role.
 export const users = pgTable("users", {
@@ -170,6 +174,59 @@ export const deliveryIdempotency = pgTable("delivery_idempotency", {
     or (${table.completedAt} is not null and ${table.deliveryId} is not null)
   `),
   index("delivery_idempotency_delivery_idx").on(table.deliveryId),
+]);
+
+// Separate from deliveries on purpose: a coordination request records intent
+// when no verified center is available. It is never counted as a delivery, a
+// receipt, or a source of EcoPuntos.
+export const coordinationRequests = pgTable("coordination_requests", {
+  id: uuid("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.clerkUserId),
+  status: coordinationRequestStatus("status").notNull().default("pending"),
+  note: text("note"),
+  requestHash: text("request_hash").notNull(),
+  deliveryId: uuid("delivery_id").references(() => deliveries.id),
+  assignedPointId: uuid("assigned_point_id").references(() => deliveryPoints.id),
+  assignedBy: text("assigned_by").references(() => users.clerkUserId),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("coordination_requests_note_check", sql`${table.note} is null or length(${table.note}) between 1 and 500`),
+  check("coordination_requests_hash_check", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
+  check("coordination_requests_state_check", sql`
+    (${table.status} = 'pending' and ${table.deliveryId} is null and ${table.assignedPointId} is null and ${table.assignedBy} is null and ${table.assignedAt} is null)
+    or (${table.status} = 'assigned' and ${table.deliveryId} is not null and ${table.assignedPointId} is not null and ${table.assignedBy} is not null and ${table.assignedAt} is not null)
+    or (${table.status} = 'cancelled' and ${table.deliveryId} is null and ${table.assignedPointId} is null and ${table.assignedBy} is null and ${table.assignedAt} is null)
+  `),
+  uniqueIndex("coordination_requests_delivery_unique").on(table.deliveryId),
+  index("coordination_requests_user_created_idx").on(table.userId, table.createdAt.desc(), table.id.desc()),
+  index("coordination_requests_status_created_idx").on(table.status, table.createdAt.desc(), table.id.desc()),
+]);
+
+export const coordinationRequestItems = pgTable("coordination_request_items", {
+  requestId: uuid("request_id").notNull().references(() => coordinationRequests.id),
+  categoryCode: text("category_code").notNull().references(() => materialCategories.code),
+  estimatedGrams: integer("estimated_grams").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.requestId, table.categoryCode], name: "coordination_request_items_pk" }),
+  check("coordination_request_items_grams_check", sql`${table.estimatedGrams} between 1 and 100000`),
+  index("coordination_request_items_category_idx").on(table.categoryCode),
+]);
+
+export const coordinationRequestEvents = pgTable("coordination_request_events", {
+  id: uuid("id").primaryKey(),
+  requestId: uuid("request_id").notNull().references(() => coordinationRequests.id),
+  actorUserId: text("actor_user_id").references(() => users.clerkUserId),
+  fromStatus: coordinationRequestStatus("from_status"),
+  toStatus: coordinationRequestStatus("to_status").notNull(),
+  reasonCode: text("reason_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("coordination_request_events_transition_check", sql`${table.fromStatus} is null or ${table.fromStatus} <> ${table.toStatus}`),
+  check("coordination_request_events_reason_check", sql`${table.reasonCode} is null or length(${table.reasonCode}) between 1 and 64`),
+  index("coordination_request_events_request_created_idx").on(table.requestId, table.createdAt, table.id),
 ]);
 
 export const verifications = pgTable("verifications", {

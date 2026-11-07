@@ -21,7 +21,7 @@ export function validIdempotencyKey(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{8,128}$/.test(value);
 }
 
-function idForIdempotency(namespace: "scan" | "delivery", userId: string, idempotencyKey: string): string {
+function idForIdempotency(namespace: "scan" | "delivery" | "coordination", userId: string, idempotencyKey: string): string {
   const bytes = createHash("sha256")
     .update(`ecopulse:${namespace}\0`)
     .update(userId)
@@ -41,6 +41,10 @@ export function scanIdForIdempotency(userId: string, idempotencyKey: string): st
 
 export function deliveryIdForIdempotency(userId: string, idempotencyKey: string): string {
   return idForIdempotency("delivery", userId, idempotencyKey);
+}
+
+export function coordinationIdForIdempotency(userId: string, idempotencyKey: string): string {
+  return idForIdempotency("coordination", userId, idempotencyKey);
 }
 
 export type DeliveryCursor = { createdAt: Date; id: string };

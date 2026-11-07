@@ -11,6 +11,9 @@ DO $$ BEGIN
     OR to_regclass('public.favorite_centers') IS NULL
     OR to_regclass('public.redemptions') IS NULL
     OR to_regclass('public.role_change_events') IS NULL
+    OR to_regclass('public.coordination_requests') IS NULL
+    OR to_regclass('public.coordination_request_items') IS NULL
+    OR to_regclass('public.coordination_request_events') IS NULL
     OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ecopulse_app') THEN
     RAISE EXCEPTION 'Wrong database, incomplete migration or missing app role';
   END IF;
@@ -19,9 +22,11 @@ GRANT USAGE ON SCHEMA public TO ecopulse_app;
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ecopulse_app;
 GRANT SELECT ON users, scans, deliveries, material_categories, delivery_points,
   delivery_slots, delivery_point_materials, favorite_centers, delivery_items, delivery_status_events, delivery_idempotency,
-  verifications, point_movements, rewards, redemptions TO ecopulse_app;
+  verifications, point_movements, rewards, redemptions,
+  coordination_requests, coordination_request_items, coordination_request_events TO ecopulse_app;
 GRANT INSERT ON users, scans, deliveries, delivery_items, delivery_status_events,
-  delivery_idempotency, verifications, point_movements, redemptions TO ecopulse_app;
+  delivery_idempotency, verifications, point_movements, redemptions,
+  coordination_requests, coordination_request_items, coordination_request_events TO ecopulse_app;
 -- Gestión de roles por parte del administrador (PATCH /admin/users/:id/role).
 GRANT UPDATE (role) ON users TO ecopulse_app;
 -- Acciones administrativas restringidas además por Clerk + rol admin en Express.
@@ -40,5 +45,9 @@ GRANT UPDATE (fulfillment_status, fulfillment_reference, fulfilled_by, fulfilled
 -- Registro de auditoria de cambios de rol (0004). Solo insercion desde la API;
 -- el panel admin lo consulta en modo lectura.
 GRANT SELECT, INSERT ON role_change_events TO ecopulse_app;
+-- Solicitudes de coordinacion (0005): asignacion solo actualiza el estado y el
+-- vinculo con la entrega creada por el flujo fisico existente.
+GRANT UPDATE (status, delivery_id, assigned_point_id, assigned_by, assigned_at, updated_at)
+  ON coordination_requests TO ecopulse_app;
 -- Sin DELETE, sin GRANT globales ni privilegios futuros automáticos.
 COMMIT;

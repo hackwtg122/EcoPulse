@@ -41,7 +41,8 @@ try {
   // Fixed allowlist only; absent tables are reported, not created or assumed.
   for (const table of ["users", "scans", "deliveries", "point_movements", "redemptions", "rewards", "verifications",
     "delivery_idempotency", "delivery_items", "delivery_points", "delivery_slots", "delivery_status_events",
-    "material_categories", "favorite_centers", "delivery_point_materials", "role_change_events"]) {
+    "material_categories", "favorite_centers", "delivery_point_materials", "role_change_events",
+    "coordination_requests", "coordination_request_items", "coordination_request_events"]) {
     const exists = await client.query("SELECT to_regclass($1) IS NOT NULL AS present", [`public.${table}`]);
     if (!exists.rows[0]?.present) { emit("count", { table, status: "MISSING" }); continue; }
     emit("count", { table, ...(await client.query(`SELECT count(*)::text AS total FROM public."${table}"`)).rows[0] });

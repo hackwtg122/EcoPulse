@@ -14,6 +14,7 @@ const DeliveryPanel = lazy(() => import("@/delivery-panel").then(module => ({ de
 const VerifierQueue = lazy(() => import("@/delivery-panel").then(module => ({ default: module.VerifierQueue })));
 const CatalogAdminPanel = lazy(() => import("@/catalog-admin-panel").then(module => ({ default: module.CatalogAdminPanel })));
 const AdminUsersPanel = lazy(() => import("@/admin-users-panel").then(module => ({ default: module.AdminUsersPanel })));
+const CoordinationAdminPanel = lazy(() => import("@/coordination-panel").then(module => ({ default: module.CoordinationAdminPanel })));
 const OperationalReadinessPanel = lazy(() => import("@/operational-readiness-panel").then(module => ({ default: module.OperationalReadinessPanel })));
 const PlatformActivationPanel = lazy(() => import("@/platform-activation-panel").then(module => ({ default: module.PlatformActivationPanel })));
 const RewardsPanel = lazy(() => import("@/rewards-panel").then(module => ({ default: module.RewardsPanel })));
@@ -339,6 +340,7 @@ function AdminHomePage() {
     {role === "admin" && <Link href="/admin?section=settings" className="mb-4 inline-flex min-h-11 items-center rounded-full border px-5 font-semibold underline" data-testid="link-admin-settings">Configuración general</Link>}
     {role === "admin" && <div className="grid gap-4 sm:grid-cols-3"><Link href="/admin/centers" className="flex items-center gap-3 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 font-semibold transition hover:border-[hsl(var(--primary))]" data-testid="link-admin-centers"><MapPin size={20} className="text-[hsl(var(--primary))]" />Catálogo de centros</Link><Link href="/admin/rewards" className="flex items-center gap-3 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 font-semibold transition hover:border-[hsl(var(--primary))]" data-testid="link-admin-rewards"><Gift size={20} className="text-[hsl(var(--primary))]" />Gestión de recompensas</Link><Link href="/admin/users" className="flex items-center gap-3 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 font-semibold transition hover:border-[hsl(var(--primary))]" data-testid="link-admin-users"><UserRound size={20} className="text-[hsl(var(--primary))]" />Usuarios y roles</Link></div>}
     {role === "admin" && <Suspense fallback={<p role="status">Consultando estado operativo…</p>}><OperationalReadinessPanel /></Suspense>}
+    {role === "admin" && <div className="mt-5"><Suspense fallback={<p role="status">Cargando solicitudes de coordinación…</p>}><CoordinationAdminPanel apiUrl={pilotApiUrl} /></Suspense></div>}
     <div className="mt-5"><Suspense fallback={<p role="status">Cargando cola de verificación…</p>}><VerifierQueue role={role} onRefresh={retry} /></Suspense></div>
   </div>;
 }
