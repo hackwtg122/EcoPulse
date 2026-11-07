@@ -1,8 +1,15 @@
-export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean; draftRecoveryAvailable?: boolean; operationallyValidated?: boolean; digitalAssetKey?: string | null };
+export type RewardItem = { id: string; title: string; description: string; cost: number; active?: boolean; inventoryRemaining?: number | null; fulfillmentDocumented?: boolean; validationRecorded?: boolean; draftRecoveryAvailable?: boolean; operationallyValidated?: boolean; digitalAssetKey?: string | null; imageUrl?: string | null };
 export type RedemptionItem = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfillmentStatus: "reserved" | "fulfilled"; digitalAsset?: "nature-v1" | "badge-v1" | "guide-v1" | null; digitalFulfillmentReference?: string | null };
 export type RewardCapabilities = { canRedeem: boolean; canManageDrafts: boolean; canPublish: boolean; canFulfill: boolean; schemaReady: boolean; canRestock: boolean; inventorySchemaReady: boolean; canRecoverDraft: boolean };
 export type RewardRestockInput = { quantity: number; evidenceReference: string; availabilityConfirmed: true };
 export type InventoryMovement = { id: string; rewardId: string; administratorId: string; quantity: number; inventoryBefore: number; inventoryAfter: number; evidenceReference: string; createdAt: string };
+export type PhysicalRewardPhotoInput = { imageUrl: string; sourceUrl: string; photoConfirmed: true };
+export async function savePhysicalRewardPhoto(apiUrl: string, token: string, id: string, input: PhysicalRewardPhotoInput, signal: AbortSignal, fetchImpl?: typeof fetch) {
+  const result = object(await call(apiUrl, token, `admin/rewards/${id}/photo`, signal, { method: "PUT", body: input }, fetchImpl));
+  if (result.rewardId !== id || result.imageUrl !== input.imageUrl || result.sourceUrl !== input.sourceUrl ||
+    typeof result.confirmedAt !== "string") throw new RewardApiError(502, "invalid_reward_photo_response");
+  return result;
+}
 export type RewardDraftInput = { title: string; description: string; cost: number };
 export type RewardPublicationInput = { expected: RewardDraftInput; inventoryRemaining: number } & ({ fulfillmentReference: string } | { digitalAssetKey: string; availabilityConfirmed: true });
 export type DigitalRewardAsset = { key: string; rewardTitle: string; title: string; filename: string; contentType: string; bytes: number; sha256: string; evidenceReference: string; fulfillmentReference: string };
@@ -74,7 +81,8 @@ function reward(value: Record<string, unknown>): RewardItem {
     ...(typeof value.validationRecorded === "boolean" ? { validationRecorded: value.validationRecorded } : {}),
     ...(typeof value.draftRecoveryAvailable === "boolean" ? { draftRecoveryAvailable: value.draftRecoveryAvailable } : {}),
     ...(typeof value.operationallyValidated === "boolean" ? { operationallyValidated: value.operationallyValidated } : {}),
-    ...(typeof value.digitalAssetKey === "string" ? { digitalAssetKey: value.digitalAssetKey } : {}) };
+    ...(typeof value.digitalAssetKey === "string" ? { digitalAssetKey: value.digitalAssetKey } : {}),
+    ...(typeof value.imageUrl === "string" && value.imageUrl.startsWith("https://") ? { imageUrl: value.imageUrl } : {}) };
 }
 export async function loadRewards(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch) {
   return items(await call(apiUrl, token, "rewards", signal, undefined, fetchImpl)).map(reward);
