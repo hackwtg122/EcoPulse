@@ -11,6 +11,7 @@ import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraft
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { listFulfilledRedemptions } from "../lib/rewardService";
 import { hasRewardPhotoSchema, parsePhysicalRewardPhoto, recordPhysicalRewardPhoto } from "../lib/rewardPhotos";
+import { digitalAssetEvidence } from "../lib/digitalAssetRegistry";
 import { hasRewardInventorySchema, listRewardInventoryMovements, parseRewardRestock, restockReward } from "../lib/rewardService";
 import { adminRewardView, hasRewardDraftRecoverySchema, recoverRewardDraft } from "../lib/rewardService";
 import { AiClassificationError, parseAiSuggestion, sanitizePng } from "../lib/aiClassification";
@@ -814,7 +815,7 @@ router.get("/rewards", async (_req, res) => {
     ORDER BY r.created_at DESC,r.id DESC LIMIT 50`);
   return res.json(rows.rows.filter(row =>
     hasRewardFulfillmentEvidence(row.fulfillment_reference, row.validated_at, row.validated_by) &&
-    (digitalAssetForFulfillment("fulfilled", row.fulfillment_reference) !== null ||
+    (digitalAssetEvidence(row.fulfillment_reference) !== null ||
       (typeof row.imageUrl === "string" && row.imageUrl.startsWith("https://"))))
     .map(({ fulfillment_reference: _reference, validated_at: _validatedAt, validated_by: _validatedBy, ...row }) => row));
 });
