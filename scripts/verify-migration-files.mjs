@@ -43,13 +43,14 @@ const detailsFragments = [
   "delivery_status_events_append_only",
 ];
 
-if (JSON.stringify(sqlFiles) !== JSON.stringify(["0000_core.sql", "0001_delivery_details.sql"])) {
-  throw new Error("Only the canonical 0000 and pending 0001 SQL migrations are expected");
+if (JSON.stringify(sqlFiles) !== JSON.stringify(journal.entries.map(entry => `${entry.tag}.sql`))) {
+  throw new Error("SQL migrations must match the complete canonical journal");
 }
 if (
   journal.version !== "7" ||
   journal.dialect !== "postgresql" ||
-  journal.entries.length !== 2 ||
+  journal.entries.length < 2 ||
+  journal.entries.some((entry,index) => entry.idx !== index || !entry.tag.startsWith(`${String(index).padStart(4,"0")}_`)) ||
   journal.entries[0].tag !== "0000_core" ||
   journal.entries[1].tag !== "0001_delivery_details"
 ) {
@@ -64,13 +65,20 @@ if (Object.keys(detailsSnapshot.tables).length !== coreTables.length + detailTab
 if (detailsSnapshot.prevId !== initialSnapshot.id) {
   throw new Error("The 0001 snapshot is not based directly on 0000");
 }
+let previousSnapshot = initialSnapshot;
+for (let index=1;index<journal.entries.length;index++) {
+  const snapshot=JSON.parse(readFileSync(new URL(`../lib/db/drizzle/meta/${String(index).padStart(4,"0")}_snapshot.json`,import.meta.url),"utf8"));
+  if(snapshot.prevId !== previousSnapshot.id) throw new Error(`Snapshot ${index} is not linked to its predecessor`);
+  previousSnapshot=snapshot;
+}
 for (const fragment of initialFragments) {
   if (!initialSql.includes(fragment)) throw new Error(`Initial migration is missing: ${fragment}`);
 }
 for (const fragment of detailsFragments) {
   if (!detailsSql.includes(fragment)) throw new Error(`Delivery details migration is missing: ${fragment}`);
 }
-for (const [name, sql] of [["0000", initialSql], ["0001", detailsSql]]) {
+for (const name of sqlFiles) {
+  const sql = readFileSync(new URL(`../lib/db/drizzle/${name}`,import.meta.url),"utf8");
   if (/^\s*(DROP\s+(TABLE|SCHEMA|DATABASE)|TRUNCATE\s|DELETE\s+FROM\s)/gim.test(sql)) {
     throw new Error(`${name} contains an unexpected destructive statement`);
   }
@@ -88,12 +96,12 @@ if (/^\s*(GRANT|REVOKE)\s/gim.test(detailsSql)) {
 console.log(JSON.stringify({
   canonicalMigrations: sqlFiles,
   journalEntries: journal.entries.length,
-  snapshotTables: { core: coreTables.length, deliveryDetails: coreTables.length + detailTables.length },
+  snapshotTables: { core: coreTables.length, deliveryDetails: coreTables.length + detailTables.length, latest: Object.keys(previousSnapshot.tables).length },
   addedTables: detailTables,
   destructiveStatements: false,
   realDeliveryPointsSeeded: 0,
   realSlotsSeeded: 0,
   customIntegrityTriggersPresent: true,
   fixedSecurityDefinerFunctions: 2,
-  runtimePermissionsEmbedded: false,
+  deliveryDetailsRuntimePermissionsEmbedded: false,
 }, null, 2));
