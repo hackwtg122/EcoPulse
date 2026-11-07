@@ -300,6 +300,15 @@ export async function redeemReward(pool: Pool, userId: string, rewardId: string,
     const item = reward.rows[0];
     if (!item || !item.active || !Number.isSafeInteger(item.inventory_remaining) || item.inventory_remaining < 1 ||
       !hasRewardFulfillmentEvidence(item.fulfillment_reference, item.validated_at, item.validated_by)) throw new RewardError(404, "reward_unavailable");
+    // A physical reward cannot be redeemed by calling the API directly before
+    // the administrator documents its actual product photograph.
+    if (!digitalAssetEvidence(item.fulfillment_reference)) {
+      const schema = await client.query<{ present: boolean }>("SELECT to_regclass('public.reward_photos') IS NOT NULL AS present");
+      if (!schema.rows[0]?.present) throw new RewardError(404, "reward_unavailable");
+      const photo = await client.query<{ present: boolean }>(
+        "SELECT EXISTS(SELECT 1 FROM public.reward_photos WHERE reward_id=$1) AS present", [rewardId]);
+      if (!photo.rows[0]?.present) throw new RewardError(404, "reward_unavailable");
+    }
     const balanceResult = await client.query<{ balance: string }>("SELECT coalesce(sum(delta),0)::text AS balance FROM point_movements WHERE user_id=$1", [userId]);
     const balance = Number(balanceResult.rows[0]?.balance ?? "0");
     if (!Number.isSafeInteger(balance)) throw new RewardError(500, "balance_out_of_range");
