@@ -19,6 +19,7 @@ export type PublicDelivery = {
   createdAt: Date;
   updatedAt: Date;
   acceptedAt: Date | null;
+  handoffPlan: null | { handoffAddress: string; handoffAt: Date; note: string | null; plannedAt: Date };
   isOwn?: boolean;
   deliveryPoint: null | {
     id: string;
@@ -311,6 +312,7 @@ function mapPublicDeliveryRow(row: Record<string, unknown>): PublicDelivery {
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at ?? row.created_at) as Date,
     acceptedAt: (row.acceptance_at as Date | null) ?? null,
+    handoffPlan: row.handoff_address == null ? null : { handoffAddress: String(row.handoff_address), handoffAt: row.handoff_at as Date, note: row.handoff_note == null ? null : String(row.handoff_note), plannedAt: row.handoff_planned_at as Date },
     ...(typeof row.is_own === "boolean" ? { isOwn: row.is_own } : {}),
     deliveryPoint: deliveryPoint ? {
       id: String(row.delivery_point_id),
@@ -338,6 +340,7 @@ async function findDetailedDelivery(database: Queryable, userId: string, deliver
       p.address AS delivery_point_address, p.municipality AS delivery_point_municipality,
       s.id AS slot_id, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
       a.accepted_at AS acceptance_at,
+       hp.handoff_address, hp.handoff_at, hp.note AS handoff_note, hp.created_at AS handoff_planned_at,
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'categoryCode', i.category_code,
@@ -349,6 +352,10 @@ async function findDetailedDelivery(database: Queryable, userId: string, deliver
     LEFT JOIN delivery_points p ON p.id = d.delivery_point_id
     LEFT JOIN delivery_slots s ON s.id = d.slot_id
     LEFT JOIN delivery_request_acceptances a ON a.delivery_id = d.id
+     LEFT JOIN LATERAL (
+       SELECT handoff_address, handoff_at, note, created_at FROM delivery_coordination_plans
+       WHERE delivery_id=d.id ORDER BY created_at DESC, id DESC LIMIT 1
+     ) hp ON true
     WHERE d.id = $1 AND d.user_id = $2
   `, [deliveryId, userId]);
   const row = rowsOf<Record<string, unknown>>(result)[0];
@@ -377,6 +384,7 @@ export async function listUserDeliveries(database: Queryable, userId: string): P
       p.address AS delivery_point_address, p.municipality AS delivery_point_municipality,
       s.id AS slot_id, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
       a.accepted_at AS acceptance_at,
+       hp.handoff_address, hp.handoff_at, hp.note AS handoff_note, hp.created_at AS handoff_planned_at,
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'categoryCode', i.category_code,
@@ -388,6 +396,10 @@ export async function listUserDeliveries(database: Queryable, userId: string): P
     LEFT JOIN delivery_points p ON p.id = d.delivery_point_id
     LEFT JOIN delivery_slots s ON s.id = d.slot_id
     LEFT JOIN delivery_request_acceptances a ON a.delivery_id = d.id
+     LEFT JOIN LATERAL (
+       SELECT handoff_address, handoff_at, note, created_at FROM delivery_coordination_plans
+       WHERE delivery_id=d.id ORDER BY created_at DESC, id DESC LIMIT 1
+     ) hp ON true
     WHERE d.user_id = $1
     ORDER BY d.created_at DESC, d.id DESC
     LIMIT 50
@@ -425,6 +437,7 @@ export async function listVerifierDeliveries(
       p.address AS delivery_point_address, p.municipality AS delivery_point_municipality,
       s.id AS slot_id, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
       a.accepted_at AS acceptance_at,
+       hp.handoff_address, hp.handoff_at, hp.note AS handoff_note, hp.created_at AS handoff_planned_at,
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'categoryCode', i.category_code,
@@ -436,6 +449,10 @@ export async function listVerifierDeliveries(
     LEFT JOIN delivery_points p ON p.id = d.delivery_point_id
     LEFT JOIN delivery_slots s ON s.id = d.slot_id
     LEFT JOIN delivery_request_acceptances a ON a.delivery_id = d.id
+     LEFT JOIN LATERAL (
+       SELECT handoff_address, handoff_at, note, created_at FROM delivery_coordination_plans
+       WHERE delivery_id=d.id ORDER BY created_at DESC, id DESC LIMIT 1
+     ) hp ON true
     WHERE d.status IN ('pending', 'scheduled', 'received') AND ($5::boolean OR d.user_id <> $1)
       AND ($2::timestamptz IS NULL OR (d.created_at, d.id) < ($2::timestamptz, $3::uuid))
     ORDER BY d.created_at DESC, d.id DESC
