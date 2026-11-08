@@ -3,6 +3,7 @@ import { useAuth } from "@clerk/react";
 import { CalendarClock, Clock3, MapPin, PackageCheck, ShieldCheck } from "lucide-react";
 import {
   createDetailedPilotDelivery,
+  acceptPilotDelivery,
   createPilotDelivery,
   loadPilotDeliveryOptions,
   loadVerifierDeliveryQueue,
@@ -67,8 +68,9 @@ function DeliveryHistory({ deliveries, busy, onAction }: { deliveries: PilotDeli
           </div>
           <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{formatDate(delivery.createdAt)}</p>
         </div>
-        <span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${statusTone(delivery.status)}`}>{deliveryLabels[delivery.status]}</span>
+        <span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${statusTone(delivery.status)}`}>{delivery.status === "pending" && delivery.acceptedAt ? "Aceptada para coordinación" : deliveryLabels[delivery.status]}</span>
       </div>
+      {delivery.acceptedAt && <p className="mt-2 text-xs text-emerald-900">Administración aceptó la solicitud para coordinar la entrega el {formatDate(delivery.acceptedAt)}. Aún no confirma recepción ni concede EcoPuntos.</p>}
       {delivery.requestVersion === 2 && <div className="mt-4 grid gap-3 border-t border-[hsl(var(--border))] pt-4 text-sm sm:grid-cols-2">
         <div>
           <p className="font-semibold text-[hsl(var(--foreground))]">Materiales estimados</p>
@@ -165,6 +167,22 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
     setSelectedId(deliveryId);
     await refreshEvents(deliveryId);
   }
+  async function acceptRequest(deliveryId: string) {
+    if (saving) return;
+    setSaving(true); setActionError(""); setActionMessage("");
+    try {
+      const token = await getToken();
+      if (!token) throw new PilotApiError(401, "missing_session_token");
+      await acceptPilotDelivery(pilotApiUrl, token, deliveryId, new AbortController().signal);
+      await load(null, false); onRefresh();
+      setActionMessage("Solicitud aceptada para coordinación. No se registró recepción ni se acreditaron puntos.");
+    } catch (cause) {
+      const code = cause instanceof PilotApiError ? cause.code : "request_failed";
+      setActionError(code === "delivery_not_pending" ? "Esta solicitud ya no está pendiente." :
+        code === "delivery_acceptance_migration_required" ? "La aceptación administrativa aún no está disponible en el servidor." :
+        "No se pudo aceptar la solicitud. Actualiza y vuelve a intentarlo.");
+    } finally { setSaving(false); }
+  }
   function beginAction(deliveryId: string, nextAction: "receive" | "approve" | "reject") {
     auditSequence.current++; setSelectedId(deliveryId); setEvents([]); setAuditStatus("idle"); setAction(nextAction); setConfirmed(false); setActionError(""); setActionMessage("");
     setWeightGrams(""); setReceiptCode(""); setReasonCode("material_not_received");
@@ -216,11 +234,13 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
       {actionError && <p role="alert" className="mb-3 text-sm text-red-800">{actionError}</p>}
       {actionMessage && <p role="status" className="mb-3 text-sm text-emerald-800">{actionMessage}</p>}
       <div className="space-y-3">{items.map((delivery) => <article key={delivery.id} className="rounded-2xl border border-[hsl(var(--border))] p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">Solicitud {delivery.id.slice(0, 8).toUpperCase()}</p><p className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(delivery.createdAt)} · V{delivery.requestVersion}</p></div><span className="w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">{deliveryLabels[delivery.status]}</span></div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">Solicitud {delivery.id.slice(0, 8).toUpperCase()}</p><p className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(delivery.createdAt)} · V{delivery.requestVersion}</p></div><span className="w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">{delivery.status === "pending" && delivery.acceptedAt ? "Aceptada para coordinación" : deliveryLabels[delivery.status]}</span></div>
         {delivery.requestVersion === 2 && <ul className="mt-3 text-sm text-[hsl(var(--muted-foreground))]">{delivery.materials.map(material => <li key={material.categoryCode}>{materialLabels[material.categoryCode]}: {(material.estimatedGrams / 1000).toLocaleString("es-CO")} kg estimados</li>)}</ul>}
         <div className="mt-3 flex flex-wrap gap-3 text-sm"><button type="button" onClick={() => void showEvents(delivery.id)} className="underline">{selectedId === delivery.id ? "Ocultar auditoría" : "Ver auditoría"}</button>
-          {(delivery.status === "pending" || delivery.status === "scheduled") && <button type="button" disabled={!capabilities?.receiptEnabled || saving} onClick={() => beginAction(delivery.id, "receive")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Registrar recepción</button>}
-          {delivery.status === "received" && <><button type="button" disabled={!capabilities?.pointsEnabled || saving} onClick={() => beginAction(delivery.id, "approve")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Aprobar peso real</button><button type="button" disabled={!capabilities?.decisionEnabled || saving} onClick={() => beginAction(delivery.id, "reject")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Rechazar</button></>}
+          {(delivery.status === "pending" || delivery.status === "scheduled") && !delivery.acceptedAt && <button type="button" disabled={saving} onClick={() => void acceptRequest(delivery.id)} className="font-semibold text-emerald-800 underline disabled:opacity-50" data-testid={`accept-delivery-${delivery.id}`}>Aceptar solicitud</button>}
+          {delivery.acceptedAt && <span className="text-xs text-emerald-800">Aceptada {formatDate(delivery.acceptedAt)} · Pendiente de recepción física</span>}
+          {(delivery.status === "pending" || delivery.status === "scheduled") && !delivery.isOwn && <button type="button" disabled={!capabilities?.receiptEnabled || saving} onClick={() => beginAction(delivery.id, "receive")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Registrar recepción</button>}
+          {delivery.status === "received" && !delivery.isOwn && <><button type="button" disabled={!capabilities?.pointsEnabled || saving} onClick={() => beginAction(delivery.id, "approve")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Aprobar peso real</button><button type="button" disabled={!capabilities?.decisionEnabled || saving} onClick={() => beginAction(delivery.id, "reject")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Rechazar</button></>}
         </div>
         {selectedId === delivery.id && <div className="mt-4 border-t border-[hsl(var(--border))] pt-4">
           {auditStatus === "loading" && <p className="text-sm">Cargando auditoría…</p>}

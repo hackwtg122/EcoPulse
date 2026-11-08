@@ -25,6 +25,8 @@ export type PilotDelivery = {
   requestVersion: 1 | 2;
   createdAt: string;
   updatedAt: string;
+  acceptedAt?: string | null;
+  isOwn?: boolean;
   deliveryPoint: PilotDeliveryPoint | null;
   slot: PilotDeliverySlot | null;
   materials: PilotDeliveryMaterial[];
@@ -278,6 +280,8 @@ function parseDelivery(row: Record<string, unknown>): PilotDelivery {
     requestVersion,
     createdAt,
     updatedAt: row.updatedAt === undefined ? createdAt : requireString(row.updatedAt, "delivery_updated_at"),
+    ...(row.acceptedAt == null ? {} : { acceptedAt: requireString(row.acceptedAt, "delivery_accepted_at") }),
+    ...(typeof row.isOwn === "boolean" ? { isOwn: row.isOwn } : {}),
     deliveryPoint: parseDeliveryPoint(row.deliveryPoint),
     slot: parseDeliverySlot(row.slot),
     materials: parseMaterials(row.materials),
@@ -715,6 +719,18 @@ async function postVerifierAction(
   });
   if (!response.ok) throw await responseError(response);
   return requireObject(await response.json(), "verifier_action");
+}
+
+export async function acceptPilotDelivery(apiUrl: string, token: string, deliveryId: string, signal: AbortSignal,
+  fetchImplementation: FetchImplementation = fetch): Promise<{ deliveryId: string; acceptedAt: string; replayed: boolean }> {
+  const response = await fetchImplementation(`${apiUrl}/api/pilot/admin/deliveries/${encodeURIComponent(deliveryId)}/accept`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({}), cache: "no-store", signal,
+  });
+  if (!response.ok) throw await responseError(response);
+  const data = requireObject(await response.json(), "accept_delivery_response");
+  if (data.deliveryId !== deliveryId || typeof data.replayed !== "boolean") throw new PilotApiError(502, "invalid_delivery_acceptance_response");
+  return { deliveryId, acceptedAt: requireString(data.acceptedAt, "delivery_accepted_at"), replayed: data.replayed };
 }
 
 export function receivePilotDelivery(
