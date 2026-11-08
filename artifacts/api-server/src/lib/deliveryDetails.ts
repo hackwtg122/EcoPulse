@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { deliveryIdForIdempotency, scanCategories, uuidPattern, type DeliveryCursor } from "./pilotPolicy.ts";
 import { presentDeliveryPoint } from "./pointPresentation.ts";
-import { parseValidationReference } from "./deliveryCatalog.ts";
+import { isCatalogPublicationReference } from "./deliveryCatalog.ts";
 
 export type DeliveryStatus = "pending" | "scheduled" | "received" | "approved" | "rejected" | "cancelled";
 export type DeliveryMaterialInput = { categoryCode: (typeof scanCategories)[number]; estimatedGrams: number };
@@ -291,8 +291,7 @@ export async function loadDeliveryOptions(
 
 export function hasOperationalEvidence(row: { validation_reference?: string | null; validated_by?: string | null; validated_at?: Date | null }): boolean {
   if (!row.validated_by || !row.validated_at) return false;
-  try { parseValidationReference({ validationReference: row.validation_reference }); return true; }
-  catch { return false; }
+  return isCatalogPublicationReference(row.validation_reference);
 }
 
 function mapPublicDeliveryRow(row: Record<string, unknown>): PublicDelivery {
