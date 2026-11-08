@@ -228,7 +228,7 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[hsl(var(--secondary)/.32)] text-[hsl(var(--primary))]"><ClipboardList size={21} /></span>
       <div>
         <h2 id="coordination-title" className="font-display text-3xl text-[hsl(var(--primary))]">Solicitar coordinación de entrega</h2>
-        <p className="mt-2 text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Cuando no hay un centro autorizado disponible, registra tu intención. Administración podrá asignarte un centro publicado; hasta entonces la solicitud sigue pendiente y no genera EcoPuntos.</p>
+        <p className="mt-2 text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Elige una zona EcoPulse y registra los materiales que deseas entregar. Administración coordinará contigo la dirección y disponibilidad antes de cualquier recepción. Esta solicitud no genera EcoPuntos.</p>
       </div>
     </div>
 
@@ -236,11 +236,11 @@ export function CoordinationRequestsPanel({ apiUrl, allowCreate }: { apiUrl: str
 
     {allowCreate && schemaReady && <form onSubmit={submit} className="mt-5 space-y-4" data-testid="form-coordination-request">
       <fieldset disabled={submitStatus === "submitting" || pendingPayload.current !== null} className="space-y-4">
-      <label className="block text-sm font-semibold">Centro al que deseas entregar<select disabled={submitStatus === "submitting"} value={requestedPointId} onChange={event => setRequestedPointId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border bg-[hsl(var(--background))] p-3"><option value="">Solicitar orientación sin centro elegido</option>{points.map(point => <option key={point.id} value={point.id}>{point.name} · {point.municipality}</option>)}</select></label>
+      <label className="block text-sm font-semibold">Zona EcoPulse o centro preferido<select disabled={submitStatus === "submitting"} value={requestedPointId} onChange={event => setRequestedPointId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border bg-[hsl(var(--background))] p-3"><option value="">Solicitar orientación sin zona elegida</option>{points.map(point => <option key={point.id} value={point.id}>{point.name} · {point.municipality}</option>)}</select></label>
       <label className="block text-sm font-semibold">Fecha y hora preferidas (no confirmadas)<input type="datetime-local" disabled={submitStatus === "submitting"} value={preferredAt} onChange={event => setPreferredAt(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border bg-[hsl(var(--background))] p-3" /></label>
       <fieldset disabled={submitStatus === "submitting"}>
         <legend className="text-sm font-bold">Materiales y cantidades estimadas</legend>
-        <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Selecciona entre 0,001 y 100 kg totales. Un operador autorizado validará el peso real en el centro asignado.</p>
+        <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Selecciona entre 0,001 y 100 kg totales. El peso real solo se verificará cuando se efectúe la entrega física en el lugar acordado.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {manualScanCategories.map((code) => {
             const selected = materialKg[code] !== undefined;
