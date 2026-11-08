@@ -328,6 +328,15 @@ function AdminHomePage() {
   const [location] = useLocation();
   const search = useSearch();
   const generalSettings = new URLSearchParams(search).get("section") === "settings";
+  useEffect(() => {
+    if (generalSettings || window.location.hash !== "#verifier-queue-anchor") return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById("verifier-queue-anchor");
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [generalSettings]);
   if (!state.data) return <div><p role={state.status === "error" ? "alert" : "status"}>{state.status === "error" ? "No se pudo comprobar la conexión y los permisos de tu cuenta." : "Consultando permisos administrativos…"}</p>{state.status === "error" && <button type="button" onClick={retry} className="min-h-11 underline">Reintentar conexión</button>}</div>;
   const role = state.data?.role ?? "";
   const authorized = role === "admin" || role === "verifier";
@@ -344,7 +353,7 @@ function AdminHomePage() {
     {role === "admin" && <Suspense fallback={<p role="status">Consultando estado operativo…</p>}><OperationalReadinessPanel /></Suspense>}
     {role === "admin" && <div className="mt-5"><Suspense fallback={<p role="status">Cargando retos…</p>}><ChallengesAdminPanel apiUrl={pilotApiUrl}/></Suspense></div>}
     {role === "admin" && <div className="mt-5"><Suspense fallback={<p role="status">Cargando solicitudes de coordinación…</p>}><CoordinationAdminPanel apiUrl={pilotApiUrl} /></Suspense></div>}
-    <div className="mt-5"><Suspense fallback={<p role="status">Cargando cola de verificación…</p>}><VerifierQueue role={role} onRefresh={retry} /></Suspense></div>
+    <div id="verifier-queue-anchor" tabIndex={-1} className="mt-5 scroll-mt-6 outline-none"><Suspense fallback={<p role="status">Cargando cola de verificación…</p>}><VerifierQueue role={role} onRefresh={retry} /></Suspense></div>
   </div>;
 }
 
