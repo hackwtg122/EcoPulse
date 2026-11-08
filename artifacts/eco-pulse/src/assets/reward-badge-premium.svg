@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" role="img" aria-label="Insignia Huella Verde de esmeralda y oro">
+<defs>
+<linearGradient id="bg" x2="1" y2="1"><stop stop-color="#c8e3bf"/><stop offset=".43" stop-color="#8caf7e"/><stop offset="1" stop-color="#213e31"/></linearGradient>
+<linearGradient id="ribbon" x2=".1" y2="1"><stop stop-color="#225945"/><stop offset=".4" stop-color="#0b382e"/><stop offset=".7" stop-color="#1f6144"/><stop offset="1" stop-color="#07392f"/></linearGradient>
+<linearGradient id="gold"><stop stop-color="#84602e"/><stop offset=".17" stop-color="#ffe29b"/><stop offset=".32" stop-color="#a6792a"/><stop offset=".53" stop-color="#fff1bf"/><stop offset=".72" stop-color="#b47d2f"/><stop offset="1" stop-color="#e2ad52"/></linearGradient>
+<radialGradient id="gem" cx=".36" cy=".24"><stop stop-color="#2f9c76"/><stop offset=".42" stop-color="#12614c"/><stop offset="1" stop-color="#063d36"/></radialGradient>
+<filter id="shadow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="15"/></filter>
+<filter id="glow"><feGaussianBlur stdDeviation="7"/></filter>
+</defs>
+<rect width="800" height="400" fill="url(#bg)"/><circle cx="610" cy="80" r="140" fill="#f6e8b1" opacity=".15" filter="url(#glow)"/>
+<g opacity=".32" fill="#345d42"><path d="M20 95q130-87 205-90-52 101-205 90Z"/><path d="M580 400q120-145 220-140-16 90-220 140Z"/></g>
+<ellipse cx="399" cy="367" rx="190" ry="18" fill="#102e27" opacity=".45" filter="url(#shadow)"/>
+<path d="M275-40 397 156 467 151 351-40Z" fill="url(#ribbon)" stroke="#b2ce9a" stroke-width="5"/><path d="M407-40 477 165 540 126 492-40Z" fill="#245e45"/>
+<path d="M307 0 393 144" stroke="#8fc29f" stroke-width="7" opacity=".35"/>
+<circle cx="418" cy="218" r="161" fill="#07372f" opacity=".5" filter="url(#shadow)"/>
+<circle cx="400" cy="211" r="147" fill="url(#gold)"/>
+<circle cx="400" cy="211" r="134" fill="#083d35" stroke="#fff0b8" stroke-width="3"/>
+<circle cx="400" cy="211" r="122" fill="url(#gem)" stroke="#ba8d43" stroke-width="5"/>
+<circle cx="400" cy="211" r="104" fill="none" stroke="#e7bb6b" stroke-width="2" opacity=".55"/>
+<g stroke="#e5c579" fill="#d8b665">
+<ellipse cx="470" cy="150" rx="7" ry="16" transform="rotate(-36 470 150)"/><ellipse cx="444" cy="132" rx="7" ry="16" transform="rotate(-20 444 132)"/><ellipse cx="414" cy="123" rx="7" ry="16" transform="rotate(-4 414 123)"/><ellipse cx="381" cy="124" rx="7" ry="16" transform="rotate(12 381 124)"/><ellipse cx="351" cy="134" rx="7" ry="16" transform="rotate(28 351 134)"/><ellipse cx="326" cy="154" rx="7" ry="16" transform="rotate(44 326 154)"/><ellipse cx="309" cy="180" rx="7" ry="16" transform="rotate(60 309 180)"/><ellipse cx="302" cy="210" rx="7" ry="16" transform="rotate(76 302 210)"/><ellipse cx="306" cy="241" rx="7" ry="16" transform="rotate(92 306 241)"/><ellipse cx="320" cy="268" rx="7" ry="16" transform="rotate(108 320 268)"/>
+<ellipse cx="330" cy="150" rx="7" ry="16" transform="rotate(36 330 150)"/><ellipse cx="356" cy="132" rx="7" ry="16" transform="rotate(20 356 132)"/><ellipse cx="386" cy="123" rx="7" ry="16" transform="rotate(4 386 123)"/><ellipse cx="419" cy="124" rx="7" ry="16" transform="rotate(-12 419 124)"/><ellipse cx="449" cy="134" rx="7" ry="16" transform="rotate(-28 449 134)"/><ellipse cx="474" cy="154" rx="7" ry="16" transform="rotate(-44 474 154)"/><ellipse cx="491" cy="180" rx="7" ry="16" transform="rotate(-60 491 180)"/><ellipse cx="498" cy="210" rx="7" ry="16" transform="rotate(-76 498 210)"/><ellipse cx="494" cy="241" rx="7" ry="16" transform="rotate(-92 494 241)"/><ellipse cx="480" cy="268" rx="7" ry="16" transform="rotate(-108 480 268)"/>
+</g>
+<path d="M403 117c-56 12-81 44-70 75 36 3 64-27 70-75Zm9 11c41 14 60 36 51 65-28-3-51-19-51-65Z" fill="#bde59d"/>
+<path d="M404 135c-4 29-7 50 0 77" fill="none" stroke="#f0e5b2" stroke-width="7" stroke-linecap="round"/>
+<text x="400" y="258" text-anchor="middle" font-family="Georgia,serif" font-size="35" font-weight="bold" fill="#f7e0a5" letter-spacing="3">HUELLA</text>
+<text x="400" y="291" text-anchor="middle" font-family="Georgia,serif" font-size="35" font-weight="bold" fill="#f7e0a5" letter-spacing="3">VERDE</text>
+<g fill="#e6c07d"><circle cx="367" cy="310" r="3"/><circle cx="400" cy="311" r="3"/><circle cx="432" cy="310" r="3"/></g>
+<path d="M0 400V0h800v400Z" fill="none" stroke="#e8f0dd" stroke-width="3" opacity=".3"/>
+</svg>
