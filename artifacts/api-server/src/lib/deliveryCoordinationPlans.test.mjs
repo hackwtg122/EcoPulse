@@ -21,7 +21,7 @@ function mock({role="admin",status="pending",version=2,accepted=true,prior=null}
  return {calls,connect:async()=>client};
 }
 test("parsing requires exact address and future time, with no invented default",()=>{
- const v=parseHandoffDetails(request()); assert.match(v.handoffAddress,/Montería/);
+ const v=parseHandoffDetails(request()); assert.match(v.pointId,/^[0-9a-f-]{36}$/);
  for(const bad of [{...request(),pointId:"bad"},{...request(),handoffAt:"2020-01-01T00:00:00Z"},{...request(),note:"x".repeat(501)},{...request(),confirmedReceipt:true}]) {
    assert.throws(()=>parseHandoffDetails(bad),{status:400});
  }
