@@ -706,7 +706,7 @@ router.get("/verifier/deliveries", async (req, res) => {
     return res.status(400).json({ error: "invalid_pagination" });
   }
   const pool = await databasePool();
-  const rows = await listVerifierDeliveries(pool, res.locals.userId, limit + 1, cursor.value);
+  const rows = await listVerifierDeliveries(pool, res.locals.userId, limit + 1, cursor.value, res.locals.role === "admin");
   const items = rows.slice(0, limit);
   const last = items.at(-1);
   const nextCursor = rows.length > limit && last
