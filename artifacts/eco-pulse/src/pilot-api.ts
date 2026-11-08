@@ -26,6 +26,7 @@ export type PilotDelivery = {
   createdAt: string;
   updatedAt: string;
   acceptedAt?: string | null;
+  isOwn?: boolean;
   deliveryPoint: PilotDeliveryPoint | null;
   slot: PilotDeliverySlot | null;
   materials: PilotDeliveryMaterial[];
@@ -280,6 +281,7 @@ function parseDelivery(row: Record<string, unknown>): PilotDelivery {
     createdAt,
     updatedAt: row.updatedAt === undefined ? createdAt : requireString(row.updatedAt, "delivery_updated_at"),
     ...(row.acceptedAt == null ? {} : { acceptedAt: requireString(row.acceptedAt, "delivery_accepted_at") }),
+    ...(typeof row.isOwn === "boolean" ? { isOwn: row.isOwn } : {}),
     deliveryPoint: parseDeliveryPoint(row.deliveryPoint),
     slot: parseDeliverySlot(row.slot),
     materials: parseMaterials(row.materials),
