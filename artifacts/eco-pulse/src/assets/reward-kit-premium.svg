@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" role="img" aria-label="Kit digital de reciclaje presentado en una tableta">
+<defs>
+<linearGradient id="bg" x2="1" y2="1"><stop stop-color="#e3e9d6"/><stop offset=".4" stop-color="#c8d9bd"/><stop offset="1" stop-color="#729b86"/></linearGradient>
+<linearGradient id="desk" x2="0" y2="1"><stop stop-color="#b58b5a"/><stop offset="1" stop-color="#805c39"/></linearGradient>
+<linearGradient id="metal" x2=".2" y2="1"><stop stop-color="#343b3e"/><stop offset=".48" stop-color="#101c22"/><stop offset="1" stop-color="#536366"/></linearGradient>
+<linearGradient id="paper" x2=".1" y2="1"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#e7f0e0"/></linearGradient>
+<filter id="shadow"><feGaussianBlur stdDeviation="15"/></filter>
+<filter id="soft"><feGaussianBlur stdDeviation="4"/></filter>
+</defs>
+<rect width="800" height="400" fill="url(#bg)"/>
+<g fill="#2f7658" opacity=".23" filter="url(#soft)"><ellipse cx="100" cy="65" rx="32" ry="100" transform="rotate(-45 100 65)"/><ellipse cx="750" cy="40" rx="42" ry="125" transform="rotate(32 750 40)"/><ellipse cx="688" cy="97" rx="39" ry="84" transform="rotate(-35 688 97)"/></g>
+<path d="M0 311c219-29 467-27 800 7v82H0Z" fill="url(#desk)"/><path d="M0 333c215-33 500-6 800 15" stroke="#e6c594" stroke-width="6" fill="none" opacity=".3"/>
+<ellipse cx="405" cy="337" rx="275" ry="28" fill="#1a2a24" opacity=".35" filter="url(#shadow)"/>
+<g transform="rotate(-8 410 190)">
+<rect x="205" y="11" width="413" height="349" rx="29" fill="#182622" opacity=".46" filter="url(#shadow)"/>
+<rect x="201" y="5" width="413" height="349" rx="27" fill="url(#metal)"/>
+<rect x="221" y="24" width="373" height="304" rx="10" fill="url(#paper)"/>
+<rect x="221" y="24" width="373" height="56" rx="10" fill="#d4ead4"/>
+<circle cx="254" cy="51" r="12" fill="#286a51"/><path d="M250 56q0-10 11-10-1 13-11 10" fill="#d6f3be"/>
+<text x="275" y="56" font-family="Georgia,serif" font-size="18" font-weight="bold" fill="#15513e">ECOPULSE</text>
+<text x="248" y="114" font-family="Georgia,serif" font-size="34" font-weight="bold" fill="#1e5944">GUÍA DE</text>
+<text x="248" y="150" font-family="Georgia,serif" font-size="34" font-weight="bold" fill="#1e5944">RECICLAJE</text>
+<text x="248" y="170" font-family="sans-serif" font-size="13" fill="#57736b">Aprende · Separa · Transforma</text>
+<rect x="249" y="188" width="317" height="1" fill="#b3c9bc"/>
+<g><rect x="250" y="206" width="94" height="86" rx="8" fill="#d7ead2"/><rect x="360" y="206" width="94" height="86" rx="8" fill="#f4e7c2"/><rect x="470" y="206" width="94" height="86" rx="8" fill="#dae8ef"/>
+<g font-family="sans-serif" font-size="13" text-anchor="middle" fill="#295845" font-weight="bold"><text x="297" y="277">ORGÁNICOS</text><text x="407" y="277">ENVASES</text><text x="517" y="277">PAPEL</text></g>
+<g fill="#407e58"><path d="M284 251q5-29 26-28 1 23-26 28Z"/><path d="M284 250l19-19" stroke="#1e5944" stroke-width="2"/></g>
+<g stroke="#b58030" stroke-width="5" fill="none"><path d="M407 218l12 15h-10l9 14-15 6-8-16h-10Z"/></g>
+<g fill="none" stroke="#5685a2" stroke-width="5"><rect x="504" y="228" width="29" height="24" rx="2"/></g>
+</g>
+<circle cx="407" cy="343" r="7" fill="#a6b4a9"/>
+</g>
+<g transform="translate(40 245)"><ellipse cx="65" cy="96" rx="60" ry="14" fill="#30291f" opacity=".15"/><path d="M17 53h96l-10 50H30Z" fill="#eae5da"/><path d="M35 54q-47-42-8-78 50 14 30 78" fill="#40795b"/><path d="M50 59Q34-25 84-52 119-8 69 55" fill="#2d7654"/><path d="M61 65q4-78 65-71 6 54-52 75" fill="#3b8d65"/><path d="M60 55q-9-16-36-51m40 57L83-35m-17 101 54-65" stroke="#d2e3b2" stroke-width="2" fill="none"/></g>
+<g fill="#f7fbec" opacity=".4"><circle cx="704" cy="204" r="3"/><circle cx="732" cy="244" r="4"/><circle cx="665" cy="154" r="2"/></g>
+</svg>
