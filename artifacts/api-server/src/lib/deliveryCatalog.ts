@@ -89,7 +89,7 @@ export async function listCatalog(pool: Pool, validationReady: boolean) {
     if (row.validatedAt && typeof validatedBy === "string" && validatedBy) {
       operationallyValidated = isCatalogPublicationReference(row.validationReference);
     }
-    return { ...row, operationallyValidated, administrativelyDeclared: row.validationReference === ADMIN_CATALOG_DECLARATION && operationallyValidated, coordinationZone: row.validationReference === "ecopulse-coordination:v1" };
+    return { ...row, operationallyValidated, administrativelyDeclared: row.validationReference === ADMIN_CATALOG_DECLARATION && operationallyValidated, coordinationZone: row.validationReference === ADMIN_CATALOG_DECLARATION && typeof row.address === "string" && row.address.includes("punto de entrega por coordinar") };
   };
   return { points: points.rows.map(view), slots: slots.rows.map(view) };
 }
