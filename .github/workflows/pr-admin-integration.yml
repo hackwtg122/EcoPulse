@@ -5,6 +5,10 @@ on:
     paths:
       - "artifacts/api-server/src/lib/adminInitialCatalog*"
       - "artifacts/api-server/src/routes/pilot.ts"
+      - "artifacts/api-server/src/lib/deliveryCoordinationPlans.ts"
+      - "artifacts/api-server/src/lib/deliveryCoordinationPlans.test.mjs"
+      - "artifacts/eco-pulse/src/delivery-panel.tsx"
+      - "artifacts/eco-pulse/src/pilot-api.ts"
       - "artifacts/eco-pulse/src/operational-readiness-panel.tsx"
       - "artifacts/eco-pulse/src/App.tsx"
       - "artifacts/eco-pulse/src/rewards-panel.tsx"
