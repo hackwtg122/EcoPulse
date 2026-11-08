@@ -4,6 +4,7 @@ import { CalendarClock, Clock3, MapPin, PackageCheck, ShieldCheck } from "lucide
 import {
   createDetailedPilotDelivery,
   acceptPilotDelivery,
+  planPilotDeliveryHandoff,
   createPilotDelivery,
   loadPilotDeliveryOptions,
   loadVerifierDeliveryQueue,
@@ -71,6 +72,13 @@ function DeliveryHistory({ deliveries, busy, onAction }: { deliveries: PilotDeli
         <span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${statusTone(delivery.status)}`}>{delivery.status === "pending" && delivery.acceptedAt ? "Aceptada para coordinación" : deliveryLabels[delivery.status]}</span>
       </div>
       {delivery.acceptedAt && <p className="mt-2 text-xs text-emerald-900">Administración aceptó la solicitud para coordinar la entrega el {formatDate(delivery.acceptedAt)}. Aún no confirma recepción ni concede EcoPuntos.</p>}
+      {delivery.handoffPlan && <div className="mt-3 rounded-xl border border-[hsl(var(--border))] p-3 text-sm" data-testid="delivery-handoff-confirmation">
+        <p className="font-semibold">Propuesta de coordinación</p>
+        <p>Fecha y hora: {formatDate(delivery.handoffPlan.handoffAt)}</p>
+        <p>Lugar indicado: {delivery.handoffPlan.handoffAddress}</p>
+        {delivery.handoffPlan.note && <p>Indicaciones: {delivery.handoffPlan.note}</p>}
+        <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Acuerda y confirma los detalles con Administración antes de desplazarte. Esta propuesta no confirma recepción ni genera puntos.</p>
+      </div>}
       {delivery.requestVersion === 2 && <div className="mt-4 grid gap-3 border-t border-[hsl(var(--border))] pt-4 text-sm sm:grid-cols-2">
         <div>
           <p className="font-semibold text-[hsl(var(--foreground))]">Materiales estimados</p>
@@ -114,6 +122,10 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
   const [action, setAction] = useState<"receive" | "approve" | "reject" | null>(null);
   const [weightGrams, setWeightGrams] = useState("");
   const [receiptCode, setReceiptCode] = useState("");
+  const [handoffAddress, setHandoffAddress] = useState("");
+  const [handoffAt, setHandoffAt] = useState("");
+  const [handoffNote, setHandoffNote] = useState("");
+  const [handoffId, setHandoffId] = useState<string | null>(null);
   const [reasonCode, setReasonCode] = useState<RejectionReason>("material_not_received");
   const [confirmed, setConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -183,6 +195,35 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
         "No se pudo aceptar la solicitud. Actualiza y vuelve a intentarlo.");
     } finally { setSaving(false); }
   }
+  function beginHandoff(delivery: PilotDelivery) {
+    setHandoffId(delivery.id);
+    setHandoffAddress(delivery.handoffPlan?.handoffAddress ?? "");
+    setHandoffAt(delivery.handoffPlan?.handoffAt ? new Date(delivery.handoffPlan.handoffAt).toISOString().slice(0,16) : "");
+    setHandoffNote(delivery.handoffPlan?.note ?? "");
+    setAction(null); setActionError(""); setActionMessage("");
+  }
+  async function submitHandoff(deliveryId: string) {
+    if (saving) return;
+    const date = new Date(handoffAt);
+    if (!handoffAddress.includes(",") || handoffAddress.trim().length < 8 || !Number.isFinite(date.valueOf()) || date.valueOf() < Date.now() + 5*60_000) {
+      setActionError("Indica una dirección concreta (calle, número, municipio) y una fecha futura."); return;
+    }
+    setSaving(true);setActionError("");setActionMessage("");
+    try {
+      const token=await getToken();
+      if(!token) throw new PilotApiError(401,"missing_session_token");
+      await planPilotDeliveryHandoff(pilotApiUrl,token,deliveryId,{
+        handoffAddress:handoffAddress.trim(),handoffAt:date.toISOString(),note:handoffNote.trim()||null,
+      },new AbortController().signal);
+      setHandoffId(null);
+      await load(null,false);onRefresh();
+      setActionMessage("Propuesta de coordinación guardada y visible para el participante. No se registró una recepción.");
+    } catch(cause) {
+      const code=cause instanceof PilotApiError?cause.code:"request_failed";
+      setActionError(code==="invalid_handoff_date"?"La fecha debe ser futura y estar dentro de los próximos 180 días.":
+        code==="delivery_not_accepted"?"Acepta primero la solicitud.": "No fue posible guardar la coordinación. Revisa los datos y vuelve a intentar.");
+    } finally {setSaving(false);}
+  }
   function beginAction(deliveryId: string, nextAction: "receive" | "approve" | "reject") {
     auditSequence.current++; setSelectedId(deliveryId); setEvents([]); setAuditStatus("idle"); setAction(nextAction); setConfirmed(false); setActionError(""); setActionMessage("");
     setWeightGrams(""); setReceiptCode(""); setReasonCode("material_not_received");
@@ -239,6 +280,10 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
         <div className="mt-3 flex flex-wrap gap-3 text-sm"><button type="button" onClick={() => void showEvents(delivery.id)} className="underline">{selectedId === delivery.id ? "Ocultar auditoría" : "Ver auditoría"}</button>
           {(delivery.status === "pending" || delivery.status === "scheduled") && !delivery.acceptedAt && <button type="button" disabled={saving} onClick={() => void acceptRequest(delivery.id)} className="font-semibold text-emerald-800 underline disabled:opacity-50" data-testid={`accept-delivery-${delivery.id}`}>Aceptar solicitud</button>}
           {delivery.acceptedAt && <span className="text-xs text-emerald-800">Aceptada {formatDate(delivery.acceptedAt)} · Pendiente de recepción física</span>}
+          {delivery.acceptedAt && (delivery.status === "pending" || delivery.status === "scheduled") &&
+            <button type="button" disabled={saving} onClick={() => beginHandoff(delivery)}
+              className="font-semibold text-[hsl(var(--primary))] underline disabled:opacity-50"
+              data-testid={`plan-delivery-${delivery.id}`}>{delivery.handoffPlan ? "Modificar coordinación" : "Coordinar fecha y lugar"}</button>}
           {(delivery.status === "pending" || delivery.status === "scheduled") && !delivery.isOwn && <button type="button" disabled={!capabilities?.receiptEnabled || saving} onClick={() => beginAction(delivery.id, "receive")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Registrar recepción</button>}
           {delivery.status === "received" && !delivery.isOwn && <><button type="button" disabled={!capabilities?.pointsEnabled || saving} onClick={() => beginAction(delivery.id, "approve")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Aprobar peso real</button><button type="button" disabled={!capabilities?.decisionEnabled || saving} onClick={() => beginAction(delivery.id, "reject")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Rechazar</button></>}
         </div>
@@ -247,6 +292,29 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
           {auditStatus === "error" && <p role="alert" className="text-sm text-red-800">No se pudo cargar el historial.</p>}
           {auditStatus === "ready" && events.length === 0 && <p className="text-sm text-[hsl(var(--muted-foreground))]">Esta solicitud no tiene eventos de estado registrados.</p>}
           {auditStatus === "ready" && events.length > 0 && <ol className="space-y-1 text-sm">{events.map((event, index) => <li key={`${event.createdAt}-${index}`}>{formatDate(event.createdAt)} · {deliveryLabels[event.toStatus]}{event.toStatus === "rejected" && event.reasonCode ? ` · ${rejectionLabels[event.reasonCode as RejectionReason] ?? "Motivo registrado"}` : ""}</li>)}</ol>}
+          {handoffId === delivery.id && <form onSubmit={event => {event.preventDefault();void submitHandoff(delivery.id);}}
+            className="mt-4 space-y-3 rounded-2xl bg-[hsl(var(--muted)/.65)] p-4"
+            data-testid={`form-handoff-${delivery.id}`}>
+            <h3 className="font-semibold">Coordinar una entrega</h3>
+            <p className="text-xs">Indica el lugar exacto y la fecha que puedes ofrecer. No se registra recepción física ni se conceden puntos.</p>
+            <label className="block text-sm">Lugar exacto (dirección y municipio)
+              <input required minLength={8} maxLength={200} value={handoffAddress} onChange={e=>setHandoffAddress(e.target.value)}
+                placeholder="Calle 12 # 34-56, Montería" className="mt-1 min-h-11 w-full rounded-xl border p-2"/>
+            </label>
+            <label className="block text-sm">Fecha y hora propuestas
+              <input required type="datetime-local" value={handoffAt} onChange={e=>setHandoffAt(e.target.value)}
+                className="mt-1 min-h-11 w-full rounded-xl border p-2"/>
+            </label>
+            <label className="block text-sm">Indicaciones opcionales
+              <textarea maxLength={500} value={handoffNote} onChange={e=>setHandoffNote(e.target.value)}
+                className="mt-1 min-h-11 w-full rounded-xl border p-2" rows={2}/>
+            </label>
+            <div className="flex flex-wrap gap-3">
+              <button disabled={saving} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 py-2 font-semibold text-[hsl(var(--primary-foreground))] disabled:opacity-50">{saving?"Guardando…":"Guardar propuesta"}</button>
+              <button type="button" onClick={()=>setHandoffId(null)} className="underline">Cancelar</button>
+            </div>
+          </form>}
+          {delivery.handoffPlan && <p className="mt-2 text-sm">Propuesta actual: {formatDate(delivery.handoffPlan.handoffAt)} · {delivery.handoffPlan.handoffAddress}. Sin recepción registrada.</p>}
           {action && <form onSubmit={event => { event.preventDefault(); void submitAction(delivery.id); }} className="mt-4 space-y-3 rounded-2xl bg-[hsl(var(--muted)/.65)] p-4">
             <h3 className="font-semibold">{action === "receive" ? "Registrar recepción" : action === "approve" ? "Aprobar peso verificado" : "Rechazar entrega"}</h3>
             {action === "approve" && <><label className="block text-sm">Peso real total (gramos)<input required type="number" min={1} max={100000} step={1} value={weightGrams} onChange={event => setWeightGrams(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" /></label><label className="block text-sm">Código de comprobante físico<input required minLength={8} maxLength={64} pattern="[A-Za-z0-9_-]{8,64}" value={receiptCode} onChange={event => setReceiptCode(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" /></label></>}
