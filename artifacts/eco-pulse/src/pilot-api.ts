@@ -729,7 +729,7 @@ async function postVerifierAction(
 }
 
 export async function planPilotDeliveryHandoff(apiUrl:string, token:string, deliveryId:string,
-  details:{handoffAddress:string;handoffAt:string;note:string|null}, signal:AbortSignal,
+  details:{pointId:string;handoffAt:string;note:string|null}, signal:AbortSignal,
   fetchImplementation: FetchImplementation = fetch): Promise<{deliveryId:string; replayed:boolean}> {
   const response = await fetchImplementation(`${apiUrl}/api/pilot/admin/deliveries/${encodeURIComponent(deliveryId)}/handoff`, {
     method:"POST", headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},
