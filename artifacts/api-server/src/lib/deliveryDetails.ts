@@ -18,6 +18,7 @@ export type PublicDelivery = {
   requestVersion: 1 | 2;
   createdAt: Date;
   updatedAt: Date;
+  acceptedAt: Date | null;
   deliveryPoint: null | {
     id: string;
     code: string;
@@ -308,6 +309,7 @@ function mapPublicDeliveryRow(row: Record<string, unknown>): PublicDelivery {
     requestVersion: requestVersion === 2 ? 2 : 1,
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at ?? row.created_at) as Date,
+    acceptedAt: (row.acceptance_at as Date | null) ?? null,
     deliveryPoint: deliveryPoint ? {
       id: String(row.delivery_point_id),
       code: String(row.delivery_point_code),
@@ -333,6 +335,7 @@ async function findDetailedDelivery(database: Queryable, userId: string, deliver
       p.id AS delivery_point_id, p.code AS delivery_point_code, p.name AS delivery_point_name,
       p.address AS delivery_point_address, p.municipality AS delivery_point_municipality,
       s.id AS slot_id, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
+      a.accepted_at AS acceptance_at,
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'categoryCode', i.category_code,
@@ -343,6 +346,7 @@ async function findDetailedDelivery(database: Queryable, userId: string, deliver
     FROM deliveries d
     LEFT JOIN delivery_points p ON p.id = d.delivery_point_id
     LEFT JOIN delivery_slots s ON s.id = d.slot_id
+    LEFT JOIN delivery_request_acceptances a ON a.delivery_id = d.id
     WHERE d.id = $1 AND d.user_id = $2
   `, [deliveryId, userId]);
   const row = rowsOf<Record<string, unknown>>(result)[0];
@@ -370,6 +374,7 @@ export async function listUserDeliveries(database: Queryable, userId: string): P
       p.id AS delivery_point_id, p.code AS delivery_point_code, p.name AS delivery_point_name,
       p.address AS delivery_point_address, p.municipality AS delivery_point_municipality,
       s.id AS slot_id, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
+      a.accepted_at AS acceptance_at,
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'categoryCode', i.category_code,
@@ -380,6 +385,7 @@ export async function listUserDeliveries(database: Queryable, userId: string): P
     FROM deliveries d
     LEFT JOIN delivery_points p ON p.id = d.delivery_point_id
     LEFT JOIN delivery_slots s ON s.id = d.slot_id
+    LEFT JOIN delivery_request_acceptances a ON a.delivery_id = d.id
     WHERE d.user_id = $1
     ORDER BY d.created_at DESC, d.id DESC
     LIMIT 50
@@ -415,6 +421,7 @@ export async function listVerifierDeliveries(
       p.id AS delivery_point_id, p.code AS delivery_point_code, p.name AS delivery_point_name,
       p.address AS delivery_point_address, p.municipality AS delivery_point_municipality,
       s.id AS slot_id, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
+      a.accepted_at AS acceptance_at,
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'categoryCode', i.category_code,
@@ -425,6 +432,7 @@ export async function listVerifierDeliveries(
     FROM deliveries d
     LEFT JOIN delivery_points p ON p.id = d.delivery_point_id
     LEFT JOIN delivery_slots s ON s.id = d.slot_id
+    LEFT JOIN delivery_request_acceptances a ON a.delivery_id = d.id
     WHERE d.status IN ('pending', 'scheduled', 'received') AND d.user_id <> $1
       AND ($2::timestamptz IS NULL OR (d.created_at, d.id) < ($2::timestamptz, $3::uuid))
     ORDER BY d.created_at DESC, d.id DESC
