@@ -10,7 +10,7 @@ import { canRedeemReward, hasRewardInventory } from "./reward-api";
 import { loadAdminFulfillmentHistory, type FulfilledRedemption } from "./reward-api";
 import { loadRewardInventoryHistory, restockRewardInventory, validInventoryRestock, type InventoryMovement } from "./reward-api";
 import { readRestockIntent, saveRestockIntent, clearRestockIntent, type RestockIntent } from "./reward-inventory-intent";
-import { canEditRewardDraft, canRestockReward, recoverRewardDraft } from "./reward-api";
+import { canEditRewardDraft, canRestockReward, recoverRewardDraft, updatePublishedDigitalReward } from "./reward-api";
 import { withdrawReward } from "./reward-api";
 import { loadDigitalRewardAssets, type DigitalRewardAsset, savePhysicalRewardPhoto } from "./reward-api";
 
@@ -188,6 +188,8 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
   const [inventoryError, setInventoryError] = useState("");
   const [draft, setDraft] = useState<RewardDraftInput>(emptyDraft);
   const [editing, setEditing] = useState<RewardItem | null>(null);
+  const [publishedEditing, setPublishedEditing] = useState<RewardItem | null>(null);
+  const [publishedDraft, setPublishedDraft] = useState({description:"",cost:1});
   const [fulfillTarget, setFulfillTarget] = useState<string | null>(null);
   const [fulfillReference, setFulfillReference] = useState("");
   const [pickupCode, setPickupCode] = useState("");
@@ -413,6 +415,42 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
     catch {setError("No se pudo retirar la recompensa.");}
     finally {inFlight.current=false;setBusy(false);}
   };
+  const submitPublishedEdit = async (event:FormEvent) => {
+    event.preventDefault();
+    if(!publishedEditing || !publishedEditing.digitalAssetKey || !capabilities?.canManageDrafts || busy || inFlight.current) return;
+    if(!publishedDraft.description.trim() || !Number.isSafeInteger(publishedDraft.cost) || publishedDraft.cost<1 || publishedDraft.cost>100000) {
+      setError("La descripción y el costo deben ser válidos.");return;
+    }
+    inFlight.current=true;setBusy(true);setError("");setMessage("");
+    try {
+      const token=await getToken(); if(!token)throw new RewardApiError(401,"missing_session_token");
+      await updatePublishedDigitalReward(apiUrl,token,publishedEditing.id,{
+        title:publishedEditing.title,description:publishedEditing.description,cost:publishedEditing.cost,
+      },{description:publishedDraft.description.trim(),cost:publishedDraft.cost},new AbortController().signal);
+      setPublishedEditing(null);
+      setMessage("Detalles del premio digital actualizados y auditados. Los canjes anteriores conservan su costo.");
+      refresh();
+    } catch (cause) {
+      const code=cause instanceof RewardApiError?cause.code:"request_failed";
+      setError(code==="reward_changed_or_unavailable"?"Los detalles cambiaron. Actualiza y vuelve a editar.":
+        code==="reward_details_migration_required"?"La actualización del servidor aún no está disponible.":
+        "No se pudieron guardar los cambios del premio. Actualiza la gestión y reintenta.");
+    } finally {inFlight.current=false;setBusy(false);}
+  };
+  const openDigitalCapacity = (item:RewardItem) => {
+    const asset=digitalAssets.find(a=>a.key===item.digitalAssetKey);
+    if(!asset){setError("No está registrado el archivo de esta recompensa.");return;}
+    if(restockIntent){setError("Existe una reposición pendiente. Recupera o resuelve esa operación antes de iniciar otra.");return;}
+    setRestockTarget(item.id);
+    setRestockQuantity(String(Math.max(1,20-(item.inventoryRemaining??0))));
+    setRestockEvidence(asset.evidenceReference);
+    setRestockConfirmed(false);
+    setMessage("Configura los cupos adicionales y confirma la capacidad digital. No modifica puntos ni canjes anteriores.");
+    requestAnimationFrame(()=>{
+      document.getElementById("reward-inventory-management")?.scrollIntoView({behavior:"smooth",block:"start"});
+      document.getElementById("input-restock-quantity")?.focus({preventScroll:true});
+    });
+  };
   const restockItem = drafts.find(item => item.id === restockTarget);
   const selectedDigitalAsset = digitalAssets.find(asset => asset.key === publishAsset);
   const restockable = Boolean(restockItem && canRestockReward(restockItem));
@@ -432,13 +470,29 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
         {!capabilities.canPublish && <p className="mt-3 text-sm text-[hsl(var(--muted-foreground))]" data-testid="reward-publication-disabled">La publicación permanece cerrada. <Link href="/admin?section=settings" className="font-semibold underline">Revisa los requisitos y activa las recompensas en Configuración general.</Link></p>}
         <div className="mt-6 space-y-2">{drafts.length === 0 ? <p className="text-sm">No hay borradores registrados.</p> : drafts.map(item => <article key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3">
           {!item.digitalAssetKey && <p className="w-full text-xs">{item.imageUrl ? "Fotografía del producto registrada" : "Pendiente: fotografía del producto y permiso de uso"}{!item.operationallyValidated ? " · Pendiente: evidencia de existencias y entrega" : ""}</p>}
-          {item.digitalAssetKey && canRestockReward(item) && (item.inventoryRemaining??0)<20 && <button type="button" className="min-h-11 text-sm font-semibold underline" disabled={busy||Boolean(restockIntent)} onClick={()=>{const asset=digitalAssets.find(a=>a.key===item.digitalAssetKey);if(!asset)return;setRestockTarget(item.id);setRestockQuantity(String(20-(item.inventoryRemaining??0)));setRestockEvidence(asset.evidenceReference);setRestockConfirmed(false);setMessage("Reposición preparada para 20 cupos disponibles. Revisa y confirma la capacidad digital en Reposición de inventario antes de guardarla.");}}>Preparar 20 cupos digitales</button>}
+          {item.digitalAssetKey && canRestockReward(item) && <button type="button" className="min-h-11 text-sm font-semibold underline" disabled={busy||Boolean(restockIntent)||!capabilities.canRestock} onClick={()=>openDigitalCapacity(item)} data-testid={`configure-digital-cups-${item.id}`}>Configurar cupos digitales</button>}
           <div><strong>{item.title}</strong><p className="text-xs">{item.operationallyValidated === false && !canEditRewardDraft(item) ? "Requiere validación real · las cantidades heredadas no están disponibles" : item.active ? "Publicado" : item.validationRecorded ? "Agotado o retirado" : "Borrador"} · {item.cost} pts</p>{item.operationallyValidated && <p className="text-xs">{item.digitalAssetKey ? "Cupos digitales" : "Inventario confirmado"}: {item.inventoryRemaining ?? 0}</p>}{item.draftRecoveryAvailable && <p className="mt-1 text-xs">1. Preparar para edición conserva el original en auditoría. 2. Revisa descripción y precio. 3. Selecciona el archivo real y declara los cupos digitales al publicar.</p>}</div>
-          <div className="flex flex-wrap gap-3">{item.active && <button type="button" disabled={busy || !capabilities.canManageDrafts} onClick={()=>void withdraw(item)} className="underline disabled:opacity-50">Retirar del catálogo</button>}<button type="button" disabled={!canEditRewardDraft(item) || !capabilities.canManageDrafts || busy} onClick={() => chooseDraft(item)} className="underline disabled:opacity-50">Editar</button>
+          <div className="flex flex-wrap gap-3">{item.active && <button type="button" disabled={busy || !capabilities.canManageDrafts} onClick={()=>void withdraw(item)} className="underline disabled:opacity-50">Retirar del catálogo</button>}<button type="button" disabled={!(canEditRewardDraft(item) || (item.digitalAssetKey && item.operationallyValidated && item.validationRecorded)) || !capabilities.canManageDrafts || busy}
+              onClick={() => {
+                if(item.digitalAssetKey && item.operationallyValidated && item.validationRecorded) {
+                  setPublishedEditing(item);setPublishedDraft({description:item.description,cost:item.cost});setError("");
+                } else chooseDraft(item);
+              }} className="underline disabled:opacity-50" data-testid={`edit-reward-${item.id}`}>Editar</button>
             <button type="button" disabled={item.active || item.validationRecorded || !capabilities.canPublish || busy} onClick={() => { setPublishTarget(item); setPublishAsset(digitalAssets.find(asset => asset.rewardTitle === item.title)?.key ?? ""); setPublishInventory(""); setPublishReference(""); setPublishConfirmed(false); }} className="underline disabled:opacity-50" data-testid={`button-publish-reward-${item.id}`}>Documentar y publicar</button>
             {item.draftRecoveryAvailable && <button type="button" disabled={!capabilities.canRecoverDraft || busy} onClick={() => void recoverDraft(item)} className="underline disabled:opacity-50" data-testid={`button-recover-reward-${item.id}`}>Preparar para edición</button>}
           </div></article>)}</div>
-        {publishTarget && <form onSubmit={confirmPublication} className="mt-4 space-y-3 rounded-xl border p-4" data-testid="reward-publication-form">
+        {publishedEditing && <form onSubmit={submitPublishedEdit} className="mt-4 space-y-3 rounded-xl border p-4" data-testid="published-digital-edit-form">
+           <h3 className="font-semibold">Editar premio digital: {publishedEditing.title}</h3>
+           <p className="text-xs">Puedes actualizar la descripción y el precio para nuevos canjes. No se modifica el archivo, nombre, inventario ni el costo de canjes anteriores.</p>
+           <label className="block text-sm">Descripción
+             <textarea required maxLength={500} value={publishedDraft.description} onChange={e=>setPublishedDraft(d=>({...d,description:e.target.value}))} rows={3} className="mt-1 w-full rounded-xl border p-2"/>
+           </label>
+           <label className="block text-sm">Precio para próximos canjes (EcoPuntos)
+             <input required type="number" min={1} max={100000} step={1} value={publishedDraft.cost} onChange={e=>setPublishedDraft(d=>({...d,cost:Number(e.target.value)}))} className="mt-1 w-full rounded-xl border p-2"/>
+           </label>
+           <div className="flex gap-3"><button disabled={busy} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-[hsl(var(--primary-foreground))] disabled:opacity-50">Guardar cambios</button><button type="button" onClick={()=>setPublishedEditing(null)} className="underline">Cancelar</button></div>
+         </form>}
+         {publishTarget && <form onSubmit={confirmPublication} className="mt-4 space-y-3 rounded-xl border p-4" data-testid="reward-publication-form">
           <h3 className="font-semibold">Publicar {publishTarget.title}</h3>
           {!digitalAssets.length && <p role="alert">No se pudo cargar el registro de archivos digitales. Actualiza la gestión para reintentar; no publiques un archivo escribiendo una referencia heredada.</p>}
           <label className="block text-sm">Tipo de recompensa y archivo<select value={publishAsset} disabled={busy} onChange={event => { setPublishAsset(event.target.value); setPublishConfirmed(false); setPublishInventory(""); }} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="select-publish-digital-asset"><option value="">Inventario físico con evidencia externa</option>{digitalAssets.map(asset => <option key={asset.key} value={asset.key} disabled={asset.rewardTitle !== publishTarget.title}>{asset.rewardTitle} · {asset.filename}{asset.rewardTitle !== publishTarget.title ? " · requiere ese título" : ""}</option>)}</select></label>
@@ -471,9 +525,9 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
           <button disabled={busy || !photoTarget || !photoConfirmed} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-[hsl(var(--primary-foreground))] disabled:opacity-50">Registrar foto</button>
         </form>
       </section>
-      <section aria-labelledby="inventory-management-title" className="space-y-4 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6" data-testid="admin-reward-inventory">
-        <h2 id="inventory-management-title" className="font-display text-2xl">Reposición de inventario real</h2>
-        <p className="text-sm">Añade únicamente unidades adicionales cuya disponibilidad esté autorizada y documentada. Una recompensa agotada se vuelve a publicar con estas unidades; no se cambian precios, canjes, puntos ni cumplimientos previos.</p>
+      <section id="reward-inventory-management" aria-labelledby="inventory-management-title" className="space-y-4 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6" data-testid="admin-reward-inventory">
+        <h2 id="inventory-management-title" className="font-display text-2xl">{restockItem?.digitalAssetKey ? "Configurar cupos digitales" : "Reposición de inventario real"}</h2>
+        <p className="text-sm">{restockItem?.digitalAssetKey ? "Define cuántos canjes digitales adicionales autorizas. El archivo ya existe en EcoPulse; solo se suman cupos, sin cambiar canjes o saldos existentes." : "Añade únicamente unidades adicionales cuya disponibilidad esté autorizada y documentada. Una recompensa agotada se vuelve a publicar con estas unidades; no se cambian precios, canjes, puntos ni cumplimientos previos."}</p>
         {!capabilities.canRestock && <p role="status" data-testid="reward-restock-disabled">La reposición requiere el registro de inventario, permisos administrativos y la política de publicación habilitada.</p>}
         <label className="block text-sm">Recompensa<select value={restockTarget} disabled={busy || Boolean(restockIntent)} onChange={event => { setRestockTarget(event.target.value); setRestockQuantity(""); setRestockEvidence(""); setRestockConfirmed(false); }} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="select-restock-reward"><option value="">Selecciona una recompensa registrada</option>{drafts.map(item => <option key={item.id} value={item.id}>{item.title} · {item.operationallyValidated !== true ? "sin disponibilidad validada" : inventoryLabel(item)}</option>)}{restockIntent && !restockItem && <option value={restockIntent.rewardId}>Reposición pendiente · {restockIntent.rewardId}</option>}</select></label>
         {restockTarget && <button type="button" disabled={inventoryLoading || busy} onClick={() => void loadInventoryHistory(restockTarget)} className="min-h-11 underline" data-testid="button-inventory-history">Consultar movimientos de esta recompensa</button>}
@@ -481,11 +535,11 @@ export function RewardsAdminPanel({ apiUrl, role }: { apiUrl: string; role: stri
           {!restockIntent && !restockable && <p role="status">Este registro no admite reposición: publica primero su inventario inicial y evidencia, o selecciona una recompensa publicada o agotada.</p>}
           {restockIntent && <p role="status" data-testid="restock-pending-notice">Hay una reposición sin confirmar. Se conservan cantidad, evidencia y clave originales: recupérala antes de iniciar otra.</p>}
           <fieldset disabled={busy || Boolean(restockIntent) || !restockable} className="space-y-3">
-            <label className="block text-sm">Cantidad adicional (no inventario total)<input type="number" required min={1} max={100000} step={1} value={restockQuantity} onChange={event => setRestockQuantity(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="input-restock-quantity" /></label>
-            <label className="block text-sm">Evidencia autorizada de disponibilidad (HTTPS)<input type="url" required minLength={10} maxLength={500} value={restockEvidence} onChange={event => setRestockEvidence(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="input-restock-evidence" /></label>
+            <label className="block text-sm">{restockItem?.digitalAssetKey ? "Cupos digitales adicionales (no total)" : "Cantidad adicional (no inventario total)"}<input id="input-restock-quantity" type="number" required min={1} max={100000} step={1} value={restockQuantity} onChange={event => setRestockQuantity(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="input-restock-quantity" /></label>
+            <label className="block text-sm">{restockItem?.digitalAssetKey ? "Archivo digital registrado (referencia automática)" : "Evidencia autorizada de disponibilidad (HTTPS)"}<input type="url" required minLength={10} maxLength={500} readOnly={Boolean(restockItem?.digitalAssetKey)} value={restockEvidence} onChange={event => setRestockEvidence(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="input-restock-evidence" /></label>
           </fieldset>
-          <label className="flex gap-2 text-sm"><input type="checkbox" checked={restockConfirmed} disabled={busy} onChange={event => setRestockConfirmed(event.target.checked)} data-testid="checkbox-restock-confirmed" />Confirmo que estas unidades existen y su disponibilidad está autorizada y respaldada por la evidencia indicada. La operación quedará registrada con mi cuenta.</label>
-          <button type="submit" disabled={busy || !restockConfirmed || (!restockIntent && !restockable)} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-[hsl(var(--primary-foreground))] disabled:opacity-50" data-testid="button-confirm-restock">{busy ? "Registrando…" : restockIntent ? "Recuperar la misma reposición" : "Confirmar reposición real"}</button>
+          <label className="flex gap-2 text-sm"><input type="checkbox" checked={restockConfirmed} disabled={busy} onChange={event => setRestockConfirmed(event.target.checked)} data-testid="checkbox-restock-confirmed" />{restockItem?.digitalAssetKey ? "Autorizo estos cupos adicionales para descargas digitales del archivo existente. La operación quedará registrada con mi cuenta." : "Confirmo que estas unidades existen y su disponibilidad está autorizada y respaldada por la evidencia indicada. La operación quedará registrada con mi cuenta."}</label>
+          <button type="submit" disabled={busy || !restockConfirmed || (!restockIntent && !restockable)} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 text-[hsl(var(--primary-foreground))] disabled:opacity-50" data-testid="button-confirm-restock">{busy ? "Registrando…" : restockIntent ? "Recuperar la misma reposición" : restockItem?.digitalAssetKey ? "Guardar cupos digitales" : "Confirmar reposición real"}</button>
         </form>}
         {inventoryTarget && <div data-testid="reward-inventory-history"><h3 className="font-semibold">Movimientos de {drafts.find(item => item.id === inventoryTarget)?.title ?? inventoryTarget}</h3>
           {inventoryLoading && <p role="status">Consultando el registro de PostgreSQL…</p>}
