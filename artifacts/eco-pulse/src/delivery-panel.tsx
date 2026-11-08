@@ -385,18 +385,19 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
   const legacyMode = options?.mode === "legacy";
   const detailsUnavailable = options?.mode === "detailed" && !options.enabled;
   return <div className="mt-5 grid gap-5 lg:grid-cols-2">
+    {detailsUnavailable && <div className="lg:col-span-2" id="coordination-request" data-testid="primary-coordination-request"><CoordinationRequestsPanel apiUrl={pilotApiUrl} allowCreate={optionsStatus === "ready"} /></div>}
     <section className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 sm:p-8" aria-labelledby="delivery-request-title" data-testid="delivery-request-panel">
       <div className="flex items-start gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[hsl(var(--secondary)/.32)] text-[hsl(var(--primary))]"><PackageCheck size={21} /></span>
-        <div><h2 id="delivery-request-title" className="font-display text-3xl text-[hsl(var(--primary))]">Solicitar entrega</h2><p className="mt-2 text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Registra una solicitud de entrega. La solicitud no confirma recepción ni concede puntos.</p></div>
+        <div><h2 id="delivery-request-title" className="font-display text-3xl text-[hsl(var(--primary))]">{detailsUnavailable ? "Entrega directa en centro" : "Solicitar entrega"}</h2><p className="mt-2 text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Registra una solicitud de entrega cuando un centro esté habilitado. La solicitud no confirma recepción ni concede puntos.</p></div>
       </div>
 
       {optionsStatus === "loading" && <p className="mt-6 rounded-2xl bg-[hsl(var(--muted))] p-4 text-sm" aria-live="polite">Consultando centros y horarios disponibles…</p>}
       {optionsStatus === "error" && <div className="mt-6 rounded-2xl bg-red-50 p-4 text-sm text-red-900" role="alert"><p>No pudimos consultar la configuración de entregas.</p><button type="button" onClick={() => void loadOptions()} className="mt-2 font-bold underline">Intentar de nuevo</button></div>}
       {detailsUnavailable && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" role="status">
         <p className="font-semibold">Por ahora no hay centros con materiales y disponibilidad confirmados.</p>
-        <p className="mt-1">Explora los centros en el mapa y vuelve más tarde para consultar disponibilidad.</p>
-        <button type="button" onClick={() => void loadOptions()} className="mt-3 font-bold underline">Actualizar disponibilidad</button>
+        <p className="mt-1">Mientras se confirma un centro, utiliza el formulario «Solicitar coordinación de entrega» situado arriba. El administrador podrá gestionar tu solicitud pendiente, sin prometer recepción ni generar puntos.</p>
+        <button type="button" onClick={() => void loadOptions()} className="mt-3 font-bold underline">Actualizar centros disponibles</button>
       </div>}
 
       {optionsStatus === "ready" && options && !detailsUnavailable && <form onSubmit={submit} className="mt-6 space-y-5">
@@ -461,7 +462,7 @@ export function DeliveryPanel({ deliveries, role, onRefresh, showVerifierQueue =
       <DeliveryHistory deliveries={deliveries} busy={historyBusy} onAction={(id, action) => { void updateHistory(id, action); }} />
     </section>
 
-    <div className="lg:col-span-2"><CoordinationRequestsPanel apiUrl={pilotApiUrl} allowCreate={optionsStatus === "ready"} /></div>
+    {!detailsUnavailable && <div className="lg:col-span-2" id="coordination-request"><CoordinationRequestsPanel apiUrl={pilotApiUrl} allowCreate={optionsStatus === "ready"} /></div>}
 
     {showVerifierQueue && <div className="lg:col-span-2"><VerifierQueue role={role} onRefresh={onRefresh} /></div>}
   </div>;
