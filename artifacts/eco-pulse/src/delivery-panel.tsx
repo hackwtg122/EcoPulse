@@ -122,7 +122,9 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
   const [action, setAction] = useState<"receive" | "approve" | "reject" | null>(null);
   const [weightGrams, setWeightGrams] = useState("");
   const [receiptCode, setReceiptCode] = useState("");
-  const [handoffAddress, setHandoffAddress] = useState("");
+  const [handoffPointId, setHandoffPointId] = useState("");
+  const [handoffPoints, setHandoffPoints] = useState<PilotDeliveryOptions["points"]>([]);
+  const [handoffLoading, setHandoffLoading] = useState(false);
   const [handoffAt, setHandoffAt] = useState("");
   const [handoffNote, setHandoffNote] = useState("");
   const [handoffId, setHandoffId] = useState<string | null>(null);
@@ -195,25 +197,45 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
         "No se pudo aceptar la solicitud. Actualiza y vuelve a intentarlo.");
     } finally { setSaving(false); }
   }
-  function beginHandoff(delivery: PilotDelivery) {
+  async function beginHandoff(delivery: PilotDelivery) {
     setHandoffId(delivery.id);
-    setHandoffAddress(delivery.handoffPlan?.handoffAddress ?? "");
-    setHandoffAt(delivery.handoffPlan?.handoffAt ? new Date(delivery.handoffPlan.handoffAt).toISOString().slice(0,16) : "");
+    setHandoffPointId("");
+    setHandoffPoints([]);
+    setHandoffLoading(true);
+    const previousTime = delivery.handoffPlan?.handoffAt ? new Date(delivery.handoffPlan.handoffAt) : null;
+    setHandoffAt(previousTime ? new Date(previousTime.getTime() - previousTime.getTimezoneOffset() * 60000).toISOString().slice(0,16) : "");
     setHandoffNote(delivery.handoffPlan?.note ?? "");
     setAction(null); setActionError(""); setActionMessage("");
+    try {
+      const token = await getToken();
+      if (!token) throw new PilotApiError(401, "missing_session_token");
+      const options = await loadPilotDeliveryOptions(pilotApiUrl, token, new AbortController().signal);
+      const eligible = options.points.filter(point =>
+        delivery.materials.length > 0 &&
+        delivery.materials.every(item => point.materials?.includes(item.categoryCode)));
+      setHandoffPoints(eligible);
+      const previous = eligible.find(point => point.address === delivery.handoffPlan?.handoffAddress);
+      const requested = eligible.find(point => point.id === delivery.deliveryPoint?.id);
+      setHandoffPointId(previous?.id ?? requested?.id ?? "");
+      if (!eligible.length) setActionError("No hay puntos activos que acepten todos los materiales de esta solicitud. Configura los materiales en Administración → Centros.");
+    } catch {
+      setActionError("No se pudo cargar el catálogo de puntos habilitados. Actualiza e intenta de nuevo.");
+    } finally {
+      setHandoffLoading(false);
+    }
   }
   async function submitHandoff(deliveryId: string) {
     if (saving) return;
     const date = new Date(handoffAt);
-    if (!handoffAddress.includes(",") || handoffAddress.trim().length < 8 || !Number.isFinite(date.valueOf()) || date.valueOf() < Date.now() + 5*60_000) {
-      setActionError("Indica una dirección concreta (calle, número, municipio) y una fecha futura."); return;
+    if (!handoffPointId || !handoffPoints.some(point => point.id === handoffPointId) || !Number.isFinite(date.valueOf()) || date.valueOf() < Date.now() + 5*60_000) {
+      setActionError("Selecciona un punto habilitado que acepte estos materiales y una fecha futura."); return;
     }
     setSaving(true);setActionError("");setActionMessage("");
     try {
       const token=await getToken();
       if(!token) throw new PilotApiError(401,"missing_session_token");
       await planPilotDeliveryHandoff(pilotApiUrl,token,deliveryId,{
-        handoffAddress:handoffAddress.trim(),handoffAt:date.toISOString(),note:handoffNote.trim()||null,
+        pointId:handoffPointId,handoffAt:date.toISOString(),note:handoffNote.trim()||null,
       },new AbortController().signal);
       setHandoffId(null);
       await load(null,false);onRefresh();
@@ -281,7 +303,7 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
           {(delivery.status === "pending" || delivery.status === "scheduled") && !delivery.acceptedAt && <button type="button" disabled={saving} onClick={() => void acceptRequest(delivery.id)} className="font-semibold text-emerald-800 underline disabled:opacity-50" data-testid={`accept-delivery-${delivery.id}`}>Aceptar solicitud</button>}
           {delivery.acceptedAt && <span className="text-xs text-emerald-800">Aceptada {formatDate(delivery.acceptedAt)} · Pendiente de recepción física</span>}
           {delivery.acceptedAt && (delivery.status === "pending" || delivery.status === "scheduled") &&
-            <button type="button" disabled={saving} onClick={() => beginHandoff(delivery)}
+            <button type="button" disabled={saving || handoffLoading} onClick={() => void beginHandoff(delivery)}
               className="font-semibold text-[hsl(var(--primary))] underline disabled:opacity-50"
               data-testid={`plan-delivery-${delivery.id}`}>{delivery.handoffPlan ? "Modificar coordinación" : "Coordinar fecha y lugar"}</button>}
           {(delivery.status === "pending" || delivery.status === "scheduled") && !delivery.isOwn && <button type="button" disabled={!capabilities?.receiptEnabled || saving} onClick={() => beginAction(delivery.id, "receive")} className="underline disabled:cursor-not-allowed disabled:opacity-50">Registrar recepción</button>}
@@ -296,11 +318,15 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
             className="mt-4 space-y-3 rounded-2xl bg-[hsl(var(--muted)/.65)] p-4"
             data-testid={`form-handoff-${delivery.id}`}>
             <h3 className="font-semibold">Coordinar una entrega</h3>
-            <p className="text-xs">Indica el lugar exacto y la fecha que puedes ofrecer. No se registra recepción física ni se conceden puntos.</p>
-            <label className="block text-sm">Lugar exacto (dirección y municipio)
-              <input required minLength={8} maxLength={200} value={handoffAddress} onChange={e=>setHandoffAddress(e.target.value)}
-                placeholder="Calle 12 # 34-56, Montería" className="mt-1 min-h-11 w-full rounded-xl border p-2"/>
+            <p className="text-xs">Selecciona un punto activo del catálogo que acepte los materiales y propone fecha. Si el punto es una zona, la dirección física sigue pendiente de coordinación. No se registra recepción ni se conceden puntos.</p>
+            <label className="block text-sm">Punto EcoPulse habilitado
+              <select required value={handoffPointId} disabled={handoffLoading || saving} onChange={e=>setHandoffPointId(e.target.value)}
+                className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="select-handoff-point">
+                <option value="">{handoffLoading ? "Consultando puntos…" : "Selecciona un punto del catálogo"}</option>
+                {handoffPoints.map(point => <option key={point.id} value={point.id}>{point.name} — {point.municipality}</option>)}
+              </select>
             </label>
+            {handoffPointId && handoffPoints.find(point => point.id === handoffPointId) && <p className="text-xs text-[hsl(var(--muted-foreground))]">Ubicación configurada: {handoffPoints.find(point => point.id === handoffPointId)?.address}. {handoffPoints.find(point => point.id === handoffPointId)?.address.includes("por coordinar") ? "Esta es una zona; el punto físico exacto sigue pendiente de acuerdo con el participante." : "Confirma con el participante los detalles antes de desplazarse."}</p>}
             <label className="block text-sm">Fecha y hora propuestas
               <input required type="datetime-local" value={handoffAt} onChange={e=>setHandoffAt(e.target.value)}
                 className="mt-1 min-h-11 w-full rounded-xl border p-2"/>
@@ -310,7 +336,7 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
                 className="mt-1 min-h-11 w-full rounded-xl border p-2" rows={2}/>
             </label>
             <div className="flex flex-wrap gap-3">
-              <button disabled={saving} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 py-2 font-semibold text-[hsl(var(--primary-foreground))] disabled:opacity-50">{saving?"Guardando…":"Guardar propuesta"}</button>
+              <button disabled={saving || handoffLoading || !handoffPointId} className="min-h-11 rounded-full bg-[hsl(var(--primary))] px-5 py-2 font-semibold text-[hsl(var(--primary-foreground))] disabled:opacity-50">{saving?"Guardando…":"Guardar propuesta"}</button>
               <button type="button" onClick={()=>setHandoffId(null)} className="underline">Cancelar</button>
             </div>
           </form>}
