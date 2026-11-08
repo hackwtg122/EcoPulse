@@ -17,7 +17,7 @@ const profiles = [
   { name: "tablet", viewport: { width: 768, height: 1024 }, isMobile: true, deviceScaleFactor: 1 },
   { name: "desktop", viewport: { width: 1366, height: 900 }, isMobile: false, deviceScaleFactor: 1 },
 ];
-const paths = ["/", "/materials", "/faq", "/privacy", "/terms", "/contact"];
+const paths = ["/", "/explore", "/materials", "/faq", "/privacy", "/terms", "/contact"];
 const results = [];
 try {
   for (const profile of profiles) {
@@ -37,6 +37,15 @@ try {
         const response = await page.goto(path, { waitUntil: "domcontentloaded", timeout: 45000 });
         await page.locator("h1").first().waitFor({ state: "visible", timeout: 20000 });
         const heading = (await page.locator("h1").first().innerText()).trim().slice(0, 120);
+        if (path === "/" || path === "/explore") {
+          if (path === "/") {
+            await page.getByTestId("link-explore-without-account").waitFor({ state: "visible" });
+            await page.getByText("Relatos ilustrativos").waitFor({ state: "visible" });
+          }
+          await page.waitForTimeout(300);
+          const overflow = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth);
+          if (overflow > 5) throw new Error("horizontal_scroll_overflow:" + overflow);
+        }
         if (path === "/privacy") {
           const body = await page.locator("body").innerText();
           for (const text of ["PostgreSQL vinculadas a tu cuenta", "proveedor de IA", "eliminar cada conversación desde EcoGuía"]) {
