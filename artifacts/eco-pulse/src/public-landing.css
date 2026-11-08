@@ -199,3 +199,32 @@
   .ep-primary-cta:hover,.ep-secondary-cta:hover,.ep-final-link:hover,.ep-story-card:hover{transform:none!important;}
   .ep-story-list{scroll-behavior:auto;}
 }
+
+/* Enhanced visible motion and polished, illustrative profile cards */
+.ep-animated-stage .ep-pulse-halo {animation: ep-halo-glow 4s ease-in-out infinite alternate;}
+.ep-animated-stage .ep-pulse-wave svg {animation: ep-wave-glow 2s ease-in-out infinite alternate;}
+.ep-animated-stage .ep-orbit-coin {animation: ep-coin-float 4.2s ease-in-out infinite;}
+.ep-animated-stage .ep-pulse-orbit {animation:ep-orbit 8s linear infinite alternate;}
+.ep-animated-stage .ep-orbit-chip-one {animation-duration:3s;}
+.ep-animated-stage .ep-orbit-chip-two {animation-duration:3.6s;}
+.ep-animated-stage .ep-orbit-chip-three {animation-duration:4.2s;}
+.ep-stat-card {transition:transform .35s ease,box-shadow .35s ease;animation:ep-card-bob 6s ease-in-out infinite;}
+.ep-stat-card:nth-child(2){animation-delay:1s}.ep-stat-card:nth-child(3){animation-delay:2s}.ep-stat-card:nth-child(4){animation-delay:3s}
+.ep-stat-card:hover {transform:translateY(-8px);box-shadow:0 18px 32px rgba(27,84,57,.12);animation-play-state:paused;}
+.ep-reveal {opacity:0;transform:translateY(38px);transition:opacity .85s ease,transform .85s cubic-bezier(.2,.7,.2,1);}
+.ep-reveal.ep-visible {opacity:1;transform:translateY(0);}
+.ep-story-card {transition:transform .35s ease,box-shadow .35s ease;}
+.ep-story-card:hover{box-shadow:0 22px 36px rgba(37,68,51,.13);}
+.ep-story-art-leaf {animation:ep-leaf 4s ease-in-out infinite;}
+.ep-story-card:nth-child(2) .ep-story-art-leaf{animation-delay:.8s}
+.ep-story-card:nth-child(3) .ep-story-art-leaf{animation-delay:1.6s}
+.ep-story-avatar-photo {object-fit:cover;object-position:center;border:2px solid #fff9ed;box-shadow:0 3px 12px rgba(27,77,54,.16);background:#dde8d8;}
+.ep-story-description {font-size:14px;color:#354d40;line-height:1.75;margin:15px 0 0;min-height:78px;}
+@keyframes ep-halo-glow{from{opacity:.6;transform:rotate(-12deg) scale(.96)}to{opacity:1;transform:rotate(4deg) scale(1.07)}}
+@keyframes ep-wave-glow{from{opacity:.6;filter:drop-shadow(0 0 2px #f7d179)}to{opacity:1;filter:drop-shadow(0 0 14px #f7d179)}}
+@keyframes ep-coin-float{0%,100%{transform:rotate(13deg) translateY(0)}50%{transform:rotate(5deg) translateY(-18px)}}
+@keyframes ep-card-bob{0%,100%{translate:0 0}50%{translate:0 -5px}}
+@media(prefers-reduced-motion:reduce){
+  .ep-reveal{opacity:1;transform:none;transition:none}
+  .ep-animated-stage .ep-pulse-halo,.ep-animated-stage .ep-pulse-wave svg,.ep-animated-stage .ep-orbit-coin,.ep-stat-card,.ep-story-art-leaf{animation:none!important}
+}
