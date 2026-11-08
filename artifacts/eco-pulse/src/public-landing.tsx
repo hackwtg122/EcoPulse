@@ -42,6 +42,26 @@ function useImpact() {
   return { impact, state };
 }
 
+function useScrollReveal() {
+  useEffect(() => {
+    const targets = document.querySelectorAll<HTMLElement>(".ep-reveal");
+    if (!("IntersectionObserver" in window) || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      targets.forEach(el => el.classList.add("ep-visible"));
+      return;
+    }
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("ep-visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: "0px 0px -24px 0px" });
+    targets.forEach(el => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
+}
+
 function AnimatedCount({ value }: { value: number | null }) {
   const element = useRef<HTMLSpanElement>(null);
   const [count, setCount] = useState(0);
@@ -71,7 +91,7 @@ function AnimatedCount({ value }: { value: number | null }) {
 }
 
 function PulseOrb() {
-  return <div className="ep-pulse-stage" aria-label="EcoPulse, energía para aprender y reciclar">
+  return <div className="ep-pulse-stage ep-animated-stage" aria-label="EcoPulse, energía para aprender y reciclar">
     <div className="ep-pulse-halo" aria-hidden="true" />
     <div className="ep-pulse-orbit" aria-hidden="true" />
     <div className="ep-pulse-orb">
@@ -91,32 +111,31 @@ function PulseOrb() {
 }
 
 const stories = [
-  { initials: "VM", name: "Valentina", focus: "Separación de residuos", copy: "Aprendí a separar mejor el vidrio y el cartón. Ahora sé qué revisar antes de reciclar.", icon: Recycle, gradient: "mint" },
-  { initials: "DR", name: "Daniel", focus: "Retos ecológicos", copy: "Los retos convierten temas ambientales en preguntas divertidas y fáciles de recordar.", icon: Target, gradient: "gold" },
-  { initials: "CP", name: "Camila", focus: "Aprendizaje diario", copy: "Me gusta tener guías, centros y consejos en un mismo lugar para descubrir nuevos hábitos.", icon: Leaf, gradient: "coral" },
+  { name: "Valentina", focus: "Separación de residuos", copy: "Descubre cómo separar correctamente vidrio, papel y cartón desde casa.", icon: Recycle, gradient: "mint", image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=320&h=320&fit=crop&crop=faces" },
+  { name: "Daniel", focus: "Retos ecológicos", copy: "Explora desafíos ambientales y pon a prueba tus conocimientos paso a paso.", icon: Target, gradient: "gold", image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=320&h=320&fit=crop&crop=faces" },
+  { name: "Camila", focus: "Aprendizaje diario", copy: "Consulta guías, consejos y puntos de reciclaje para crear mejores hábitos.", icon: Leaf, gradient: "coral", image: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=320&h=320&fit=crop&crop=faces" },
 ] as const;
 
 function StoriesSection() {
-  return <section className="ep-public-section ep-stories-section" aria-labelledby="ep-stories-title">
+  return <section className="ep-public-section ep-stories-section ep-reveal" aria-labelledby="ep-stories-title">
     <div className="ep-section-heading">
-      <div><p className="ep-eyebrow"><Users size={15}/> Inspiración colectiva</p><h2 id="ep-stories-title">Historias que inspiran.</h2><p>Imagina lo que puedes aprender y compartir con EcoPulse.</p></div>
-      <span className="ep-story-disclaimer"><CircleHelp size={15}/> Relatos ilustrativos</span>
+      <div><p className="ep-eyebrow"><Users size={15}/> Inspiración colectiva</p><h2 id="ep-stories-title">Historias que inspiran.</h2><p>Tres maneras de descubrir lo que puedes hacer con EcoPulse.</p></div>
+      
     </div>
-    <div className="ep-story-list" aria-label="Ejemplos ficticios de experiencias educativas">
-      {stories.map((story, index) => {
+    <div className="ep-story-list" aria-label="Tres ejemplos de cómo explorar EcoPulse">
+      {stories.map((story) => {
         const Icon = story.icon;
-        return <article className="ep-story-card" key={story.initials}>
+        return <article className="ep-story-card" key={story.name}>
           <div className={"ep-story-art ep-story-art-" + story.gradient}>
             <div className="ep-story-art-sun" /><div className="ep-story-art-hill"/><div className="ep-story-art-leaf"><Icon size={39}/></div>
             <span className="ep-story-art-tag"><Icon size={14}/>{story.focus}</span>
           </div>
-          <div className="ep-story-content"><div className="ep-story-person"><span className={"ep-story-avatar ep-story-avatar-" + index}>{story.initials}</span><div><strong>{story.name}</strong><small>Personaje ficticio</small></div></div>
-            <blockquote>“{story.copy}”</blockquote>
+          <div className="ep-story-content"><div className="ep-story-person"><img className="ep-story-avatar ep-story-avatar-photo" src={story.image} alt={"Retrato ilustrativo para el perfil de " + story.name} loading="lazy" referrerPolicy="no-referrer" /><div><strong>{story.name}</strong><small>{story.focus}</small></div></div>
+            <p className="ep-story-description">{story.copy}</p>
           </div>
         </article>;
       })}
     </div>
-    <p className="ep-stories-footnote">Las historias y personajes de esta sección son ejemplos creativos; no son opiniones ni experiencias verificadas de usuarios.</p>
   </section>;
 }
 
@@ -127,7 +146,7 @@ function ImpactStats({ impact, state }: { impact: PublicImpact | null; state: "l
     { label: "Premios disponibles", value: impact?.rewards ?? null, icon: Gift, note: "digitales" },
     { label: "Entregas verificadas", value: impact?.verifiedDeliveries ?? null, icon: CheckCircle2, note: "registradas" },
   ];
-  return <section className="ep-stats-wrap" aria-label="Indicadores reales y actualizados de EcoPulse">
+  return <section className="ep-stats-wrap ep-reveal" aria-label="Indicadores reales y actualizados de EcoPulse">
     <div className="ep-stats-heading"><p className="ep-eyebrow"><ShieldCheck size={15}/> Cifras del sistema</p><p>{state === "ready" ? "Datos actuales de EcoPulse" : state === "loading" ? "Consultando indicadores..." : "Indicadores temporalmente no disponibles"}</p></div>
     <div className="ep-public-stats">{metrics.map(metric => {
       const Icon = metric.icon;
@@ -141,7 +160,7 @@ function ImpactStats({ impact, state }: { impact: PublicImpact | null; state: "l
 }
 
 function PreviewRewards({ rewards }: { rewards: PreviewReward[] | null }) {
-  return <section className="ep-preview-rewards" aria-labelledby="ep-rewards-title">
+  return <section className="ep-preview-rewards ep-reveal" aria-labelledby="ep-rewards-title">
     <div className="ep-section-heading"><div><p className="ep-eyebrow"><Gift size={15}/> Beneficios EcoPulse</p><h2 id="ep-rewards-title">Recompensas con propósito.</h2><p>Conoce los premios digitales disponibles.</p></div></div>
     {rewards == null ? <p className="ep-public-empty">Consultando premios publicados...</p> :
       rewards.length ? <div className="ep-preview-reward-grid">
@@ -156,6 +175,7 @@ function PreviewRewards({ rewards }: { rewards: PreviewReward[] | null }) {
 
 export function PublicEcoPulseExperience() {
   const { impact, state } = useImpact();
+  useScrollReveal();
   return <>
     <section className="ep-public-hero" aria-labelledby="ep-hero-title">
       <div className="ep-hero-copy">
@@ -169,7 +189,7 @@ export function PublicEcoPulseExperience() {
     </section>
     <ImpactStats impact={impact} state={state}/>
     <StoriesSection/>
-    <section className="ep-public-section ep-steps-section" aria-labelledby="ep-how-title">
+    <section className="ep-public-section ep-steps-section ep-reveal" aria-labelledby="ep-how-title">
       <div className="ep-section-heading"><div><p className="ep-eyebrow"><Sprout size={15}/> Una experiencia sencilla</p><h2 id="ep-how-title">Así funciona EcoPulse.</h2><p>Empieza aprendiendo; cuando quieras guardar tu progreso, crea una cuenta.</p></div></div>
       <div className="ep-step-grid">
         <article className="ep-step"><span><BookOpen size={27}/></span><small>01</small><h3>Explora</h3><p>Consulta materiales y descubre cómo separar tus residuos.</p></article>
@@ -177,11 +197,11 @@ export function PublicEcoPulseExperience() {
         <article className="ep-step"><span><Award size={27}/></span><small>03</small><h3>Avanza</h3><p>Gana EcoPuntos según las reglas y canjea premios disponibles.</p></article>
       </div>
     </section>
-    <div className="ep-public-section ep-discovery-grid">
+    <div className="ep-public-section ep-discovery-grid ep-reveal">
       <section className="ep-discovery-center" aria-labelledby="ep-centers-title"><p className="ep-eyebrow"><MapPin size={15}/> Zonas EcoPulse</p><h2 id="ep-centers-title">Encuentra puntos en Montería.</h2><p>Consulta las zonas publicadas y comprueba sus condiciones antes de desplazarte.</p><div className="ep-location-preview"><div className="ep-location-pins" aria-hidden="true"><span><MapPin size={20}/></span><span><MapPin size={20}/></span><span><MapPin size={20}/></span></div><strong><AnimatedCount value={impact?.centers ?? null}/></strong><small>zonas publicadas</small></div><Link href="/explore#centros" className="ep-primary-cta">Explorar centros <ArrowRight size={18}/></Link></section>
       <PreviewRewards rewards={state === "ready" && impact ? impact.featuredRewards : null}/>
     </div>
-    <section className="ep-final-cta"><div><p className="ep-eyebrow">Un futuro más sostenible</p><h2>Empieza con un pequeño gesto. <em>Hazlo crecer.</em></h2><p>Recorre EcoPulse sin crear una cuenta y descubre lo que puedes hacer hoy.</p></div><Link href="/explore" className="ep-final-link">Explorar gratis <ArrowRight size={19}/></Link></section>
+    <section className="ep-final-cta ep-reveal"><div><p className="ep-eyebrow">Un futuro más sostenible</p><h2>Empieza con un pequeño gesto. <em>Hazlo crecer.</em></h2><p>Recorre EcoPulse sin crear una cuenta y descubre lo que puedes hacer hoy.</p></div><Link href="/explore" className="ep-final-link">Explorar gratis <ArrowRight size={19}/></Link></section>
   </>;
 }
 
