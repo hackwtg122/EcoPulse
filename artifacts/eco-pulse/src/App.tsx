@@ -61,30 +61,33 @@ const clerkAppearance = {
     showOptionalFields: true,
   },
   variables: {
-    colorPrimary: "#214c3b",
+    colorPrimary: "#145c43",
     colorForeground: "#17352a",
-    colorMutedForeground: "#687d72",
+    colorMutedForeground: "#536b60",
     colorDanger: "#b9584f",
     colorBackground: "#fbf8f0",
     colorInput: "#fffdf8",
     colorInputForeground: "#17352a",
-    colorNeutral: "#d8d8c9",
+    colorNeutral: "#b6c8bb",
     fontFamily: "DM Sans",
     borderRadius: "1rem",
   },
   elements: {
     rootBox: "w-full flex justify-center",
-    cardBox: "bg-[#fbf8f0] rounded-[2rem] w-[440px] max-w-full overflow-hidden",
+    cardBox: "bg-[#fbf8f0] rounded-[2rem] w-full max-w-[440px] min-w-0 overflow-hidden",
     card: "!shadow-none !border-0 !bg-transparent !rounded-none",
     footer: "!shadow-none !border-0 !bg-transparent !rounded-none",
     headerTitle: "font-display text-[#214c3b]",
     headerSubtitle: "text-[#687d72]",
-    socialButtonsBlockButtonText: "text-[#214c3b]",
+    socialButtonsBlockButtonText: "text-[#17352a] font-semibold",
+    socialButtonsBlockButton: "bg-white border border-[#c4d4c9] rounded-full min-h-[52px]",
+    alternativeMethodsBlockButton: "bg-white border border-[#c4d4c9] rounded-full min-h-[52px]",
+    alternativeMethodsBlockButtonText: "text-[#17352a] font-semibold",
     formFieldLabel: "text-[#214c3b]",
     footerActionLink: "text-[#214c3b]",
     footerActionText: "text-[#687d72]",
     dividerText: "text-[#687d72]",
-    formButtonPrimary: "bg-[#214c3b] hover:bg-[#17352a]",
+    formButtonPrimary: "bg-[#145c43] text-white hover:bg-[#0f4935] font-bold min-h-[52px] rounded-full",
     formFieldInput: "bg-[#fffdf8] text-[#17352a] border-[#d8d8c9]",
     main: "bg-transparent",
   },
@@ -707,7 +710,10 @@ function ChatPage() {
   </div>;
 }
 function AuthPages() {
-  return <div className="grid min-h-[100dvh] place-items-center bg-[hsl(var(--background))] p-5"><div className="absolute left-6 top-6"><Link href="/" className="flex items-center gap-2 text-[hsl(var(--primary))]" data-testid="link-auth-brand"><IconLogo small /><span className="font-display text-xl">EcoPulse</span></Link></div><div className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 shadow-xl"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} appearance={clerkAppearance} /></div></div>;
+  return <div className="ep-auth-page">
+    <Link href="/" className="ep-auth-brand" data-testid="link-auth-brand"><IconLogo small /><span className="font-display text-xl">EcoPulse</span></Link>
+    <div className="ep-auth-panel"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} appearance={clerkAppearance} /></div>
+  </div>;
 }
 function AuthSignup() {
   const { signUp, fetchStatus } = useSignUp();
