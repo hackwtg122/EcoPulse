@@ -518,7 +518,8 @@ router.patch("/admin/catalog/slots/:id/capacity", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
   if (platformEnvironment(res).PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
   if (!uuidPattern.test(String(req.params.id)) || !hasOnlyFields(req.body, ["capacity", "validationReference", "administratorDeclaration"])) return res.status(400).json({ error: "invalid_capacity_change" });
-  const reference = parseCatalogPublicationRequest(req.body);
+  const { capacity, ...publication } = req.body;
+  const reference = parseCatalogPublicationRequest(publication);
   const pool = await databasePool();
   if (!await hasCatalogValidationSchema(pool)) return res.status(503).json({ error: "catalog_validation_migration_required" });
   return res.json(await updateActiveSlotCapacity(pool, String(req.params.id), res.locals.userId, req.body.capacity, reference));
