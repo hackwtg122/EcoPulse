@@ -1,0 +1,40 @@
+{
+  "codeCommit": "776902ca8be8aebbe50ab99b002399b6bb4b8bc6",
+  "netlifyState": "ready",
+  "netlifyCommit": "776902ca8be8aebbe50ab99b002399b6bb4b8bc6",
+  "netlifyDeployId": "6aefd0243d869c2ebbacfc8b",
+  "renderCommit": "776902ca8be8aebbe50ab99b002399b6bb4b8bc6",
+  "productionQaRun": 42434370273,
+  "productionQaConclusion": "success",
+  "passedJobs": ["role-policy", "deploy-render", "public-api", "guide-storage-schema", "reward-inventory-schema", "public-browser"],
+  "skippedJobs": ["neon-readonly"],
+  "unauthorizedProtection": {"challengeCatalog": 401, "challengeAdmin": 401},
+  "deployedFrontend": {
+    "challengeChunkServed": true,
+    "challengeChunk": "challenges-panel-BwOGx8O9.js",
+    "challengeEntryFromDashboard": true,
+    "serverCatalogMarkersInBrowserBundle": false
+  },
+  "neonChallenges": {
+    "total": 10,
+    "active": 10,
+    "pointsPerChallenge": 10,
+    "attempts": 0,
+    "awards": 0,
+    "pointsGranted": 0
+  },
+  "rewardsPreserved": {
+    "count": 3,
+    "idsUnchanged": true,
+    "pricesUnchanged": true,
+    "filesUnchanged": true,
+    "inventoryRemainingEach": 1,
+    "twentyCapacityApplied": false
+  },
+  "runtimeUsesDedicatedRole": false,
+  "productionBusinessFixturesCreated": 0,
+  "authenticatedTwentyUsersProven": false,
+  "authenticatedBlockReason": "authorized_test_identities_missing",
+  "physicalRecyclingProven": false,
+  "notes": "Deployment and schema evidence only. No authenticated Clerk sessions, no attempt or point fixtures, no reward capacity change without explicit administrator confirmation."
+}
