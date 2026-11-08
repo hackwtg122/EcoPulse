@@ -22,6 +22,7 @@ import {
 import type { ManualScanCategory } from "./scan-catalog";
 import { DeliverySubmission, deliveryRequestRejected } from "./delivery-submission";
 import { CoordinationRequestsPanel } from "./coordination-panel";
+import { defaultHandoffDateTime, minimumHandoffDateTime, handoffDateTimeError } from "./handoff-time";
 
 const pilotApiUrl = import.meta.env.VITE_PILOT_API_URL?.trim() || "http://127.0.0.1:5001";
 
@@ -203,7 +204,7 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
     setHandoffPoints([]);
     setHandoffLoading(true);
     const previousTime = delivery.handoffPlan?.handoffAt ? new Date(delivery.handoffPlan.handoffAt) : null;
-    setHandoffAt(previousTime ? new Date(previousTime.getTime() - previousTime.getTimezoneOffset() * 60000).toISOString().slice(0,16) : "");
+    setHandoffAt(defaultHandoffDateTime(new Date(), previousTime));
     setHandoffNote(delivery.handoffPlan?.note ?? "");
     setAction(null); setActionError(""); setActionMessage("");
     try {
@@ -226,10 +227,12 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
   }
   async function submitHandoff(deliveryId: string) {
     if (saving) return;
-    const date = new Date(handoffAt);
-    if (!handoffPointId || !handoffPoints.some(point => point.id === handoffPointId) || !Number.isFinite(date.valueOf()) || date.valueOf() < Date.now() + 5*60_000) {
-      setActionError("Selecciona un punto habilitado que acepte estos materiales y una fecha futura."); return;
+    if (!handoffPointId || !handoffPoints.some(point => point.id === handoffPointId)) {
+      setActionError("Selecciona un punto habilitado que acepte los materiales de esta entrega."); return;
     }
+    const dateIssue = handoffDateTimeError(handoffAt);
+    if (dateIssue) { setActionError(dateIssue); return; }
+    const date = new Date(handoffAt);
     setSaving(true);setActionError("");setActionMessage("");
     try {
       const token=await getToken();
@@ -242,7 +245,9 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
       setActionMessage("Propuesta de coordinación guardada y visible para el participante. No se registró una recepción.");
     } catch(cause) {
       const code=cause instanceof PilotApiError?cause.code:"request_failed";
-      setActionError(code==="invalid_handoff_date"?"La fecha debe ser futura y estar dentro de los próximos 180 días.":
+      setActionError(code==="invalid_handoff_date"?"El servidor rechazó el horario: selecciona una fecha y hora futuras (al menos 10 minutos).":
+        code==="handoff_point_unavailable"?"El punto ya no está habilitado. Actualiza el formulario y selecciona otro.":
+        code==="handoff_materials_unavailable"?"El punto seleccionado no acepta los materiales de esta solicitud. Selecciona otro.":
         code==="delivery_not_accepted"?"Acepta primero la solicitud.": "No fue posible guardar la coordinación. Revisa los datos y vuelve a intentar.");
     } finally {setSaving(false);}
   }
@@ -328,8 +333,9 @@ export function VerifierQueue({ role, onRefresh }: { role: string; onRefresh: ()
             </label>
             {handoffPointId && handoffPoints.find(point => point.id === handoffPointId) && <p className="text-xs text-[hsl(var(--muted-foreground))]">Ubicación configurada: {handoffPoints.find(point => point.id === handoffPointId)?.address}. {handoffPoints.find(point => point.id === handoffPointId)?.address.includes("por coordinar") ? "Esta es una zona; el punto físico exacto sigue pendiente de acuerdo con el participante." : "Confirma con el participante los detalles antes de desplazarse."}</p>}
             <label className="block text-sm">Fecha y hora propuestas
-              <input required type="datetime-local" value={handoffAt} onChange={e=>setHandoffAt(e.target.value)}
-                className="mt-1 min-h-11 w-full rounded-xl border p-2"/>
+              <input required type="datetime-local" min={minimumHandoffDateTime()} value={handoffAt} onChange={e=>{setHandoffAt(e.target.value);setActionError("");}}
+                className="mt-1 min-h-11 w-full rounded-xl border p-2" data-testid="handoff-time"/>
+              <span className="mt-1 block text-xs text-[hsl(var(--muted-foreground))]">La fecha propuesta debe ser futura; se sugiere mañana, pero puedes cambiarla.</span>
             </label>
             <label className="block text-sm">Indicaciones opcionales
               <textarea maxLength={500} value={handoffNote} onChange={e=>setHandoffNote(e.target.value)}
