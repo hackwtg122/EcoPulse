@@ -279,7 +279,7 @@ function parseDelivery(row: Record<string, unknown>): PilotDelivery {
     requestVersion,
     createdAt,
     updatedAt: row.updatedAt === undefined ? createdAt : requireString(row.updatedAt, "delivery_updated_at"),
-    acceptedAt: row.acceptedAt == null ? null : requireString(row.acceptedAt, "delivery_accepted_at"),
+    ...(row.acceptedAt == null ? {} : { acceptedAt: requireString(row.acceptedAt, "delivery_accepted_at") }),
     deliveryPoint: parseDeliveryPoint(row.deliveryPoint),
     slot: parseDeliverySlot(row.slot),
     materials: parseMaterials(row.materials),
