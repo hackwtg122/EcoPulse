@@ -914,7 +914,7 @@ router.patch("/admin/rewards/:id/published-details", async (req,res) => {
   if(typeof req.body.next.description!=="string" || !Number.isSafeInteger(req.body.next.cost)) return res.status(400).json({error:"invalid_reward_edit"});
   const pool=await databasePool();
   if(!await hasRewardDigitalDetailEditSchema(pool)) return res.status(503).json({error:"reward_details_migration_required"});
-  return res.json(await editPublishedDigitalReward(pool,res.locals.userId,String(req.params.id),expected,req.body.next));
+  return res.json(await editPublishedDigitalReward(pool,res.locals.userId,String(req.params.id),expected,{description:req.body.next.description as string,cost:req.body.next.cost as number}));
 });
 router.patch("/admin/rewards/:id", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
