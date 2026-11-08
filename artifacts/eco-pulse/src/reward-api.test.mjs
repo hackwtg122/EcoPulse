@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activateDigitalRedemption, createRewardDraft, fulfillRedemption, publishRewardDraft, loadAdminRedemptions, loadAdminRewards, loadPointMovements, loadRedemptions, loadRewardBalance, loadRewardCapabilities, loadRewards, RewardApiError } from "./reward-api.ts";
+import { updatePublishedDigitalReward, activateDigitalRedemption, createRewardDraft, fulfillRedemption, publishRewardDraft, loadAdminRedemptions, loadAdminRewards, loadPointMovements, loadRedemptions, loadRewardBalance, loadRewardCapabilities, loadRewards, RewardApiError } from "./reward-api.ts";
 import { loadAdminFulfillmentHistory } from "./reward-api.ts";
 import { savePhysicalRewardPhoto } from "./reward-api.ts";
 
@@ -171,4 +171,21 @@ test("legacy reserved redemption retains digitalPending only when server reports
   const data=await loadRedemptions("https://api.invalid","token",new AbortController().signal,fetcher);
   assert.equal(data[0].digitalPending,true);
   assert.equal(data[0].digitalAsset,null);
+});
+
+test("admin updates published digital reward description and future cost through authenticated endpoint", async () => {
+ const id="e1f00201-0001-4000-8000-000000000001";
+ const expected={title:"Kit digital de reciclaje",description:"Viejo texto",cost:20};
+ const next={description:"Nueva descripción",cost:25};
+ const signal=new AbortController().signal;
+ const fetched=async(url,options)=>{
+   assert.match(url,/\/admin\/rewards\/e1f00201-0001-4000-8000-000000000001\/published-details$/);
+   assert.equal(options.method,"PATCH");
+   assert.equal(options.headers.Authorization,"Bearer token");
+   assert.deepEqual(JSON.parse(options.body),{expected,next});
+   return new Response(JSON.stringify({id,title:expected.title,description:next.description,cost:25,active:false}),{status:200,headers:{"Content-Type":"application/json"}});
+ };
+ const response=await updatePublishedDigitalReward("https://api.invalid","token",id,expected,next,signal,fetched);
+ assert.equal(response.cost,25);
+ assert.equal(response.active,false);
 });

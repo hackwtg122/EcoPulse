@@ -230,6 +230,18 @@ export async function createRewardDraft(apiUrl: string, token: string, input: Re
 export async function updateRewardDraft(apiUrl: string, token: string, id: string, expected: RewardDraftInput, next: RewardDraftInput, signal: AbortSignal, fetchImpl?: typeof fetch) {
   return reward(object(await call(apiUrl, token, `admin/rewards/${encodeURIComponent(id)}`, signal, { method: "PATCH", body: { expected, next } }, fetchImpl)));
 }
+export async function updatePublishedDigitalReward(apiUrl:string,token:string,id:string,
+  expected:RewardDraftInput,next:Pick<RewardDraftInput,"description"|"cost">,
+  signal:AbortSignal,fetchImpl?:typeof fetch):Promise<RewardDraftInput & {id:string;active:boolean}> {
+  const row=object(await call(apiUrl,token,`admin/rewards/${encodeURIComponent(id)}/published-details`,
+    signal,{method:"PATCH",body:{expected,next}},fetchImpl));
+  if(row.id!==id || typeof row.title!=="string" || typeof row.description!=="string" ||
+     !Number.isSafeInteger(row.cost) || typeof row.active!=="boolean") {
+    throw new RewardApiError(502,"invalid_published_reward_edit");
+  }
+  return {id,title:row.title,description:row.description,cost:row.cost as number,active:row.active};
+}
+
 export async function publishRewardDraft(apiUrl: string, token: string, id: string, input: RewardPublicationInput, signal: AbortSignal, fetchImpl?: typeof fetch) {
   const result = reward(object(await call(apiUrl, token, `admin/rewards/${encodeURIComponent(id)}/publish`, signal, { method: "POST", body: input }, fetchImpl)));
   if (result.id !== id || result.active !== true || result.validationRecorded !== true || result.fulfillmentDocumented !== true || !Number.isSafeInteger(result.inventoryRemaining) || (result.inventoryRemaining as number) < 1) throw new RewardApiError(502, "invalid_reward_publication_response");

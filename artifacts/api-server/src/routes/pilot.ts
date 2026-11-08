@@ -10,7 +10,7 @@ import { acceptDeliveryRequest, hasDeliveryAcceptanceSchema } from "../lib/deliv
 import { hasCoordinationPlansSchema, parseHandoffDetails, planDeliveryHandoff } from "../lib/deliveryCoordinationPlans";
 import { initializeAdminCatalog } from "../lib/adminInitialCatalog";
 import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseCatalogPublicationRequest, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
-import { RewardError, activateOwnedDigitalDownload, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
+import { RewardError, activateOwnedDigitalDownload, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, editPublishedDigitalReward, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { listFulfilledRedemptions } from "../lib/rewardService";
 import { withdrawReward } from "../lib/rewardService";
 import challengesRouter from "./challenges";
@@ -900,6 +900,21 @@ router.post("/admin/rewards", async (req, res) => {
   const result = await createRewardDraft(pool, res.locals.userId, req.header("Idempotency-Key"), input);
   if (result.replayed) res.set("Idempotency-Replayed", "true");
   return res.status(result.replayed ? 200 : 201).json(result.reward);
+});
+async function hasRewardDigitalDetailEditSchema(pool: Awaited<ReturnType<typeof databasePool>>) {
+  const result=await pool.query<{ready:boolean}>("SELECT to_regclass('public.reward_detail_edit_events') IS NOT NULL AS ready");
+  return result.rows[0]?.ready===true;
+}
+router.patch("/admin/rewards/:id/published-details", async (req,res) => {
+  if(res.locals.role!=="admin") return res.status(403).json({error:"admin_required"});
+  if(platformEnvironment(res).PILOT_REWARD_ADMIN_ENABLED!=="true") return res.status(503).json({error:"reward_admin_disabled"});
+  if(!hasOnlyFields(req.body,["expected","next"]) || !req.body.expected || !req.body.next ||
+     !hasOnlyFields(req.body.next,["description","cost"])) return res.status(400).json({error:"invalid_reward_edit"});
+  const expected=parseRewardDraft(req.body.expected);
+  if(typeof req.body.next.description!=="string" || !Number.isSafeInteger(req.body.next.cost)) return res.status(400).json({error:"invalid_reward_edit"});
+  const pool=await databasePool();
+  if(!await hasRewardDigitalDetailEditSchema(pool)) return res.status(503).json({error:"reward_details_migration_required"});
+  return res.json(await editPublishedDigitalReward(pool,res.locals.userId,String(req.params.id),expected,{description:req.body.next.description as string,cost:req.body.next.cost as number}));
 });
 router.patch("/admin/rewards/:id", async (req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });

@@ -267,6 +267,40 @@ export async function editRewardDraft(pool: Pool, actorId: string, id: string, e
   });
 }
 
+// Edit the future offer without rewriting the title, asset, past canjes or stock.
+// A trigger records both old and new values, actor and timestamp in Neon.
+export async function editPublishedDigitalReward(pool: Pool, actorId: string, id: string,
+  expected: RewardDraft, next: { description: string; cost: number }) {
+  if (!uuidPattern.test(id)) throw new RewardError(400,"invalid_reward_id");
+  const requested = parseRewardDraft({ title: expected.title, description: next.description, cost: next.cost });
+  return transaction(pool,async client=>{
+    await lockCurrentAdministrator(client,actorId);
+    const found = await client.query<{id:string;title:string;description:string;cost:number;active:boolean;
+      validated_at:Date|null;validated_by:string|null;fulfillment_reference:string|null}>(`
+        SELECT id,title,description,cost,active,validated_at,validated_by,fulfillment_reference
+        FROM rewards WHERE id=$1 FOR UPDATE`,[id]);
+    const row=found.rows[0];
+    if (!row) throw new RewardError(404,"reward_not_found");
+    if (!row.validated_at || !row.validated_by || !digitalAssetEvidence(row.fulfillment_reference)) {
+      throw new RewardError(409,"published_digital_reward_required");
+    }
+    if (row.title!==expected.title || row.description!==expected.description || row.cost!==expected.cost) {
+      throw new RewardError(409,"reward_changed_or_unavailable");
+    }
+    if (row.description===requested.description && row.cost===requested.cost) {
+      return { id,title:row.title,description:row.description,cost:row.cost,active:row.active,unchanged:true };
+    }
+    await client.query("SELECT set_config('ecopulse.reward_detail_editor',$1,true)",[actorId]);
+    const updated=await client.query<{id:string;title:string;description:string;cost:number;active:boolean}>(`
+      UPDATE rewards SET description=$2,cost=$3,updated_at=now()
+      WHERE id=$1 AND description=$4 AND cost=$5
+      RETURNING id,title,description,cost,active`,
+      [id,requested.description,requested.cost,expected.description,expected.cost]);
+    if(!updated.rows[0])throw new RewardError(409,"reward_changed_or_unavailable");
+    return updated.rows[0];
+  });
+}
+
 export async function publishRewardDraft(pool: Pool, actorId: string, id: string, input: RewardPublication) {
   if (!uuidPattern.test(id)) throw new RewardError(400, "invalid_reward_id");
   const digital = digitalAssetEvidence(input.fulfillmentReference);
