@@ -38,6 +38,8 @@ test("operational evidence excludes reference-only and unvalidated records", () 
   const row = { validation_reference: "https://example.org/center", validated_by: "user_Admin", validated_at: new Date() };
   assert.equal(hasOperationalEvidence(row), true);
   assert.equal(hasOperationalEvidence({ ...row, validation_reference: "academic:ecopulse/centro-01" }), false);
+  assert.equal(hasOperationalEvidence({ ...row, validation_reference: "admin-declaration:v1" }), true);
+  assert.equal(hasOperationalEvidence({ ...row, validation_reference: "admin-declaration:unknown" }), false);
   assert.equal(hasOperationalEvidence({ ...row, validated_at: null }), false);
   assert.equal(hasOperationalEvidence({ ...row, validated_by: null }), false);
 });
