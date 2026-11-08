@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ArrowRight, Award, BookOpen, CheckCircle2, CircleHelp, Compass, Gift, Leaf, MapPin, Recycle, ScanLine, ShieldCheck, Sprout, Target, Users } from "lucide-react";
 import natureImage from "./assets/reward-nature-premium.svg";
@@ -22,7 +22,7 @@ export function readPublicImpact(value: unknown): PublicImpact {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("invalid_impact");
   const v = value as Record<string, unknown>;
   for (const key of ["centers", "challenges", "verifiedDeliveries", "rewards"]) {
-    if (!Number.isSafeInteger(v[key]) || (v[key] as number) < 0) throw Error("invalid_impact_number");
+    if (typeof v[key] !== "number" || !Number.isSafeInteger(v[key]) || (v[key] as number) < 0) throw Error("invalid_impact_number");
   }
   if (!Array.isArray(v.points) || !Array.isArray(v.featuredRewards)) throw Error("invalid_impact_list");
   const points = v.points.map(raw => {
@@ -37,7 +37,7 @@ export function readPublicImpact(value: unknown): PublicImpact {
     if (!raw || typeof raw !== "object") throw Error("invalid_impact_reward");
     const p = raw as Record<string, unknown>;
     if (typeof p.id !== "string" || typeof p.title !== "string" || typeof p.kind !== "string" ||
-      !Number.isSafeInteger(p.cost) || (p.cost as number) < 1) throw Error("invalid_impact_reward");
+      typeof p.cost !== "number" || !Number.isSafeInteger(p.cost) || p.cost < 1) throw Error("invalid_impact_reward");
     return { id: p.id, title: p.title, cost: p.cost as number, kind: p.kind };
   });
   return {
