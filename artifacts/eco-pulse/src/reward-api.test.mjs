@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRewardDraft, fulfillRedemption, publishRewardDraft, loadAdminRedemptions, loadAdminRewards, loadPointMovements, loadRedemptions, loadRewardBalance, loadRewardCapabilities, loadRewards, RewardApiError } from "./reward-api.ts";
+import { activateDigitalRedemption, createRewardDraft, fulfillRedemption, publishRewardDraft, loadAdminRedemptions, loadAdminRewards, loadPointMovements, loadRedemptions, loadRewardBalance, loadRewardCapabilities, loadRewards, RewardApiError } from "./reward-api.ts";
 import { loadAdminFulfillmentHistory } from "./reward-api.ts";
 import { savePhysicalRewardPhoto } from "./reward-api.ts";
 
@@ -148,4 +148,27 @@ test("redemption requires confirmed positive inventory and sufficient real balan
     assert.equal(hasRewardInventory(unavailable), false);
     assert.equal(canRedeemReward(unavailable, true, 100), false);
   }
+});
+
+test("participant can activate only an owned digital redemption via authenticated endpoint",async()=>{
+  const id="00000000-0000-4000-8000-000000000002";
+  const signal=new AbortController().signal;
+  let calls=0;
+  const fetcher=async(url,options)=>{
+    calls++;
+    assert.match(url,new RegExp("/redemptions/"+id+"/activate-download$"));
+    assert.equal(options.method,"POST");
+    assert.equal(options.headers.Authorization,"Bearer token");
+    assert.deepEqual(JSON.parse(options.body),{});
+    return new Response(JSON.stringify({id,replayed:false}),{status:200,headers:{"Content-Type":"application/json"}});
+  };
+  assert.deepEqual(await activateDigitalRedemption("https://api.invalid","token",id,signal,fetcher),{id,replayed:false});
+  assert.equal(calls,1);
+});
+test("legacy reserved redemption retains digitalPending only when server reports it",async()=>{
+  const item={id:"a",rewardId:"r",rewardTitle:"Kit digital de reciclaje",cost:20,createdAt:"2026-11-08T00:00:00Z",fulfillmentStatus:"reserved",digitalPending:true};
+  const fetcher=async()=>new Response(JSON.stringify([item]),{status:200,headers:{"Content-Type":"application/json"}});
+  const data=await loadRedemptions("https://api.invalid","token",new AbortController().signal,fetcher);
+  assert.equal(data[0].digitalPending,true);
+  assert.equal(data[0].digitalAsset,null);
 });
