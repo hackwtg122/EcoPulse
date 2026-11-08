@@ -12,7 +12,6 @@ RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   RAISE EXCEPTION 'delivery request acceptance is append-only' USING ERRCODE='55000';
 END $$;
-DROP TRIGGER IF EXISTS delivery_request_acceptances_append_only ON public.delivery_request_acceptances;
 CREATE TRIGGER delivery_request_acceptances_append_only
 BEFORE UPDATE OR DELETE ON public.delivery_request_acceptances
 FOR EACH ROW EXECUTE FUNCTION public.prevent_delivery_acceptance_mutation();
