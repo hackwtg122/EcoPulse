@@ -7,7 +7,7 @@ import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } fro
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, loadPublishedDeliveryPoints, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, updateOwnDeliveryStatus, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
 import { initializeAdminCatalog } from "../lib/adminInitialCatalog";
-import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
+import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseCatalogPublicationRequest, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { listFulfilledRedemptions } from "../lib/rewardService";
 import { withdrawReward } from "../lib/rewardService";
@@ -496,7 +496,7 @@ router.post("/admin/catalog/points/:id/validate", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
   if (platformEnvironment(res).PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
   if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_point_id" });
-  const reference = parseValidationReference(req.body);
+  const reference = parseCatalogPublicationRequest(req.body);
   const pool = await databasePool();
   if (!await hasCatalogValidationSchema(pool)) return res.status(503).json({ error: "catalog_validation_migration_required" });
   const result = await validateCatalogPoint(pool, String(req.params.id), res.locals.userId, reference);
@@ -507,7 +507,7 @@ router.post("/admin/catalog/slots/:id/validate", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
   if (platformEnvironment(res).PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
   if (!uuidPattern.test(String(req.params.id))) return res.status(400).json({ error: "invalid_slot_id" });
-  const reference = parseValidationReference(req.body);
+  const reference = parseCatalogPublicationRequest(req.body);
   const pool = await databasePool();
   if (!await hasCatalogValidationSchema(pool)) return res.status(503).json({ error: "catalog_validation_migration_required" });
   const result = await validateCatalogSlot(pool, String(req.params.id), res.locals.userId, reference);
@@ -517,8 +517,8 @@ router.post("/admin/catalog/slots/:id/validate", async (req, res) => {
 router.patch("/admin/catalog/slots/:id/capacity", async (req, res) => {
   if (!canManageCatalog(res.locals.role)) return res.status(403).json({ error: "admin_required" });
   if (platformEnvironment(res).PILOT_CATALOG_PUBLICATION_ENABLED !== "true") return res.status(503).json({ error: "catalog_publication_disabled" });
-  if (!uuidPattern.test(String(req.params.id)) || !hasOnlyFields(req.body, ["capacity", "validationReference"])) return res.status(400).json({ error: "invalid_capacity_change" });
-  const reference = parseValidationReference({ validationReference: req.body.validationReference });
+  if (!uuidPattern.test(String(req.params.id)) || !hasOnlyFields(req.body, ["capacity", "validationReference", "administratorDeclaration"])) return res.status(400).json({ error: "invalid_capacity_change" });
+  const reference = parseCatalogPublicationRequest(req.body);
   const pool = await databasePool();
   if (!await hasCatalogValidationSchema(pool)) return res.status(503).json({ error: "catalog_validation_migration_required" });
   return res.json(await updateActiveSlotCapacity(pool, String(req.params.id), res.locals.userId, req.body.capacity, reference));
