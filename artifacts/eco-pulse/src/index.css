@@ -390,3 +390,113 @@
     inset: -1px;
   }
 }
+
+
+/* Clerk authentication: readable interactive states across mobile and desktop.
+   Scoped to the sign-in experience, leaving dashboard controls untouched. */
+.ep-auth-page {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  gap: 22px;
+  overflow-x: clip;
+  padding: clamp(18px, 3vw, 32px) clamp(12px, 3vw, 32px) 32px;
+  background: hsl(var(--background));
+}
+.ep-auth-brand {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 9px;
+  color: #145c43;
+  font-weight: 700;
+  text-decoration: none;
+}
+.ep-auth-brand:focus-visible { outline: 3px solid #c9963f; outline-offset: 4px; border-radius: 8px; }
+.ep-auth-panel {
+  box-sizing: border-box;
+  width: min(100%, 480px);
+  min-width: 0;
+  margin-block: auto;
+  padding: clamp(8px, 2vw, 16px);
+  border: 1px solid #e3dccd;
+  border-radius: 28px;
+  background: #fbf8f0;
+  box-shadow: 0 18px 48px rgba(27, 70, 49, .10);
+}
+.ep-auth-page .cl-rootBox,
+.ep-auth-page .cl-cardBox { width: 100%; max-width: 100%; min-width: 0; }
+@media (min-width: 768px) {
+  .ep-auth-page { padding-inline: 40px; }
+  .ep-auth-panel { width: min(100%, 490px); }
+}
+@media (max-width: 480px) {
+  .ep-auth-page { gap: 18px; padding: 18px 10px 24px; }
+  .ep-auth-panel { padding: 7px; border-radius: 22px; }
+  .ep-auth-brand { margin-left: 6px; }
+}
+
+/* Match Clerk's shadcn theme layer and override disabled opacity that made
+   dark text on a dark-green button invisible on iPhone Safari. */
+@layer clerk {
+  .ep-auth-page .cl-formButtonPrimary {
+    min-height: 52px !important;
+    border-radius: 999px !important;
+    background: #145c43 !important;
+    color: #fff !important;
+    font-size: 16px !important;
+    font-weight: 750 !important;
+    opacity: 1 !important;
+    box-shadow: 0 6px 16px rgba(20, 92, 67, .16);
+  }
+  .ep-auth-page .cl-formButtonPrimary span,
+  .ep-auth-page .cl-formButtonPrimary svg {
+    color: inherit !important;
+    opacity: 1 !important;
+  }
+  .ep-auth-page .cl-formButtonPrimary:not(:disabled):not([aria-disabled="true"]):hover {
+    background: #0f4935 !important;
+  }
+  .ep-auth-page .cl-formButtonPrimary:is(:disabled, [disabled], [aria-disabled="true"], [data-disabled="true"]) {
+    background: #dce8de !important;
+    color: #294d3c !important;
+    border: 1px solid #a7bcac !important;
+    opacity: 1 !important;
+    box-shadow: none !important;
+    cursor: not-allowed !important;
+  }
+  .ep-auth-page .cl-socialButtonsBlockButton,
+  .ep-auth-page .cl-alternativeMethodsBlockButton {
+    min-height: 52px !important;
+    border: 1px solid #b7c8bc !important;
+    border-radius: 999px !important;
+    background: #fffdfa !important;
+    color: #173e2e !important;
+    font-weight: 650 !important;
+  }
+  .ep-auth-page .cl-socialButtonsBlockButton span,
+  .ep-auth-page .cl-alternativeMethodsBlockButton span {
+    color: inherit !important;
+  }
+  .ep-auth-page .cl-socialButtonsBlockButton:is(:disabled, [aria-disabled="true"], [data-disabled="true"]),
+  .ep-auth-page .cl-alternativeMethodsBlockButton:is(:disabled, [aria-disabled="true"], [data-disabled="true"]) {
+    background: #f1f1ea !important;
+    color: #53675b !important;
+    border-color: #d4dcd2 !important;
+    opacity: 1 !important;
+    cursor: not-allowed !important;
+  }
+  .ep-auth-page .cl-socialButtonsBlockButton:is(:disabled, [aria-disabled="true"], [data-disabled="true"]) *,
+  .ep-auth-page .cl-alternativeMethodsBlockButton:is(:disabled, [aria-disabled="true"], [data-disabled="true"]) * {
+    opacity: 1 !important;
+    color: inherit !important;
+  }
+  .ep-auth-page :is(.cl-formButtonPrimary, .cl-socialButtonsBlockButton, .cl-alternativeMethodsBlockButton):focus-visible {
+    outline: 3px solid #c9963f !important;
+    outline-offset: 3px !important;
+  }
+}
