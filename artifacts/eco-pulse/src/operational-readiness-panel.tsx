@@ -52,10 +52,20 @@ export function OperationalReadinessPanel() {
   const [initializationMessage, setInitializationMessage] = useState("");
   useEffect(() => {
     const refresh = () => setRevision(value => value + 1);
-    window.addEventListener("focus", refresh);
     window.addEventListener("ecopulse-operational-resources-changed", refresh);
-    return () => { window.removeEventListener("focus", refresh); window.removeEventListener("ecopulse-operational-resources-changed", refresh); };
+    return () => window.removeEventListener("ecopulse-operational-resources-changed", refresh);
   }, []);
+  // Firefox focus events must not repeatedly tear down this panel and reload
+  // five protected endpoints. The manual Actualizar action is always available.
+  const openDeliveryQueue = () => {
+    const target = document.getElementById("verifier-queue-anchor");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.focus({ preventScroll: true });
+    } else {
+      window.location.assign("/admin#verifier-queue-anchor");
+    }
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -191,7 +201,9 @@ export function OperationalReadinessPanel() {
           <h3 className="font-semibold text-[hsl(var(--primary))]">{step.title}</h3>
         </div>
         <p className="mt-3 flex-1 text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">{step.description}</p>
-        <Link href={step.href} className="mt-4 inline-flex min-h-10 items-center gap-2 self-start text-sm font-bold text-[hsl(var(--primary))] underline">{step.action} <ArrowRight size={15} /></Link>
+        {step.key === "verification"
+          ? <button type="button" onClick={openDeliveryQueue} className="mt-4 inline-flex min-h-10 items-center gap-2 self-start text-sm font-bold text-[hsl(var(--primary))] underline" data-testid="button-open-verifier-queue">{step.action} <ArrowRight size={15} /></button>
+          : <Link href={step.href} className="mt-4 inline-flex min-h-10 items-center gap-2 self-start text-sm font-bold text-[hsl(var(--primary))] underline">{step.action} <ArrowRight size={15} /></Link>}
       </article>)}
     </div>}
     {status === "ready" && configurationLocked && <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" data-testid="admin-operational-configuration-warning">Algunas gestiones están deshabilitadas. <Link href="/admin?section=settings" className="font-semibold underline">Revisar Configuración general</Link> para consultar requisitos y activar los módulos preparados.</p>}
