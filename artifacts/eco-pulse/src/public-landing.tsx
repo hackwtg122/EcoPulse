@@ -162,7 +162,7 @@ export function PublicEcoPulseExperience() {
         <p className="ep-eyebrow"><Sprout size={17}/> Sostenibilidad en acción</p>
         <h1 id="ep-hero-title">Una comunidad que <span>aprende, actúa</span> y genera <em>impacto real.</em></h1>
         <p className="ep-hero-subtitle">Descubre guías, retos, centros y recompensas para construir hábitos más sostenibles.</p>
-        <div className="ep-hero-actions"><Link href="/explore" className="ep-primary-cta" data-testid="link-explore-without-account"><Compass size={21}/> Explorar EcoPulse <ArrowRight size={21}/></Link><Link href="/materials" className="ep-secondary-cta"><BookOpen size={18}/> Materiales y guías</Link></div>
+        <div className="ep-hero-actions"><Link href="/explore" className="ep-primary-cta" data-testid="link-explore-without-account"><Compass size={21}/> Explorar EcoPulse <ArrowRight size={21}/></Link><Link href="/materials" className="ep-secondary-cta" data-testid="link-landing-materials"><BookOpen size={18}/> Materiales y guías</Link></div>
         <p className="ep-hero-trust"><CheckCircle2 size={17}/> Explora las herramientas públicas sin iniciar sesión.</p>
       </div>
       <PulseOrb/>
