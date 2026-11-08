@@ -335,11 +335,57 @@ export async function redeemReward(pool: Pool, userId: string, rewardId: string,
     if (!Number.isSafeInteger(balance)) throw new RewardError(500, "balance_out_of_range");
     if (balance < item.cost) throw new RewardError(409, "insufficient_points");
     const redemptionId = randomUUID();
-    const redemption = await client.query(`INSERT INTO redemptions (id,user_id,reward_id,cost,idempotency_key)
-      VALUES ($1,$2,$3,$4,$5) RETURNING id,reward_id,cost,created_at,fulfillment_status`, [redemptionId,userId,rewardId,item.cost,key]);
+    const digital = digitalAssetEvidence(item.fulfillment_reference);
+    // An already registered digital asset can be delivered atomically with debit,
+    // while a physical reward must remain reserved for real handoff.
+    const redemption = digital
+      ? await client.query(`INSERT INTO redemptions
+          (id,user_id,reward_id,cost,idempotency_key,fulfillment_status,fulfillment_reference,fulfilled_by,fulfilled_at)
+          VALUES ($1,$2,$3,$4,$5,'fulfilled',$6,$2,now())
+          RETURNING id,reward_id,cost,created_at,fulfillment_status`,
+          [redemptionId,userId,rewardId,item.cost,key,digital.fulfillmentReference])
+      : await client.query(`INSERT INTO redemptions (id,user_id,reward_id,cost,idempotency_key)
+          VALUES ($1,$2,$3,$4,$5) RETURNING id,reward_id,cost,created_at,fulfillment_status`,
+          [redemptionId,userId,rewardId,item.cost,key]);
     await client.query("INSERT INTO point_movements (id,user_id,delta,kind,source_id) VALUES ($1,$2,$3,'redemption',$4)", [randomUUID(),userId,-item.cost,redemptionId]);
     await client.query("UPDATE rewards SET inventory_remaining=inventory_remaining-1,active=(inventory_remaining>1),updated_at=now() WHERE id=$1", [rewardId]);
     return { redemption: redemption.rows[0], replayed: false };
+  });
+}
+
+// Reserved digital redemptions from the prior workflow may be completed by
+// the authenticated owner, with no additional points or inventory movement.
+export async function activateOwnedDigitalDownload(pool: Pool, userId: string, redemptionId: string) {
+  if (!userId || !uuidPattern.test(redemptionId)) throw new RewardError(400, "invalid_redemption");
+  return transaction(pool, async client => {
+    const result = await client.query<{
+      id: string; cost: number; fulfillment_status: string; fulfillment_reference: string | null;
+      reward_reference: string | null;
+    }>(`SELECT d.id,d.cost,d.fulfillment_status,d.fulfillment_reference,
+        w.fulfillment_reference AS reward_reference
+        FROM redemptions d JOIN rewards w ON w.id=d.reward_id
+        WHERE d.id=$1 AND d.user_id=$2 FOR UPDATE OF d`, [redemptionId,userId]);
+    const row = result.rows[0];
+    if (!row) throw new RewardError(404, "redemption_not_found");
+    const asset = digitalAssetEvidence(row.reward_reference);
+    if (!asset) throw new RewardError(409, "digital_asset_unavailable");
+    if (row.fulfillment_status === "fulfilled") {
+      if (row.fulfillment_reference !== asset.fulfillmentReference) throw new RewardError(409, "digital_asset_mismatch");
+      return { id: redemptionId, replayed: true };
+    }
+    if (row.fulfillment_status !== "reserved") throw new RewardError(409, "redemption_state_conflict");
+    // Only a legitimate pre-existing redemption with a matching points debit.
+    const debit = await client.query<{ present: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1 FROM point_movements
+        WHERE user_id=$1 AND kind='redemption' AND source_id=$2 AND delta=-$3
+      ) AS present`, [userId, redemptionId, row.cost]);
+    if (!debit.rows[0]?.present) throw new RewardError(409, "redemption_debit_unverified");
+    await client.query(`UPDATE redemptions
+      SET fulfillment_status='fulfilled',fulfillment_reference=$2,fulfilled_by=$3,fulfilled_at=now()
+      WHERE id=$1 AND user_id=$3 AND fulfillment_status='reserved'`,
+      [redemptionId, asset.fulfillmentReference,userId]);
+    return { id: redemptionId, replayed: false };
   });
 }
 
