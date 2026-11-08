@@ -87,9 +87,9 @@ export async function listCatalog(pool: Pool, validationReady: boolean) {
   const view = ({ validatedBy, ...row }: Record<string, unknown>) => {
     let operationallyValidated = false;
     if (row.validatedAt && typeof validatedBy === "string" && validatedBy) {
-      try { parseValidationReference({ validationReference: row.validationReference }); operationallyValidated = true; } catch { /* Legacy metadata is not operational evidence. */ }
+      operationallyValidated = isCatalogPublicationReference(row.validationReference);
     }
-    return { ...row, operationallyValidated };
+    return { ...row, operationallyValidated, administrativelyDeclared: row.validationReference === ADMIN_CATALOG_DECLARATION && operationallyValidated };
   };
   return { points: points.rows.map(view), slots: slots.rows.map(view) };
 }
@@ -202,6 +202,24 @@ export function parseSlotEdit(value: unknown): Omit<DraftSlot, "pointId"> {
   return edit;
 }
 
+// An authenticated administrator may publish their own center or appointment
+// without uploading a third-party URL. This fixed internal marker is NOT
+// external proof of location, authorization or physical reception.
+export const ADMIN_CATALOG_DECLARATION = "admin-declaration:v1";
+
+export function isCatalogPublicationReference(value: unknown): boolean {
+  if (value === ADMIN_CATALOG_DECLARATION) return true;
+  try { parseValidationReference({ validationReference: value }); return true; }
+  catch { return false; }
+}
+
+export function parseCatalogPublicationRequest(value: unknown): string {
+  const input = record(value, ["administratorDeclaration", "validationReference"]);
+  if (input.administratorDeclaration === true && input.validationReference === undefined) return ADMIN_CATALOG_DECLARATION;
+  if (input.administratorDeclaration !== undefined) throw new CatalogError(400, "invalid_administrator_declaration");
+  return parseValidationReference(input);
+}
+
 export function parseValidationReference(value: unknown): string {
   const input = record(value, ["validationReference"]);
   const reference = boundedText(input.validationReference, 10, 500, "invalid_validation_reference");
@@ -279,8 +297,7 @@ export async function validateCatalogSlot(pool: Pool, id: string, actorId: strin
         FROM delivery_points p JOIN delivery_slots s ON s.delivery_point_id=p.id WHERE s.id=$1 FOR SHARE OF p`, [id]);
       const point = parent.rows[0];
       if (!point?.active || !point.validated_at || !point.validated_by) throw new CatalogError(409, "parent_center_unvalidated");
-      try { parseValidationReference({ validationReference: point.validation_reference }); }
-      catch { throw new CatalogError(409, "parent_center_unvalidated"); }
+      if (!isCatalogPublicationReference(point.validation_reference)) throw new CatalogError(409, "parent_center_unvalidated");
       const result = await client.query(`UPDATE delivery_slots SET validation_reference = $3, validated_by = $2, validated_at = now(), active = true
         WHERE id = $1 AND active = false RETURNING id, delivery_point_id AS "pointId", starts_at AS "startsAt", ends_at AS "endsAt", capacity, active, validation_reference AS "validationReference", validated_at AS "validatedAt"`, [id, actorId, reference]);
       if (result.rowCount) return { slot: result.rows[0], replayed: false };

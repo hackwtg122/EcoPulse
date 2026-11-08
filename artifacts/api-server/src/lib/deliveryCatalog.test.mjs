@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canManageCatalog, CatalogError, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseValidationReference, replaceDraftPointMaterials, validateCatalogPoint, validateCatalogSlot } from "./deliveryCatalog.ts";
+import { canManageCatalog, CatalogError, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseCatalogPublicationRequest, isCatalogPublicationReference, ADMIN_CATALOG_DECLARATION, parseValidationReference, replaceDraftPointMaterials, validateCatalogPoint, validateCatalogSlot } from "./deliveryCatalog.ts";
 
 const pointId = "00000000-0000-5000-8000-000000000010";
 const point = { code: "centro-prueba", name: "Centro comprobado", address: "Dirección comprobada", municipality: "Montería", timeZone: "America/Bogota", appointmentRequired: true };
@@ -129,4 +129,26 @@ test("publication requires a bounded evidence reference, not client-supplied act
   ]) {
     assert.throws(() => parseValidationReference(bad), error => error instanceof CatalogError && error.status === 400);
   }
+});
+
+test("administrator publication request is explicit and cannot be forged with arbitrary validation markers", () => {
+  assert.equal(parseCatalogPublicationRequest({ administratorDeclaration: true }), ADMIN_CATALOG_DECLARATION);
+  assert.equal(isCatalogPublicationReference(ADMIN_CATALOG_DECLARATION), true);
+  assert.equal(isCatalogPublicationReference("academic:ecopulse/center"), false);
+  assert.equal(isCatalogPublicationReference("admin-declaration:anything"), false);
+  assert.equal(isCatalogPublicationReference("https://example.org/real-evidence"), true);
+  for (const candidate of [{}, { administratorDeclaration: false }, { administratorDeclaration: "true" }, 
+      { administratorDeclaration: true, validationReference: "https://example.org/evidence" },
+      { administratorDeclaration: true, active: true }, { validationReference: ADMIN_CATALOG_DECLARATION }]) {
+    assert.throws(() => parseCatalogPublicationRequest(candidate), error => error instanceof CatalogError && error.status === 400);
+  }
+});
+
+test("administrator-declared catalog is distinguishable from externally validated records", async () => {
+  const declared = { id: pointId, active: true, validationReference: ADMIN_CATALOG_DECLARATION, validatedAt: new Date(), validatedBy: "user_Admin" };
+  const result = await listCatalog({ async query() { return { rows: [declared] }; } }, true);
+  assert.equal(result.points[0].operationallyValidated, true);
+  assert.equal(result.points[0].administrativelyDeclared, true);
+  assert.equal(result.slots[0].administrativelyDeclared, true);
+  assert.ok(!("validatedBy" in result.points[0]));
 });
