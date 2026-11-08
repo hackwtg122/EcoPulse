@@ -180,7 +180,8 @@
   .ep-story-card{flex:0 0 min(82vw,310px);scroll-snap-align:start;}.ep-story-art{height:158px;}
   .ep-story-content blockquote{min-height:76px;}.ep-step-grid{grid-template-columns:1fr;gap:12px;}
   .ep-step{padding:22px;}.ep-step>span{width:48px;height:48px;border-radius:15px;}.ep-step h3{margin-top:13px;font-size:24px;}
-  .ep-discovery-center,.ep-preview-rewards{padding:22px;}.ep-preview-reward-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}
+  .ep-discovery-center,.ep-preview-rewards{padding:22px;}.ep-preview-reward-grid{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:11px;padding-bottom:7px;scrollbar-width:thin;}
+  .ep-preview-reward{flex:0 0 min(61vw,205px);scroll-snap-align:start;}
   .ep-preview-reward-body{padding:8px;}.ep-preview-reward-body h3{font-size:10px;min-height:48px;}.ep-preview-reward-body span{font-size:10px;}
   .ep-final-cta{padding:27px 23px;flex-direction:column;align-items:flex-start;border-radius:25px;margin-bottom:50px;}
   .ep-final-cta h2{font-size:2.45rem;}.ep-final-link{width:100%;justify-content:center;}
@@ -190,7 +191,7 @@
   .ep-pulse-stage{height:350px;}.ep-pulse-orb{width:75%;padding:12px;}
   .ep-pulse-orb-inner{padding:12px;}.ep-pulse-orb-title strong{font-size:3.1rem;}
   .ep-orbit-coin{width:68px;height:68px;border-width:10px;}.ep-orbit-chip{width:39px;height:39px;}
-  .ep-pulse-caption{bottom:0;}.ep-preview-reward-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .ep-pulse-caption{bottom:0;}.ep-preview-reward{flex-basis:min(69vw,200px);}
 }
 @media(prefers-reduced-motion:reduce){
   .ep-pulse-orbit,.ep-pulse-orb,.ep-orbit-chip,.ep-hero-copy{animation:none!important;}
