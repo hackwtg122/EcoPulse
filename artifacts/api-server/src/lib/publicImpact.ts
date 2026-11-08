@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { digitalAssetEvidence } from "./digitalAssetRegistry";
+import { digitalAssetEvidence } from "./digitalAssetRegistry.ts";
 
 // An anonymous, read-only snapshot. Do not return user IDs, balances, scan logs,
 // individual delivery histories, email addresses, or unvalidated center records.
