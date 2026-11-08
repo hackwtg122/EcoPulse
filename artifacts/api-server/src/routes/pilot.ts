@@ -10,7 +10,7 @@ import { acceptDeliveryRequest, hasDeliveryAcceptanceSchema } from "../lib/deliv
 import { hasCoordinationPlansSchema, parseHandoffDetails, planDeliveryHandoff } from "../lib/deliveryCoordinationPlans";
 import { initializeAdminCatalog } from "../lib/adminInitialCatalog";
 import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseCatalogPublicationRequest, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
-import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
+import { RewardError, activateOwnedDigitalDownload, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { listFulfilledRedemptions } from "../lib/rewardService";
 import { withdrawReward } from "../lib/rewardService";
 import challengesRouter from "./challenges";
@@ -843,7 +843,10 @@ router.get("/rewards", async (_req, res) => {
     ${photosReady ? 'p.image_url AS "imageUrl"' : 'NULL::text AS "imageUrl"'}
     FROM rewards r
     ${photosReady ? 'LEFT JOIN reward_photos p ON p.reward_id=r.id AND p.product_title=r.title AND p.product_description=r.description' : ''}
-    WHERE r.active=true AND r.inventory_remaining>0 AND r.fulfillment_reference IS NOT NULL
+    WHERE r.fulfillment_reference IS NOT NULL AND
+      ((r.active=true AND r.inventory_remaining>0)
+       OR (r.active=false AND r.inventory_remaining=0 AND
+           r.fulfillment_reference LIKE 'https://ecopulse-3xb4.onrender.com/api/resources/digital/%'))
     ORDER BY r.created_at DESC,r.id DESC LIMIT 50`);
   return res.json(rows.rows.filter(row =>
     hasRewardFulfillmentEvidence(row.fulfillment_reference, row.validated_at, row.validated_by) &&
@@ -962,9 +965,14 @@ router.get("/redemptions", async (_req, res) => {
   const schemaReady = await hasRewardFulfillmentSchema(pool);
   const rows = await pool.query(`SELECT r.id,r.reward_id AS "rewardId",w.title AS "rewardTitle",r.cost,r.created_at AS "createdAt",
     ${schemaReady ? "r.fulfillment_status" : "'reserved'::text"} AS "fulfillmentStatus",
-    ${schemaReady ? "r.fulfillment_reference" : "NULL::text"} AS fulfillment_reference
+    ${schemaReady ? "r.fulfillment_reference" : "NULL::text"} AS fulfillment_reference,
+    w.fulfillment_reference AS reward_reference
     FROM redemptions r JOIN rewards w ON w.id=r.reward_id WHERE r.user_id=$1 ORDER BY r.created_at DESC,r.id DESC LIMIT 50`, [res.locals.userId]);
-  return res.json(rows.rows.map(({ fulfillment_reference, ...row }) => ({ ...row, digitalAsset: digitalAssetForFulfillment(row.fulfillmentStatus, fulfillment_reference) })));
+  return res.json(rows.rows.map(({ fulfillment_reference, reward_reference, ...row }) => ({
+    ...row,
+    digitalPending: row.fulfillmentStatus === "reserved" && digitalAssetEvidence(reward_reference) !== null,
+    digitalAsset: digitalAssetForFulfillment(row.fulfillmentStatus, fulfillment_reference),
+  })));
 });
 router.post("/redemptions", async (req, res) => {
   const pool = await databasePool();
@@ -978,6 +986,17 @@ router.post("/redemptions", async (req, res) => {
   if (result.replayed) res.set("Idempotency-Replayed", "true");
   return res.status(result.replayed ? 200 : 201).json(result.redemption);
 });
+router.post("/redemptions/:id/activate-download", async (req, res) => {
+  if (!uuidPattern.test(String(req.params.id)) || !hasOnlyFields(req.body ?? {}, [])) {
+    return res.status(400).json({ error: "invalid_redemption" });
+  }
+  const pool = await databasePool();
+  if (!await hasRewardFulfillmentSchema(pool)) return res.status(503).json({ error: "reward_migration_required" });
+  const result = await activateOwnedDigitalDownload(pool, res.locals.userId, String(req.params.id));
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.json(result);
+});
+
 router.get("/admin/redemptions", async (_req, res) => {
   if (res.locals.role !== "admin") return res.status(403).json({ error: "admin_required" });
   const pool = await databasePool();
