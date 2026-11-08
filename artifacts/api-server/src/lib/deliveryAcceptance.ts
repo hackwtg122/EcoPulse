@@ -23,7 +23,10 @@ export async function acceptDeliveryRequest(pool: Pool, actorId: string, role: u
       "SELECT user_id, status, request_version FROM deliveries WHERE id=$1 FOR UPDATE", [deliveryId]);
     const delivery = record.rows[0];
     if (!delivery) throw new DeliveryLifecycleError(404, "delivery_not_found");
-    if (delivery.user_id === actorId) throw new DeliveryLifecycleError(403, "self_verification_forbidden");
+    // Accepting a digital coordination request is an administrative acknowledgement,
+    // NOT physical reception or verification. The sole administrator may acknowledge
+    // their own request, but existing physical self-verification restrictions remain.
+    // Never credit points from this operation.
     if (delivery.request_version !== 2) throw new DeliveryLifecycleError(409, "delivery_details_required");
 
     const prior = await client.query<{ accepted_by: string; accepted_at: Date }>(
