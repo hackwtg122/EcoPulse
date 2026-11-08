@@ -27,6 +27,7 @@ export type PilotDelivery = {
   updatedAt: string;
   acceptedAt?: string | null;
   isOwn?: boolean;
+  handoffPlan?: null | { handoffAddress: string; handoffAt: string; note: string | null; plannedAt: string };
   deliveryPoint: PilotDeliveryPoint | null;
   slot: PilotDeliverySlot | null;
   materials: PilotDeliveryMaterial[];
@@ -282,6 +283,12 @@ function parseDelivery(row: Record<string, unknown>): PilotDelivery {
     updatedAt: row.updatedAt === undefined ? createdAt : requireString(row.updatedAt, "delivery_updated_at"),
     ...(row.acceptedAt == null ? {} : { acceptedAt: requireString(row.acceptedAt, "delivery_accepted_at") }),
     ...(typeof row.isOwn === "boolean" ? { isOwn: row.isOwn } : {}),
+    ...(row.handoffPlan == null ? {} : { handoffPlan: {
+      handoffAddress: requireString(requireObject(row.handoffPlan, "handoff_plan").handoffAddress, "handoff_address"),
+      handoffAt: requireString(requireObject(row.handoffPlan, "handoff_plan").handoffAt, "handoff_at"),
+      note: typeof requireObject(row.handoffPlan, "handoff_plan").note === "string" ? requireObject(row.handoffPlan, "handoff_plan").note as string : null,
+      plannedAt: requireString(requireObject(row.handoffPlan, "handoff_plan").plannedAt, "handoff_planned_at"),
+    } }),
     deliveryPoint: parseDeliveryPoint(row.deliveryPoint),
     slot: parseDeliverySlot(row.slot),
     materials: parseMaterials(row.materials),
@@ -719,6 +726,19 @@ async function postVerifierAction(
   });
   if (!response.ok) throw await responseError(response);
   return requireObject(await response.json(), "verifier_action");
+}
+
+export async function planPilotDeliveryHandoff(apiUrl:string, token:string, deliveryId:string,
+  details:{handoffAddress:string;handoffAt:string;note:string|null}, signal:AbortSignal,
+  fetchImplementation: FetchImplementation = fetch): Promise<{deliveryId:string; replayed:boolean}> {
+  const response = await fetchImplementation(`${apiUrl}/api/pilot/admin/deliveries/${encodeURIComponent(deliveryId)}/handoff`, {
+    method:"POST", headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},
+    body:JSON.stringify(details), cache:"no-store", signal,
+  });
+  if(!response.ok) throw await responseError(response);
+  const body = requireObject(await response.json(),"handoff_response");
+  if(body.deliveryId!==deliveryId || typeof body.replayed!=="boolean") throw new PilotApiError(502,"invalid_handoff_response");
+  return {deliveryId,replayed:body.replayed};
 }
 
 export async function acceptPilotDelivery(apiUrl: string, token: string, deliveryId: string, signal: AbortSignal,
