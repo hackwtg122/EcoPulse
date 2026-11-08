@@ -1,0 +1,11 @@
+{
+  "check": "challenge_migration",
+  "applied": true,
+  "restoredBackupVerified": true,
+  "participantsCreated": 0,
+  "attemptsCreated": 0,
+  "pointsGranted": 0,
+  "rewardsChanged": 0,
+  "status": "PASS",
+  "catalogDefinitions": 10
+}
