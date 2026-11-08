@@ -152,3 +152,19 @@ test("administrator-declared catalog is distinguishable from externally validate
   assert.equal(result.slots[0].administrativelyDeclared, true);
   assert.ok(!("validatedBy" in result.points[0]));
 });
+
+test("published managed EcoPulse zones accept requests while disclosing exact handoff as pending", async () => {
+  const row = {
+    id: pointId, code: "eval-01", name: "Zona EcoPulse Villa Caribe",
+    address: "Sector Villa Caribe, Montería — punto de entrega por coordinar",
+    appointmentRequired: false, active: true, validationReference: ADMIN_CATALOG_DECLARATION,
+    validatedBy: "user_Admin", validatedAt: new Date(),
+  };
+  const result = await listCatalog({ async query() { return { rows: [row] }; } }, true);
+  for (const collection of [result.points, result.slots]) {
+    assert.equal(collection[0].operationallyValidated, true);
+    assert.equal(collection[0].administrativelyDeclared, true);
+    assert.equal(collection[0].coordinationZone, true);
+  }
+  assert.ok(!("validatedBy" in result.points[0]), "never expose internal admin ID");
+});
