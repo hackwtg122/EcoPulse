@@ -6,6 +6,7 @@ import { canAccessVerifierQueue, encodeDeliveryCursor, hasOnlyFields, parseDeliv
 import { canManageUsers, clerkUserIdPattern, decideRoleChange, isPilotRole } from "../lib/pilotRoles";
 import { createDetailedDelivery, createLegacyDelivery, DeliveryRequestError, deliveryDetailsEnabled, hasDeliveryDetailsSchema, listUserDeliveries, listVerifierDeliveries, loadDeliveryOptions, loadPublishedDeliveryPoints, parseDetailedDeliveryInput } from "../lib/deliveryDetails";
 import { DeliveryLifecycleError, receivePhysicalDelivery, updateOwnDeliveryStatus, verifyPhysicalDelivery } from "../lib/deliveryLifecycle";
+import { acceptDeliveryRequest, hasDeliveryAcceptanceSchema } from "../lib/deliveryAcceptance";
 import { initializeAdminCatalog } from "../lib/adminInitialCatalog";
 import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraftPoint, createDraftSlot, deactivateCatalogRecord, hasCatalogValidationSchema, listCatalog, parseDraftPoint, parseDraftSlot, parsePointCoordinates, parsePointMaterials, parsePointEdit, parseSlotEdit, parseCatalogPublicationRequest, replaceDraftPointMaterials, updateActiveSlotCapacity, updateDraftPoint, updateDraftPointCoordinates, updateDraftSlot, validateCatalogPoint, validateCatalogSlot } from "../lib/deliveryCatalog";
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
@@ -713,6 +714,18 @@ router.get("/verifier/deliveries", async (req, res) => {
     : null;
   return res.json({ items, nextCursor });
 });
+router.post("/admin/deliveries/:id/accept", async (req, res) => {
+  if (!canAccessVerifierQueue(res.locals.role)) return res.status(403).json({ error: "verifier_required" });
+  if (!uuidPattern.test(String(req.params.id)) || !hasOnlyFields(req.body ?? {}, [])) {
+    return res.status(400).json({ error: "invalid_delivery" });
+  }
+  const pool = await databasePool();
+  if (!await hasDeliveryAcceptanceSchema(pool)) return res.status(503).json({ error: "delivery_acceptance_migration_required" });
+  const result = await acceptDeliveryRequest(pool, res.locals.userId, res.locals.role, String(req.params.id));
+  if (result.replayed) res.set("Idempotency-Replayed", "true");
+  return res.json(result);
+});
+
 router.post("/deliveries/:id/receive", async (req, res) => {
   if (!canAccessVerifierQueue(res.locals.role)) return res.status(403).json({ error: "verifier_required" });
   if (!verificationActionsEnabled(platformEnvironment(res).PILOT_RECEIPT_ENABLED)) {
