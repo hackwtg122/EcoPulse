@@ -51,6 +51,11 @@ GRANT UPDATE (status, delivery_id, assigned_point_id, assigned_by, assigned_at, 
   ON coordination_requests TO ecopulse_app;
 -- Sin DELETE, sin GRANT globales ni privilegios futuros automáticos.
 DO $$ BEGIN
+  IF to_regclass('public.eco_challenges') IS NOT NULL THEN
+    GRANT SELECT,INSERT ON public.eco_challenges,public.eco_challenge_attempts,public.eco_challenge_awards,public.eco_challenge_drafts,public.eco_challenge_admin_events TO ecopulse_app;
+    GRANT UPDATE(slug,title,description,questions,points,pass_percent,active) ON public.eco_challenges TO ecopulse_app;
+    GRANT UPDATE(answers,updated_at) ON public.eco_challenge_drafts TO ecopulse_app;
+  END IF;
   IF to_regclass('public.reward_photos') IS NOT NULL THEN
     GRANT SELECT,INSERT ON public.reward_photos,public.reward_photo_events,public.reward_withdrawal_events TO ecopulse_app;
     GRANT UPDATE(image_url,source_url,confirmed_by,confirmed_at,product_title,product_description) ON public.reward_photos TO ecopulse_app;

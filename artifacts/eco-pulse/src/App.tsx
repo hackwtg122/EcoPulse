@@ -21,6 +21,7 @@ const RewardsPanel = lazy(() => import("@/rewards-panel").then(module => ({ defa
 const RewardsAdminPanel = lazy(() => import("@/rewards-panel").then(module => ({ default: module.RewardsAdminPanel })));
 const AiScanPanel = lazy(() => import("@/ai-scan-panel").then(module => ({ default: module.AiScanPanel })));
 const ProgressPanel = lazy(() => import("@/progress-panel").then(module => ({ default: module.ProgressPanel })));
+const ChallengesAdminPanel = lazy(() => import("@/challenges-panel").then(module => ({ default: module.ChallengesAdminPanel })));
 import { guideAnswer } from "@/eco-guide";
 import { MaterialFicha, MaterialsLibrary } from "@/materials-page";
 import { findMaterialById } from "@/materials-catalog";
@@ -120,7 +121,7 @@ type ChatMessage = { id: string; role: "user" | "assistant"; content: string; ti
 const seedChat: ChatMessage[] = [{ id: "welcome", role: "assistant", content: "Hola. Doy respuestas rápidas de referencia con la biblioteca local de EcoPulse, sin IA. Para una conversación con IA, abre EcoGuía con tu cuenta.", timestamp: "Ahora" }];
 
 const landingFaq = [
-  { q: "¿Un escaneo me da EcoPuntos?", a: "No. Clasificar un residuo no concede EcoPuntos. Se obtienen únicamente tras verificar una entrega según las reglas vigentes." },
+  { q: "¿Un escaneo me da EcoPuntos?", a: "No. Clasificar un residuo no concede EcoPuntos. Puedes conseguirlos al aprobar retos ecológicos o tras una entrega recibida y verificada, según las reglas vigentes." },
   { q: "¿Ya puedo solicitar una entrega?", a: "Inicia sesión y revisa los horarios disponibles en Mis entregas. Si no hay cupos, podrás explorar los centros en el mapa." },
   { q: "¿EcoGuía utiliza inteligencia artificial?", a: "Sí, cuando la IA está disponible y das tu consentimiento. Sin permiso o si el servicio no está disponible, puedes consultar la biblioteca de materiales." },
   { q: "¿Consultar las guías tiene costo?", a: "No. La biblioteca de materiales y las fichas se leen sin crear cuenta y sin costo. La cuenta solo se necesita para registrar tu actividad." },
@@ -288,6 +289,7 @@ function Dashboard() {
   ].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, 6);
   const earnedBadges = progress ? progress.badges.filter((badge) => badge.earned).length : 0;
   return <div className="animate-rise" data-testid="dashboard-real-data"><PageTitle eyebrow="Tu pulso" title={`Hola, ${userName}.`} copy={`Bienvenido de vuelta a EcoPulse · ${userEmail}`} action={action} />
+    <Link href="/progress?section=challenges" className="mb-5 inline-flex min-h-12 items-center gap-3 rounded-full bg-[hsl(var(--primary))] px-6 py-3 font-semibold text-[hsl(var(--primary-foreground))]" data-testid="dashboard-challenges"><Target size={20}/>Retos ecológicos · Consigue EcoPuntos</Link>
     <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
       <section className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-[hsl(var(--secondary)/.32)] text-[hsl(var(--primary))]"><Trophy size={20} /></span><p className="mt-4 text-sm text-[hsl(var(--muted-foreground))]">EcoPuntos</p><p className="font-display text-4xl text-[hsl(var(--primary))]" data-testid="verified-balance">{balance.toLocaleString("es-CO")}</p><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Saldo verificado en PostgreSQL</p></section>
       <section className="rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-[hsl(var(--secondary)/.32)] text-[hsl(var(--primary))]"><Zap size={20} /></span><p className="mt-4 text-sm text-[hsl(var(--muted-foreground))]">EcoXP</p>{progress ? <p className="font-display text-4xl text-[hsl(var(--primary))]" data-testid="dashboard-eco-xp">{progress.ecoXp.toLocaleString("es-CO")}</p> : <p className="font-display text-4xl text-[hsl(var(--muted-foreground))]">{progressStatus === "error" ? "—" : "…"}</p>}<p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{progress ? `Nivel ${progress.level}: ${progress.levelTitle}` : progressStatus === "error" ? "No disponible por ahora" : "Calculando tu nivel…"}</p></section>
@@ -340,6 +342,7 @@ function AdminHomePage() {
     {role === "admin" && <Link href="/admin?section=settings" className="mb-4 inline-flex min-h-11 items-center rounded-full border px-5 font-semibold underline" data-testid="link-admin-settings">Configuración general</Link>}
     {role === "admin" && <div className="grid gap-4 sm:grid-cols-3"><Link href="/admin/centers" className="flex items-center gap-3 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 font-semibold transition hover:border-[hsl(var(--primary))]" data-testid="link-admin-centers"><MapPin size={20} className="text-[hsl(var(--primary))]" />Catálogo de centros</Link><Link href="/admin/rewards" className="flex items-center gap-3 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 font-semibold transition hover:border-[hsl(var(--primary))]" data-testid="link-admin-rewards"><Gift size={20} className="text-[hsl(var(--primary))]" />Gestión de recompensas</Link><Link href="/admin/users" className="flex items-center gap-3 rounded-[2rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 font-semibold transition hover:border-[hsl(var(--primary))]" data-testid="link-admin-users"><UserRound size={20} className="text-[hsl(var(--primary))]" />Usuarios y roles</Link></div>}
     {role === "admin" && <Suspense fallback={<p role="status">Consultando estado operativo…</p>}><OperationalReadinessPanel /></Suspense>}
+    {role === "admin" && <div className="mt-5"><Suspense fallback={<p role="status">Cargando retos…</p>}><ChallengesAdminPanel apiUrl={pilotApiUrl}/></Suspense></div>}
     {role === "admin" && <div className="mt-5"><Suspense fallback={<p role="status">Cargando solicitudes de coordinación…</p>}><CoordinationAdminPanel apiUrl={pilotApiUrl} /></Suspense></div>}
     <div className="mt-5"><Suspense fallback={<p role="status">Cargando cola de verificación…</p>}><VerifierQueue role={role} onRefresh={retry} /></Suspense></div>
   </div>;

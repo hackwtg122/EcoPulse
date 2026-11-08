@@ -50,6 +50,13 @@
       "when": 1794082170711,
       "tag": "0006_coordination_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794088599509,
+      "tag": "0007_ecological_challenges",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,7 @@ import { canManageCatalog, CatalogError, catalogDetailsCapabilities, createDraft
 import { RewardError, createRewardDraft, digitalAssetForFulfillment, editRewardDraft, fulfillRedemption, hasRewardFulfillmentSchema, hasRewardFulfillmentEvidence, listReservedRedemptions, parseRewardDraft, parseRewardPublication, publishRewardDraft, rewardPublicationEnabled, redeemReward, redemptionActionsEnabled } from "../lib/rewardService";
 import { listFulfilledRedemptions } from "../lib/rewardService";
 import { withdrawReward } from "../lib/rewardService";
+import challengesRouter from "./challenges";
 import { hasRewardPhotoSchema, parsePhysicalRewardPhoto, recordPhysicalRewardPhoto } from "../lib/rewardPhotos";
 import { digitalAssetEvidence } from "../lib/digitalAssetRegistry";
 import { hasRewardInventorySchema, listRewardInventoryMovements, parseRewardRestock, restockReward } from "../lib/rewardService";
@@ -138,8 +139,11 @@ router.use(async (req, res, next) => {
   if (!userId) return res.status(401).json({ error: "authentication_required" });
   try {
     const db = await database();
-    await db.insert(users).values({ clerkUserId: userId }).onConflictDoNothing();
-    const [user] = await db.select({ role: users.role }).from(users).where(eq(users.clerkUserId, userId));
+    let [user] = await db.select({ role: users.role }).from(users).where(eq(users.clerkUserId, userId));
+    if (!user) {
+      await db.insert(users).values({ clerkUserId: userId }).onConflictDoNothing();
+      [user] = await db.select({ role: users.role }).from(users).where(eq(users.clerkUserId, userId));
+    }
     if (!user) return res.status(503).json({ error: "user_unavailable" });
     res.locals.userId = userId;
     res.locals.role = user.role;
@@ -162,6 +166,7 @@ router.use(async (req, res, next) => {
   }
 });
 
+router.use(challengesRouter);
 router.get("/me", (req, res) => {
   res.json({ id: res.locals.userId, role: res.locals.role });
 });

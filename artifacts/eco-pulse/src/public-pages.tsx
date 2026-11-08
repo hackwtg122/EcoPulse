@@ -85,7 +85,7 @@ const faqItems: Array<{ q: string; a: string }> = [
   { q: "¿EcoGuía usa inteligencia artificial?", a: "La EcoGuía de tu cuenta usa un proveedor de IA solo si está disponible y autorizas el envío. Con un consentimiento separado puedes guardar la conversación en PostgreSQL. La guía rápida del inicio responde con reglas locales, no usa IA y no envía tus preguntas." },
   { q: "¿Qué hago con residuos peligrosos como pilas o medicamentos?", a: "Revísalos en la categoría «Manejo especial» de la biblioteca: pilas, medicamentos vencidos, lámparas, electrónicos, cortopunzantes, aceite usado y químicos requieren canales posconsumo o autorizados, nunca la basera común." },
   { q: "¿Cómo corrijo o elimino mis datos?", a: "Tu cuenta (nombre, correo, contraseña y 2FA) se gestiona con Clerk. En EcoGuía puedes eliminar cada conversación guardada, junto con sus preguntas y respuestas. Para rectificar o suprimir otros datos operativos, el canal público está en preparación; la política de privacidad describe qué tratamos y qué está pendiente." },
-  { q: "¿Tiene algún costo?", a: "Crear una cuenta y usar la app no tienen costo. Las recompensas se obtienen con entregas verificadas." },
+  { q: "¿Tiene algún costo?", a: "Crear una cuenta y usar la app no tienen costo. Puedes conseguir EcoPuntos aprobando retos ecológicos o por entregas recibidas y verificadas, y canjearlos por recompensas disponibles." },
 ];
 
 export function FaqPage() {

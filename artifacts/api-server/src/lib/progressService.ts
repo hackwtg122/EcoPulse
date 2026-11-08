@@ -57,7 +57,7 @@ export const progressRules = [
   "+30 EcoXP por cubrir las 6 categorías.",
   "+25 EcoXP por iniciar una entrega física.",
   "+25 EcoXP por cada entrega verificada.",
-  "Clasificar o escanear nunca otorga EcoPuntos canjeables; eso ocurre solo con entregas físicas verificadas.",
+  "Clasificar o escanear no otorga EcoPuntos. Puedes obtenerlos al aprobar retos ecológicos por primera vez o por entregas recibidas y verificadas.",
 ];
 
 function toIso(value: Date | string): string {

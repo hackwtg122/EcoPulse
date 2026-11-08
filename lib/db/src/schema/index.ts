@@ -1,10 +1,10 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, foreignKey, index, integer, pgEnum, pgTable, primaryKey, smallint, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, smallint, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const userRole = pgEnum("user_role", ["participant", "verifier", "admin"]);
 export const deliveryStatus = pgEnum("delivery_status", ["pending", "approved", "rejected"]);
 export const deliveryRequestStatus = pgEnum("delivery_request_status", ["pending", "scheduled", "received", "approved", "rejected", "cancelled"]);
-export const movementKind = pgEnum("movement_kind", ["delivery", "redemption", "adjustment"]);
+export const movementKind = pgEnum("movement_kind", ["delivery", "redemption", "adjustment", "education"]);
 // A pending coordination request is deliberately separate from deliveries: it
 // never claims a center, a receipt or points until an administrator assigns a
 // verified destination and the normal physical delivery flow takes over.
@@ -261,6 +261,7 @@ export const pointMovements = pgTable("point_movements", {
   check("point_movements_direction_check", sql`
     (${table.kind} = 'delivery' and ${table.delta} > 0)
     or (${table.kind} = 'redemption' and ${table.delta} < 0)
+    or (${table.kind}::text = 'education' and ${table.delta} > 0)
     or ${table.kind} = 'adjustment'
   `),
   uniqueIndex("point_movements_source_unique").on(table.kind, table.sourceId),
@@ -268,6 +269,68 @@ export const pointMovements = pgTable("point_movements", {
 ]);
 
 // Keep empty until partners and fulfillment capacity have been verified.
+export const ecoChallenges = pgTable("eco_challenges", {
+  id: uuid("id").primaryKey(),
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  questions: jsonb("questions").notNull(),
+  points: integer("points").notNull().default(10),
+  passPercent: integer("pass_percent").notNull().default(100),
+  active: boolean("active").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone:true }).notNull().defaultNow(),
+},t=>[
+  uniqueIndex("eco_challenges_slug_unique").on(t.slug),
+  check("eco_challenges_points_check",sql`${t.points} between 1 and 1000`),
+  check("eco_challenges_pass_check",sql`${t.passPercent} between 50 and 100`),
+  check("eco_challenges_questions_check",sql`jsonb_typeof(${t.questions})='array' and jsonb_array_length(${t.questions}) between 2 and 10`),
+]);
+
+export const ecoChallengeAttempts = pgTable("eco_challenge_attempts",{
+  id:uuid("id").primaryKey(),
+  userId:text("user_id").notNull().references(()=>users.clerkUserId),
+  challengeId:uuid("challenge_id").notNull().references(()=>ecoChallenges.id),
+  idempotencyKey:text("idempotency_key").notNull(),
+  requestHash:text("request_hash").notNull(),
+  answers:jsonb("answers").notNull(),
+  result:jsonb("result").notNull(),
+  passed:boolean("passed").notNull(),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex("eco_attempts_user_key_unique").on(t.userId,t.idempotencyKey),
+  index("eco_attempts_user_created_idx").on(t.userId,t.createdAt.desc(),t.id.desc()),
+  index("eco_attempts_challenge_idx").on(t.challengeId),
+]);
+
+export const ecoChallengeAwards=pgTable("eco_challenge_awards",{
+  id:uuid("id").primaryKey(),
+  userId:text("user_id").notNull().references(()=>users.clerkUserId),
+  challengeId:uuid("challenge_id").notNull().references(()=>ecoChallenges.id),
+  attemptId:uuid("attempt_id").notNull().references(()=>ecoChallengeAttempts.id),
+  points:integer("points").notNull(),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex("eco_awards_user_challenge_unique").on(t.userId,t.challengeId),
+  uniqueIndex("eco_awards_attempt_unique").on(t.attemptId),
+  check("eco_awards_points_check",sql`${t.points} between 1 and 1000`),
+]);
+
+export const ecoChallengeDrafts=pgTable("eco_challenge_drafts",{
+  userId:text("user_id").notNull().references(()=>users.clerkUserId),
+  challengeId:uuid("challenge_id").notNull().references(()=>ecoChallenges.id),
+  answers:jsonb("answers").notNull(),
+  updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>[primaryKey({columns:[t.userId,t.challengeId]})]);
+
+export const ecoChallengeAdminEvents=pgTable("eco_challenge_admin_events",{
+  id:uuid("id").primaryKey(),
+  actorId:text("actor_id").notNull().references(()=>users.clerkUserId),
+  challengeId:uuid("challenge_id").notNull().references(()=>ecoChallenges.id),
+  previousState:jsonb("previous_state"),
+  nextState:jsonb("next_state").notNull(),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+});
+
 export const rewards = pgTable("rewards", {
   id: uuid("id").primaryKey(),
   title: text("title").notNull(),

@@ -7,6 +7,7 @@ import pg from "pg";
 // Source is read-only. All migrations and fixture writes run on a restored,
 // loopback-only PostgreSQL cluster. Archive/credentials never enter Git/logs.
 const bin = process.env.PG_BIN || "C:/Program Files/PostgreSQL/18/bin";
+const challenges=process.argv.includes("--challenges");
 const source = new URL(process.env.NEON_DATABASE_URL || "");
 if (!source.hostname.endsWith(".neon.tech") || source.pathname !== "/neondb") throw Error("existing_neon_required");
 const work = join(process.env.LOCALAPPDATA, "Temp", "opencode", `ecopulse-release-${Date.now()}`);
@@ -22,6 +23,8 @@ function run(name, args, env = {}) {
   return result.stdout;
 }
 const client = new pg.Client({ connectionString: source.href, connectionTimeoutMillis: 15000 });
+client.on("error",()=>{});
+let sourceClosed=false;
 let local;
 let pool;
 let started = false;
@@ -44,6 +47,7 @@ try {
   const tableGrants=(await client.query("SELECT table_name,privilege_type FROM information_schema.role_table_grants WHERE table_schema='public' AND grantee='ecopulse_app'")).rows;
   const columnGrants=(await client.query("SELECT table_name,column_name,privilege_type FROM information_schema.role_column_grants WHERE table_schema='public' AND grantee='ecopulse_app'")).rows;
   await client.query("ROLLBACK");
+  await client.end();sourceClosed=true;
   stage = "restore";
   run("initdb", ["-D", data, "-U", "restore_admin", "-A", "scram-sha-256", `--pwfile=${pwfile}`, "--encoding=UTF8", "--locale=C"]);
   run("pg_ctl", ["-D", data, "-l", join(work, "postgres.log"), "-o", "-p 55437 -h 127.0.0.1 -c max_connections=40", "-w", "start"]);
@@ -70,17 +74,30 @@ try {
   else if(pref !== 2) throw Error("partial_preferences_schema");
   const photos=(await pool.query("SELECT to_regclass('public.reward_photos') IS NOT NULL AS present")).rows[0].present;
   if(!photos) await pool.query(await readFile(new URL("./reward-photos-migration.sql", import.meta.url), "utf8"));
+  if(challenges){
+    const ready=(await pool.query("SELECT to_regclass('public.eco_challenges') IS NOT NULL AS ready")).rows[0].ready;
+    if(!ready){
+      await pool.query("BEGIN");
+      try{
+        await pool.query(await readFile(new URL("../../lib/db/drizzle/0007_ecological_challenges.sql",import.meta.url),"utf8"));
+        const {seedChallenges}=await import("../../artifacts/api-server/src/lib/challenges.ts");
+        await seedChallenges(pool);
+        await pool.query("COMMIT");
+      }catch(error){await pool.query("ROLLBACK");throw error;}
+    }
+  }
   const quote=name=>`"${name.replaceAll('"','""')}"`;
   for(const grant of tableGrants) await pool.query(`GRANT ${grant.privilege_type} ON public.${quote(grant.table_name)} TO ecopulse_app`);
   for(const grant of columnGrants) await pool.query(`GRANT ${grant.privilege_type} (${quote(grant.column_name)}) ON public.${quote(grant.table_name)} TO ecopulse_app`);
   // --no-acl deliberately omitted sequence privileges in the restored archive.
   await pool.query("GRANT USAGE ON SEQUENCE reward_photo_events_id_seq TO ecopulse_app");
   await pool.end();
-  pool=new pg.Pool({connectionString:localUrl.replace(/postgres$/,"ecopulse_release"),max:20,connectionTimeoutMillis:15000,options:"-c timezone=UTC -c role=ecopulse_app"});
+  pool=new pg.Pool({connectionString:localUrl.replace(/postgres$/,"ecopulse_release"),max:challenges?10:20,connectionTimeoutMillis:15000,options:"-c timezone=UTC -c role=ecopulse_app"});
   report.runtimeRoleTested=(await pool.query("SELECT current_user AS role")).rows[0].role;
   stage = "isolated_concurrency";
   const { verifyIsolatedPhysicalFlows } = await import("../qa/isolated-physical-flows.mjs");
   Object.assign(report, await verifyIsolatedPhysicalFlows(pool));
+  if(challenges){const {verifyIsolatedChallenges}=await import("../qa/isolated-challenges.mjs");Object.assign(report,await verifyIsolatedChallenges(pool));}
   report.status = "PASS";
 } catch (error) {
   report.status = "FAIL"; report.stage = stage;
@@ -91,11 +108,11 @@ try {
   if (/^[A-Z0-9]{5}$/.test(error.code || "")) report.sqlState = error.code;
   process.exitCode = 1;
 } finally {
-  await client.end().catch(() => {});
+  if(!sourceClosed) await client.end().catch(() => {});
   await pool?.end();
   if (started) run("pg_ctl", ["-D", data, "-m", "fast", "-w", "stop"]);
   // Keep the archive and isolated cluster as a recoverable backup. Password
   // file is local-only, never returned in the sanitized evidence.
-  await writeFile(new URL("../qa/evidence/physical-release-isolated-2026-11-07.json", import.meta.url), JSON.stringify(report, null, 2));
+  await writeFile(new URL(challenges?"../qa/evidence/challenges-isolated-2026-11-07.json":"../qa/evidence/physical-release-isolated-2026-11-07.json", import.meta.url), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
 }

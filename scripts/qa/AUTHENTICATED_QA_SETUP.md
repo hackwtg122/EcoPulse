@@ -1,15 +1,16 @@
-# Corregir el acceso autorizado de QA
+# QA con veinte identidades autorizadas, sin contraseñas
 
-Diagnóstico confirmado de nuevo en el commit de persistencia `1b13a1b`: [ejecución 41794416699](https://github.com/hackwtg122/EcoPulse/actions/runs/41794416699), `qa_fixture_json_invalid`, campo `root`. El secreto `PRODUCTION_QA_ACCOUNTS` no se puede analizar como JSON. El fallo ocurre antes de iniciar sesión: no demuestra una contraseña incorrecta ni un fallo de Clerk. El agente no puede recuperar el valor de un secreto de Actions mediante la API. Sus metadatos siguen indicando última actualización en 2026-11-02T22:43:08Z.
+El flujo nuevo de concurrencia no usa `PRODUCTION_QA_ACCOUNTS` ni solicita contraseñas. Usa tickets oficiales de inicio de sesión de Clerk, de corta duración, exclusivamente para veinte identidades de prueba existentes y autorizadas. Los tickets y las sesiones viven solo en memoria del runner; no se exportan a logs, archivos, capturas o artefactos. No se modifica la cuenta administradora principal.
 
-El propietario debe editar **Settings → Secrets and variables → Actions → Repository secrets → PRODUCTION_QA_ACCOUNTS** en `hackwtg122/EcoPulse`:
+Requisitos de **Twenty authenticated accounts QA**:
 
-- Guardar un objeto JSON válido, no código JavaScript, una lista sola ni texto de instrucciones. Usar comillas dobles; sin comentarios ni comas finales. No publicar su contenido en issues, commits, logs o chat.
-- Raíz: `version` (número `1`), `authorized` (booleano `true`), `accounts` (lista de una a tres cuentas existentes y expresamente autorizadas).
-- Cada cuenta: `role` (`participant`, `verifier` o `admin`), `userId` (ID Clerk real que cumpla `^user_[A-Za-z0-9]{3,64}$`), `email` y `password` reales de esa cuenta, `testOnly: true` y `profilePreexists: true`.
-- `testOnly` y `profilePreexists` son afirmaciones que el propietario debe poder confirmar. No marcar cuentas personales reales como aisladas de QA si no lo son; no crear identidades ficticias para satisfacer la prueba. La cuenta debe existir en Clerk y en PostgreSQL con el rol indicado. Identidades, emails y roles deben ser distintos en la lista.
-- `password` debe ser una cadena de al menos ocho caracteres; nunca reemplazarla por un texto de ejemplo. No se omiten CAPTCHA, MFA ni factores interactivos: si son obligatorios, esa sesión permanece bloqueada hasta disponer de acceso autorizado compatible.
+- Secreto `CONCURRENCY_QA_IDENTITIES`: objeto JSON con `version: 1`, `authorized: true` y `accounts`, una lista de exactamente veinte cuentas distintas.
+- Cada entrada contiene únicamente `userId` (ID Clerk existente), `role: "participant"`, `testOnly: true` y `profilePreexists: true`. No admite correos, contraseñas ni identidades administrativas.
+- Las atestaciones deben ser reales: no marcar cuentas personales como fixtures, no crear cuentas en producción para llenar una lista y no inferir autorización a partir de que una cuenta exista.
+- La cuenta debe estar provisionada en Clerk y Neon como participante antes de ejecutar la carga. El runner comprueba el principal de Clerk y el rol real de la API antes de usarlo.
+- Secreto `CLERK_SECRET_KEY` de la instancia autorizada en el runner remoto. No se cambia la clave existente ni se imprime su valor.
+- Ejecutar primero con `validate_only: true`: comprueba la lista sin iniciar sesión. Para la carga, `validate_only: false` y `accounts_verified: true` requieren confirmación explícita del propietario.
 
-El esquema exacto y las comprobaciones sin imprimir valores están en `scripts/qa/private-qa-policy.mjs`. Tras corregir el secreto, ejecutar **Production private QA (authorized test accounts)** sobre `main`, confirmando las cuentas existentes. `real_ai_calls=true` autoriza inferencias reales con cuota y foto de referencia, pero no guarda clasificaciones. Las pruebas de creación/borrado de conversaciones requieren autorización independiente y no deben tocar conversaciones ajenas.
+El runner `scripts/qa/concurrency-ticket.mjs` abre veinte contextos de navegador independientes y navega por el panel y los retos; inicia los cinco minutos después de verificar las veinte identidades. En producción solo permite lecturas y aborta mutaciones de la API. Informa p50/p95, estados HTTP, errores y número de contextos; no afirma disponer de CPU/memoria de Render. Las escrituras concurrentes de retos, puntos, solicitudes y canjes se prueban por separado en PostgreSQL restaurado y aislado, sin confundirlas con sesiones Clerk.
 
-No cambiar las claves de Clerk, los roles de usuarios ni las políticas de seguridad para resolver un error de sintaxis del secreto.
+El secreto legado inválido no se considera reparado ni se utiliza como alternativa. No hace falta compartir ninguna contraseña. Sin las veinte identidades expresamente autorizadas, la prueba autenticada permanece bloqueada aunque la integración aislada pase.

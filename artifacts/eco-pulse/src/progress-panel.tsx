@@ -3,10 +3,13 @@ import { useAuth } from "@clerk/react";
 import { Award, Check, Flame, Lock, RefreshCw, Sparkles, Target, Trophy } from "lucide-react";
 import { loadPilotProgress, PilotApiError, type PilotProgress } from "@/pilot-api";
 import { explorerBadges, readMaterialViews } from "@/explorer-progress";
+import { Link,useSearch } from "wouter";
+import { ChallengesPanel } from "./challenges-panel";
 
 const xpRingColor = "hsl(var(--primary))";
 
 export function ProgressPanel({ apiUrl }: { apiUrl: string }) {
+  const search=useSearch();
   const { getToken, userId } = useAuth();
   const [progress, setProgress] = useState<PilotProgress | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -45,11 +48,13 @@ export function ProgressPanel({ apiUrl }: { apiUrl: string }) {
     return { percent: Math.round(filled * 100) };
   }, [progress]);
 
+  if(new URLSearchParams(search).get("section")==="challenges") return <div className="space-y-4"><Link href="/progress" className="inline-block min-h-11 underline">Volver a Mi progreso</Link><ChallengesPanel apiUrl={apiUrl}/></div>;
   if (status === "loading") return <p role="status" aria-busy="true" className="rounded-[2rem] bg-[hsl(var(--muted))] p-6 text-sm">Cargando tu progreso…</p>;
   if (status === "error") return <div className="rounded-[2rem] border border-[hsl(var(--accent)/.4)] p-6 text-center" role="alert"><p className="text-sm text-[hsl(var(--muted-foreground))]">{message}</p><button onClick={retry} className="mt-4 inline-flex items-center gap-2 rounded-full bg-[hsl(var(--primary))] px-4 py-2.5 text-sm font-semibold text-[hsl(var(--primary-foreground))]"><RefreshCw size={15} /> Reintentar</button></div>;
   if (!progress) return null;
 
   return <div className="space-y-5">
+    <Link href="/progress?section=challenges" className="inline-flex min-h-12 items-center gap-3 rounded-full bg-[hsl(var(--primary))] px-6 py-3 font-semibold text-[hsl(var(--primary-foreground))]" data-testid="progress-challenges"><Target size={20}/>Retos ecológicos · Consigue EcoPuntos</Link>
     <section className="rounded-[2rem] bg-[hsl(var(--primary))] p-7 text-[hsl(var(--primary-foreground))] sm:p-9" data-testid="progress-level-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

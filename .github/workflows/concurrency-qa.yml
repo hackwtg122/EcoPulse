@@ -27,21 +27,20 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - run: node --test scripts/qa/private-qa-policy.test.mjs scripts/qa/concurrency-20.test.mjs
+      - run: node --test scripts/qa/private-qa-policy.test.mjs scripts/qa/concurrency-20.test.mjs scripts/qa/concurrency-ticket.test.mjs
       - name: Validate fixture without disclosing credentials or creating profiles
-        run: node scripts/qa/validate-concurrency-fixture.mjs
+        run: node scripts/qa/concurrency-ticket.mjs --validate-only
         env:
-          PRODUCTION_QA_ACCOUNTS: ${{ secrets.CONCURRENCY_QA_ACCOUNTS || secrets.PRODUCTION_QA_ACCOUNTS }}
+          CONCURRENCY_QA_IDENTITIES: ${{ secrets.CONCURRENCY_QA_IDENTITIES }}
       - if: ${{ !inputs.validate_only && inputs.accounts_verified }}
         run: npm ci --prefix scripts/qa --ignore-scripts --no-audit --no-fund
       - name: Five minutes after all twenty identities are verified
         if: ${{ !inputs.validate_only && inputs.accounts_verified }}
-        run: node scripts/qa/concurrency-20.mjs
+        run: node scripts/qa/concurrency-ticket.mjs
         env:
-          PRIVATE_QA_AUTHORIZED: 'true'
-          CONCURRENCY_MODE: authenticated
-          CONCURRENCY_WORKERS: '20'
+          CONCURRENCY_AUTHORIZED: 'true'
           CONCURRENCY_DURATION_MS: '300000'
-          PRODUCTION_QA_ACCOUNTS: ${{ secrets.CONCURRENCY_QA_ACCOUNTS || secrets.PRODUCTION_QA_ACCOUNTS }}
+          CONCURRENCY_QA_IDENTITIES: ${{ secrets.CONCURRENCY_QA_IDENTITIES }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           PROD_QA_MODULES_DIR: ${{ github.workspace }}/scripts/qa/node_modules
           CHROME_PATH: /usr/bin/google-chrome

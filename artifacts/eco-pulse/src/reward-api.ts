@@ -27,7 +27,7 @@ export async function loadDigitalRewardAssets(apiUrl: string, token: string, sig
     return row as DigitalRewardAsset;
   });
 }
-export type PointMovement = { id: string; delta: number; kind: "delivery" | "redemption" | "adjustment"; createdAt: string };
+export type PointMovement = { id: string; delta: number; kind: "delivery" | "redemption" | "adjustment" | "education"; createdAt: string };
 export type FulfilledRedemption = { id: string; rewardId: string; rewardTitle: string; cost: number; createdAt: string; fulfilledAt: string; fulfillmentReference: string };
 export type FulfillmentHistory = { items: FulfilledRedemption[]; nextCursor: string | null };
 
@@ -156,7 +156,7 @@ export async function downloadRedemption(apiUrl: string, token: string, id: stri
 export async function loadPointMovements(apiUrl: string, token: string, signal: AbortSignal, fetchImpl?: typeof fetch): Promise<PointMovement[]> {
   return items(await call(apiUrl, token, "point-movements", signal, undefined, fetchImpl)).map(row => {
     if (typeof row.id !== "string" || !Number.isSafeInteger(row.delta) || row.delta === 0 ||
-        !["delivery", "redemption", "adjustment"].includes(String(row.kind)) || typeof row.createdAt !== "string") {
+        !["delivery", "redemption", "adjustment", "education"].includes(String(row.kind)) || typeof row.createdAt !== "string") {
       throw new RewardApiError(502, "invalid_movement_response");
     }
     return { id: row.id, delta: row.delta as number, kind: row.kind as PointMovement["kind"], createdAt: row.createdAt };
