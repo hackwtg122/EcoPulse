@@ -297,6 +297,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
 
     };
     if (!previous) {
+      if (activeId) selectId(null); // Direct questions are not added to an existing stored conversation.
       setMessages((rows) => [
         ...rows,
         {
@@ -552,6 +553,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
               </button>
             ))}
           </div>
+          <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">Al preguntar, tu mensaje y el contexto necesario de EcoPulse se procesan con el proveedor de IA. Las nuevas preguntas no se guardan automáticamente.</p>
           <form
             onSubmit={(event) => {
               event.preventDefault();
