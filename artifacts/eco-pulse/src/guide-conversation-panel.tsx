@@ -76,8 +76,6 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
   const { getToken, userId } = useAuth();
   const [messages, setMessages] = useState<Message[]>(welcome);
   const [input, setInput] = useState("");
-  const [consent, setConsent] = useState(false);
-  const [storageConsent, setStorageConsent] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [storageReady, setStorageReady] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -127,8 +125,6 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
     setMessages(welcome);
     setActiveId(null);
     setConversations([]);
-    setConsent(false);
-    setStorageConsent(false);
     setRetry(null);
     setRetryReason(null);
     setError("");
@@ -215,7 +211,6 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
       );
       if (!controller.signal.aborted) {
         showTurns(id, turns);
-        setStorageConsent(false);
         setInput("");
       }
     } catch (cause) {
@@ -277,16 +272,8 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
   const send = async (content = input, previous?: Intent) => {
     const question = previous?.question ?? content.trim();
     if (!question || question.length > 500 || gate.current || loading) return;
-    if (!consent || !aiEnabled) {
-      setError(
-        "Autoriza el envío al proveedor de IA y comprueba su disponibilidad antes de preguntar.",
-      );
-      return;
-    }
-    if ((activeId || previous?.saved) && !storageConsent) {
-      setError(
-        "Para continuar guardando esta conversación, autoriza su almacenamiento; o inicia una conversación nueva sin guardar.",
-      );
+    if (!aiEnabled) {
+      setError("EcoGuía no está disponible en este momento. Reintenta la conexión.");
       return;
     }
     gate.current = true;
@@ -307,11 +294,10 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
     const intent: Intent = previous ?? {
       question,
       history,
-      ...(storageConsent
-        ? { saved: { conversationId: activeId, key: crypto.randomUUID() } }
-        : {}),
+
     };
     if (!previous) {
+      if (activeId) selectId(null); // Direct questions are not added to an existing stored conversation.
       setMessages((rows) => [
         ...rows,
         {
@@ -414,8 +400,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
         )}
         {!loading && conversations.length === 0 && (
           <p className="mt-3 text-sm text-[hsl(var(--muted-foreground))]">
-            No hay conversaciones guardadas. Sin consentimiento, el chat solo
-            permanece mientras esta página está abierta.
+            Todavía no hay conversaciones guardadas.
           </p>
         )}
         <ul className="mt-3 max-h-48 space-y-2 overflow-auto">
@@ -468,7 +453,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
             <p className="font-semibold">EcoGuía</p>
             <p className="text-xs text-[hsl(var(--primary))]">
               {aiEnabled
-                ? "IA remota disponible con tu permiso"
+                ? "Asistente disponible"
                 : "IA remota no disponible"}
             </p>
             {capabilityFailed && !loading && (
@@ -491,38 +476,6 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
             Limpiar vista
           </button>
         </div>
-        <label className="mx-5 mt-4 flex items-start gap-2 text-xs text-[hsl(var(--muted-foreground))]">
-          <input
-            type="checkbox"
-            checked={consent}
-            onChange={(event) => setConsent(event.target.checked)}
-            disabled={!aiEnabled || pending}
-            data-testid="guide-consent"
-          />
-          Permito enviar mis preguntas, hasta seis mensajes anteriores y un
-          resumen de mi cuenta al proveedor de IA configurado. Sin permiso, no
-          se enviará nada.
-        </label>
-        <label className="mx-5 mt-3 flex items-start gap-2 text-xs text-[hsl(var(--muted-foreground))]">
-          <input
-            type="checkbox"
-            checked={storageConsent}
-            onChange={(event) => setStorageConsent(event.target.checked)}
-            disabled={!storageReady || pending}
-            data-testid="guide-storage-consent"
-          />
-          Autorizo guardar mis próximas preguntas y las respuestas en
-          PostgreSQL, vinculadas a mi cuenta, para recuperarlas al volver. No
-          incluyas contraseñas, tokens ni datos sensibles. Puedes eliminarlas
-          desde tu historial.
-        </label>
-        <p className="mx-5 mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-          {activeId
-            ? "Conversación guardada. Limpiar vista no elimina el historial; usa Eliminar conversación para borrarlo."
-            : storageConsent
-              ? "Las próximas preguntas se guardarán con tu consentimiento."
-              : "Conversación sin guardar: se perderá al salir de esta vista."}
-        </p>
         {(error || retry) && (
           <div
             role={error ? "alert" : "status"}
@@ -600,6 +553,7 @@ export function GuideConversationPanel({ apiUrl }: { apiUrl: string }) {
               </button>
             ))}
           </div>
+          <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">Al preguntar, tu mensaje y el contexto necesario de EcoPulse se procesan con el proveedor de IA. Las nuevas preguntas no se guardan automáticamente.</p>
           <form
             onSubmit={(event) => {
               event.preventDefault();

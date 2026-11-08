@@ -12,6 +12,7 @@ on:
       - "artifacts/eco-pulse/src/operational-readiness-panel.tsx"
       - "artifacts/eco-pulse/src/App.tsx"
       - "artifacts/eco-pulse/src/rewards-panel.tsx"
+      - "artifacts/eco-pulse/src/guide-conversation-panel.tsx"
       - ".github/workflows/pr-admin-integration.yml"
   workflow_dispatch:
 
