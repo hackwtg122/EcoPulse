@@ -19,6 +19,7 @@ export type PublicDelivery = {
   createdAt: Date;
   updatedAt: Date;
   acceptedAt: Date | null;
+  isOwn?: boolean;
   deliveryPoint: null | {
     id: string;
     code: string;
@@ -310,6 +311,7 @@ function mapPublicDeliveryRow(row: Record<string, unknown>): PublicDelivery {
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at ?? row.created_at) as Date,
     acceptedAt: (row.acceptance_at as Date | null) ?? null,
+    ...(typeof row.is_own === "boolean" ? { isOwn: row.is_own } : {}),
     deliveryPoint: deliveryPoint ? {
       id: String(row.delivery_point_id),
       code: String(row.delivery_point_code),
@@ -398,18 +400,19 @@ export async function listVerifierDeliveries(
   actorUserId: string,
   limit: number,
   cursor: DeliveryCursor | null,
+  includeOwn = false,
 ): Promise<PublicDelivery[]> {
-  const parameters = [actorUserId, cursor?.createdAt ?? null, cursor?.id ?? null, limit];
+  const parameters = [actorUserId, cursor?.createdAt ?? null, cursor?.id ?? null, limit, includeOwn];
   if (!await hasDeliveryDetailsSchema(database)) {
     const result = await database.query(`
-      SELECT d.id, d.status, 1 AS request_version, d.created_at, d.created_at AS updated_at,
+      SELECT d.id, d.status, 1 AS request_version, d.created_at, d.created_at AS updated_at, (d.user_id = $1) AS is_own,
         NULL::uuid AS delivery_point_id, NULL::text AS delivery_point_code,
         NULL::text AS delivery_point_name, NULL::text AS delivery_point_address,
         NULL::text AS delivery_point_municipality, NULL::uuid AS slot_id,
         NULL::timestamptz AS slot_starts_at, NULL::timestamptz AS slot_ends_at,
         '[]'::jsonb AS materials
       FROM deliveries d
-      WHERE d.status = 'pending' AND d.user_id <> $1
+      WHERE d.status = 'pending' AND ($5::boolean OR d.user_id <> $1)
         AND ($2::timestamptz IS NULL OR (d.created_at, d.id) < ($2::timestamptz, $3::uuid))
       ORDER BY d.created_at DESC, d.id DESC
       LIMIT $4
@@ -417,7 +420,7 @@ export async function listVerifierDeliveries(
     return rowsOf<Record<string, unknown>>(result).map(mapPublicDeliveryRow);
   }
   const result = await database.query(`
-    SELECT d.id, d.status, d.request_version, d.created_at, d.updated_at,
+    SELECT d.id, d.status, d.request_version, d.created_at, d.updated_at, (d.user_id = $1) AS is_own,
       p.id AS delivery_point_id, p.code AS delivery_point_code, p.name AS delivery_point_name,
       p.address AS delivery_point_address, p.municipality AS delivery_point_municipality,
       s.id AS slot_id, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
@@ -433,7 +436,7 @@ export async function listVerifierDeliveries(
     LEFT JOIN delivery_points p ON p.id = d.delivery_point_id
     LEFT JOIN delivery_slots s ON s.id = d.slot_id
     LEFT JOIN delivery_request_acceptances a ON a.delivery_id = d.id
-    WHERE d.status IN ('pending', 'scheduled', 'received') AND d.user_id <> $1
+    WHERE d.status IN ('pending', 'scheduled', 'received') AND ($5::boolean OR d.user_id <> $1)
       AND ($2::timestamptz IS NULL OR (d.created_at, d.id) < ($2::timestamptz, $3::uuid))
     ORDER BY d.created_at DESC, d.id DESC
     LIMIT $4
